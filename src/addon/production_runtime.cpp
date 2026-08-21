@@ -1,0 +1,902 @@
+#include "production_runtime.hpp"
+
+#include "manny_uploader/application/application_pump.hpp"
+#include "manny_uploader/application/configuration_service.hpp"
+#include "manny_uploader/application/donbot_configuration_controller.hpp"
+#include "manny_uploader/application/log_ingestion_coordinator.hpp"
+#include "manny_uploader/application/nexus_options_controller.hpp"
+#include "manny_uploader/application/twitch_authentication_controller.hpp"
+#include "manny_uploader/application/twitch_session_owner.hpp"
+#include "manny_uploader/application/upload_coordinator.hpp"
+#include "manny_uploader/config/protected_file_secret_store.hpp"
+#include "manny_uploader/config/secret_protector.hpp"
+#include "manny_uploader/config/settings_store.hpp"
+#include "manny_uploader/evtc/metadata_parser_worker.hpp"
+#include "manny_uploader/evtc/zevtc_archive.hpp"
+#include "manny_uploader/filesystem/polling_log_candidate_source.hpp"
+#include "manny_uploader/http/curl_http_client.hpp"
+#include "manny_uploader/ports/clock.hpp"
+#include "manny_uploader/providers/donbot_client.hpp"
+#include "manny_uploader/providers/donbot_provider_worker.hpp"
+#include "manny_uploader/providers/donbot_verification_worker.hpp"
+#include "manny_uploader/providers/dps_report_client.hpp"
+#include "manny_uploader/providers/dps_report_provider_worker.hpp"
+#include "manny_uploader/providers/twitch_authentication_worker.hpp"
+#include "manny_uploader/providers/twitch_client.hpp"
+#include "manny_uploader/providers/twitch_provider_worker.hpp"
+#include "manny_uploader/providers/twitch_test_message_worker.hpp"
+#include "manny_uploader/providers/wingman_client.hpp"
+#include "manny_uploader/providers/wingman_provider_worker.hpp"
+#include "manny_uploader/support/secret_value.hpp"
+#include "manny_uploader/ui/nexus_options_model.hpp"
+
+#include <imgui.h>
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <expected>
+#include <filesystem>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <span>
+#include <stop_token>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
+
+namespace manny_uploader::addon {
+namespace {
+
+using namespace std::chrono_literals;
+
+inline constexpr char window_name[] = "GW2 Manny Uploader";
+inline constexpr char settings_filename[] = "settings.json";
+inline constexpr char secrets_directory_name[] = "secrets";
+inline constexpr char default_log_directory_name[] = "arcdps.cbtlogs";
+inline constexpr std::size_t provider_queue_capacity = 8;
+
+class SystemClock final : public ports::IClock {
+  public:
+    [[nodiscard]] std::chrono::system_clock::time_point system_now() const noexcept override {
+        return std::chrono::system_clock::now();
+    }
+
+    [[nodiscard]] std::chrono::steady_clock::time_point steady_now() const noexcept override {
+        return std::chrono::steady_clock::now();
+    }
+};
+
+[[nodiscard]] ports::SecretStoreError
+unavailable_secret_error(ports::SecretId id,
+                         std::string message = "Protected credential storage is unavailable") {
+    return ports::SecretStoreError{
+        .code = ports::SecretStoreErrorCode::UnsupportedEnvironment,
+        .id = id,
+        .message = std::move(message),
+        .system_error = std::nullopt,
+    };
+}
+
+class UnavailableSecretStore final : public ports::ISecretStore {
+  public:
+    [[nodiscard]] std::expected<support::SecretValue, ports::SecretStoreError>
+    load(ports::SecretId id) const override {
+        return std::unexpected(unavailable_secret_error(id));
+    }
+
+    [[nodiscard]] std::expected<void, ports::SecretStoreError>
+    store(ports::SecretId id, const support::SecretValue&) override {
+        return std::unexpected(unavailable_secret_error(id));
+    }
+
+    [[nodiscard]] std::expected<void, ports::SecretStoreError> erase(ports::SecretId id) override {
+        return std::unexpected(unavailable_secret_error(id));
+    }
+};
+
+[[nodiscard]] providers::TwitchError twitch_unavailable() {
+    return providers::TwitchError{
+        .disposition = providers::TwitchDisposition::Failed,
+        .detail = "This build does not have a Twitch application client ID",
+        .retry_after = std::nullopt,
+        .http_error = std::nullopt,
+        .http_status = std::nullopt,
+    };
+}
+
+class UnavailableTwitchClient final : public providers::ITwitchClient {
+  public:
+    [[nodiscard]] std::expected<providers::TwitchDeviceAuthorization, providers::TwitchError>
+    start_device_authorization(const std::stop_token&) const override {
+        return std::unexpected(twitch_unavailable());
+    }
+
+    [[nodiscard]] std::expected<providers::TwitchDevicePollResult, providers::TwitchError>
+    poll_device_authorization(const support::SecretValue&, const std::stop_token&) const override {
+        return std::unexpected(twitch_unavailable());
+    }
+
+    [[nodiscard]] std::expected<providers::TwitchValidatedIdentity, providers::TwitchError>
+    validate_access_token(const support::SecretValue&, const std::stop_token&) const override {
+        return std::unexpected(twitch_unavailable());
+    }
+
+    [[nodiscard]] std::expected<providers::TwitchTokenGrant, providers::TwitchError>
+    refresh_access_token(const support::SecretValue&, const std::stop_token&) const override {
+        return std::unexpected(twitch_unavailable());
+    }
+
+    [[nodiscard]] std::expected<void, providers::TwitchError>
+    revoke_access_token(const support::SecretValue&, const std::stop_token&) const override {
+        return std::unexpected(twitch_unavailable());
+    }
+
+    [[nodiscard]] std::expected<providers::TwitchChatResult, providers::TwitchError>
+    send_chat_message(std::string_view, std::string_view, const support::SecretValue&,
+                      const std::stop_token&) const override {
+        return std::unexpected(twitch_unavailable());
+    }
+};
+
+struct RuntimeComponents {
+    std::unique_ptr<SystemClock> clock;
+    std::unique_ptr<ports::IHttpClient> http;
+    std::unique_ptr<application::ConfigurationService> configuration;
+    std::unique_ptr<UnavailableSecretStore> unavailable_secrets;
+    ports::ISecretStore* provider_secrets{};
+    bool persistent_secrets_available{};
+    bool twitch_application_configured{};
+
+    std::unique_ptr<providers::DpsReportClient> dps_report_client;
+    std::unique_ptr<providers::WingmanClient> wingman_client;
+    std::unique_ptr<providers::DonBotClient> donbot_client;
+    std::unique_ptr<providers::ITwitchClient> twitch_client;
+
+    std::unique_ptr<application::TwitchSessionOwner> twitch_session_owner;
+    std::unique_ptr<providers::DpsReportProviderWorker> dps_report_worker;
+    std::unique_ptr<providers::WingmanProviderWorker> wingman_worker;
+    std::unique_ptr<providers::DonBotProviderWorker> donbot_worker;
+    std::unique_ptr<providers::TwitchProviderWorker> twitch_worker;
+    std::unique_ptr<providers::DonBotVerificationWorker> donbot_verification_worker;
+    std::unique_ptr<providers::TwitchAuthenticationWorker> twitch_authentication_worker;
+    std::unique_ptr<providers::TwitchTestMessageWorker> twitch_test_message_worker;
+
+    std::unique_ptr<application::DonBotConfigurationController> donbot_controller;
+    std::unique_ptr<application::TwitchAuthenticationController> twitch_controller;
+    std::unique_ptr<application::NexusOptionsController> options_controller;
+
+    std::unique_ptr<evtc::ZevtcMetadataReader> metadata_reader;
+    std::unique_ptr<evtc::MetadataParserWorker> metadata_worker;
+    std::unique_ptr<filesystem::StandardPollingLogCandidateSource> candidate_source;
+    std::unique_ptr<application::UploadCoordinator> upload_coordinator;
+    std::unique_ptr<application::LogIngestionCoordinator> ingestion_coordinator;
+    std::unique_ptr<application::ApplicationPump> application_pump;
+};
+
+struct ProviderCell {
+    std::string status;
+    std::string detail;
+};
+
+struct RecentLogRow {
+    std::uint64_t id{};
+    std::string filename;
+    std::string encounter;
+    std::array<ProviderCell, domain::provider_count> providers;
+};
+
+struct RuntimeSnapshot {
+    application::NexusOptionsSnapshot options_snapshot;
+    ui::NexusOptionsModel options_model;
+    std::vector<RecentLogRow> recent_logs;
+    std::string runtime_diagnostic;
+    bool log_root_available{};
+    bool twitch_application_configured{};
+    std::uint64_t revision{};
+};
+
+[[nodiscard]] AddonRuntimeError runtime_error(std::string message) {
+    return AddonRuntimeError{
+        .code = AddonRuntimeErrorCode::InitializationFailed,
+        .message = std::move(message),
+    };
+}
+
+[[nodiscard]] ports::SecretStoreError
+map_protector_error(const config::SecretProtectionError& error) {
+    return ports::SecretStoreError{
+        .code = error.code == config::SecretProtectionErrorCode::UnsupportedEnvironment
+                    ? ports::SecretStoreErrorCode::UnsupportedEnvironment
+                    : ports::SecretStoreErrorCode::ProtectionFailed,
+        .id = std::nullopt,
+        .message = error.message,
+        .system_error = error.system_error,
+    };
+}
+
+[[nodiscard]] std::expected<std::unique_ptr<RuntimeComponents>, AddonRuntimeError>
+create_components(const AddonPaths& paths) {
+    if (paths.game_directory.empty() || paths.addon_directory.empty()) {
+        return std::unexpected(runtime_error("Nexus runtime directories are empty"));
+    }
+
+    try {
+        std::error_code directory_error;
+        std::filesystem::create_directories(paths.addon_directory, directory_error);
+        if (directory_error) {
+            return std::unexpected(runtime_error("Unable to create the addon data directory"));
+        }
+
+        auto result = std::make_unique<RuntimeComponents>();
+        result->clock = std::make_unique<SystemClock>();
+
+        auto http = http::make_curl_http_client();
+        if (!http) {
+            return std::unexpected(runtime_error("Unable to initialize the HTTP transport"));
+        }
+        result->http = std::move(*http);
+
+        const auto default_log_directory = paths.game_directory / default_log_directory_name;
+        auto settings = config::SettingsStore::create(
+            paths.addon_directory / settings_filename,
+            config::make_default_settings(default_log_directory.string()));
+        if (!settings) {
+            return std::unexpected(runtime_error("Unable to initialize ordinary settings"));
+        }
+        std::unique_ptr<ports::ISettingsStore> settings_port =
+            std::make_unique<config::SettingsStore>(std::move(*settings));
+
+        auto protector = config::make_dpapi_secret_protector();
+        std::expected<application::ConfigurationService, application::ConfigurationError>
+            configured = [&]() {
+                if (!protector) {
+                    return application::ConfigurationService::create_without_secret_storage(
+                        std::move(settings_port), map_protector_error(protector.error()));
+                }
+                auto secret_store = config::ProtectedFileSecretStore::create(
+                    paths.addon_directory / secrets_directory_name, std::move(*protector));
+                if (!secret_store) {
+                    return application::ConfigurationService::create_without_secret_storage(
+                        std::move(settings_port), secret_store.error());
+                }
+                auto owned_secret_store =
+                    std::make_unique<config::ProtectedFileSecretStore>(std::move(*secret_store));
+                result->provider_secrets = owned_secret_store.get();
+                result->persistent_secrets_available = true;
+                return application::ConfigurationService::create(std::move(settings_port),
+                                                                 std::move(owned_secret_store));
+            }();
+        if (!configured) {
+            return std::unexpected(runtime_error("Unable to load the uploader configuration"));
+        }
+        result->configuration =
+            std::make_unique<application::ConfigurationService>(std::move(*configured));
+        if (!result->persistent_secrets_available) {
+            result->unavailable_secrets = std::make_unique<UnavailableSecretStore>();
+            result->provider_secrets = result->unavailable_secrets.get();
+        }
+
+        result->dps_report_client = std::make_unique<providers::DpsReportClient>(*result->http);
+        result->wingman_client = std::make_unique<providers::WingmanClient>(*result->http);
+        result->donbot_client = std::make_unique<providers::DonBotClient>(*result->http);
+
+#if defined(MANNY_TWITCH_CLIENT_ID)
+        auto twitch = providers::TwitchClient::create(*result->http, MANNY_TWITCH_CLIENT_ID);
+        if (!twitch) {
+            return std::unexpected(runtime_error("The compiled Twitch application ID is invalid"));
+        }
+        result->twitch_client = std::make_unique<providers::TwitchClient>(std::move(*twitch));
+        result->twitch_application_configured = true;
+#else
+        result->twitch_client = std::make_unique<UnavailableTwitchClient>();
+#endif
+
+        const auto initial_settings = result->configuration->snapshot().settings;
+        result->twitch_session_owner = std::make_unique<application::TwitchSessionOwner>(
+            *result->configuration, *result->twitch_client, *result->clock);
+
+        auto dps_worker = providers::DpsReportProviderWorker::create(
+            *result->dps_report_client,
+            result->persistent_secrets_available ? result->provider_secrets : nullptr,
+            provider_queue_capacity);
+        if (!dps_worker) {
+            return std::unexpected(runtime_error("Unable to start the dps.report worker"));
+        }
+        result->dps_report_worker = std::move(*dps_worker);
+
+        auto wingman_worker = providers::WingmanProviderWorker::create(*result->wingman_client,
+                                                                       provider_queue_capacity);
+        if (!wingman_worker) {
+            return std::unexpected(runtime_error("Unable to start the GW2Wingman worker"));
+        }
+        result->wingman_worker = std::move(*wingman_worker);
+
+        auto donbot_worker = providers::DonBotProviderWorker::create(
+            *result->donbot_client, *result->provider_secrets,
+            providers::DonBotProviderConfig{
+                .api_base_url = initial_settings.donbot.api_base_url,
+                .guild_id = initial_settings.donbot.selected_guild_id,
+            },
+            provider_queue_capacity);
+        if (!donbot_worker) {
+            return std::unexpected(runtime_error("Unable to start the DonBot worker"));
+        }
+        result->donbot_worker = std::move(*donbot_worker);
+
+        auto twitch_worker = providers::TwitchProviderWorker::create(
+            *result->twitch_client, *result->twitch_session_owner,
+            providers::TwitchProviderConfig{
+                .message_template = initial_settings.twitch.message_template,
+                .post_success = initial_settings.twitch.post_success,
+                .post_failure = initial_settings.twitch.post_failure,
+            },
+            provider_queue_capacity);
+        if (!twitch_worker) {
+            return std::unexpected(runtime_error("Unable to start the Twitch delivery worker"));
+        }
+        result->twitch_worker = std::move(*twitch_worker);
+
+        auto donbot_verifier = providers::DonBotVerificationWorker::create(*result->donbot_client);
+        if (!donbot_verifier) {
+            return std::unexpected(runtime_error("Unable to start DonBot verification"));
+        }
+        result->donbot_verification_worker = std::move(*donbot_verifier);
+
+        auto twitch_authentication =
+            providers::TwitchAuthenticationWorker::create(*result->twitch_client);
+        if (!twitch_authentication) {
+            return std::unexpected(runtime_error("Unable to start Twitch authentication"));
+        }
+        result->twitch_authentication_worker = std::move(*twitch_authentication);
+
+        auto twitch_test = providers::TwitchTestMessageWorker::create(
+            *result->twitch_client, *result->twitch_session_owner);
+        if (!twitch_test) {
+            return std::unexpected(runtime_error("Unable to start Twitch test delivery"));
+        }
+        result->twitch_test_message_worker = std::move(*twitch_test);
+
+        auto donbot_controller = application::DonBotConfigurationController::create(
+            *result->configuration, *result->donbot_verification_worker);
+        if (!donbot_controller) {
+            return std::unexpected(runtime_error("Unable to initialize DonBot configuration"));
+        }
+        result->donbot_controller = std::make_unique<application::DonBotConfigurationController>(
+            std::move(*donbot_controller));
+
+        auto twitch_controller = application::TwitchAuthenticationController::create(
+            *result->configuration, *result->twitch_authentication_worker,
+            *result->twitch_session_owner, *result->clock);
+        if (!twitch_controller) {
+            return std::unexpected(runtime_error("Unable to initialize Twitch authentication"));
+        }
+        result->twitch_controller = std::make_unique<application::TwitchAuthenticationController>(
+            std::move(*twitch_controller));
+
+        auto options = application::NexusOptionsController::create(
+            *result->configuration, *result->donbot_controller, *result->twitch_controller,
+            *result->twitch_test_message_worker);
+        if (!options) {
+            return std::unexpected(runtime_error("Unable to initialize Nexus options"));
+        }
+        result->options_controller =
+            std::make_unique<application::NexusOptionsController>(std::move(*options));
+
+        auto metadata_reader = evtc::ZevtcMetadataReader::create();
+        if (!metadata_reader) {
+            return std::unexpected(runtime_error("Unable to initialize the EVTC archive reader"));
+        }
+        result->metadata_reader =
+            std::make_unique<evtc::ZevtcMetadataReader>(std::move(*metadata_reader));
+
+        auto metadata_worker = evtc::MetadataParserWorker::create(
+            *result->metadata_reader, initial_settings.general.parser_queue_capacity);
+        if (!metadata_worker) {
+            return std::unexpected(runtime_error("Unable to start the EVTC metadata worker"));
+        }
+        result->metadata_worker = std::move(*metadata_worker);
+
+        auto candidate_source = filesystem::StandardPollingLogCandidateSource::create(
+            std::filesystem::path{initial_settings.general.log_directory},
+            initial_settings.general.watch_subdirectories, initial_settings.general.max_candidates);
+        if (!candidate_source) {
+            return std::unexpected(runtime_error("Unable to initialize log-directory polling"));
+        }
+        result->candidate_source = std::make_unique<filesystem::StandardPollingLogCandidateSource>(
+            std::move(*candidate_source));
+
+        std::array<ports::IUploadProvider*, domain::provider_count> provider_ports{
+            result->dps_report_worker.get(),
+            result->wingman_worker.get(),
+            result->donbot_worker.get(),
+            result->twitch_worker.get(),
+        };
+        auto uploads = application::UploadCoordinator::create(
+            *result->clock, provider_ports, initial_settings.general.recent_log_limit);
+        if (!uploads) {
+            return std::unexpected(runtime_error("Unable to initialize upload coordination"));
+        }
+        result->upload_coordinator =
+            std::make_unique<application::UploadCoordinator>(std::move(*uploads));
+        result->ingestion_coordinator = std::make_unique<application::LogIngestionCoordinator>(
+            *result->upload_coordinator, *result->metadata_worker);
+
+        auto pump = application::ApplicationPump::create(
+            *result->candidate_source, *result->metadata_worker, *result->ingestion_coordinator,
+            application::ApplicationPumpConfig{
+                .required_matching_observations = initial_settings.general.stability_observations,
+                .dedupe_capacity = 256,
+                .max_metadata_results_per_tick = 8,
+                .max_upload_results_per_tick = 8,
+            });
+        if (!pump) {
+            return std::unexpected(runtime_error("Unable to initialize the application pump"));
+        }
+        result->application_pump = std::make_unique<application::ApplicationPump>(std::move(*pump));
+        return result;
+    } catch (...) {
+        return std::unexpected(runtime_error("Unexpected failure while composing the addon"));
+    }
+}
+
+[[nodiscard]] std::string provider_state_text(domain::ProviderState state) {
+    switch (state) {
+    case domain::ProviderState::Disabled:
+        return "Disabled";
+    case domain::ProviderState::Waiting:
+        return "Waiting";
+    case domain::ProviderState::Active:
+        return "Uploading";
+    case domain::ProviderState::Succeeded:
+        return "Succeeded";
+    case domain::ProviderState::Skipped:
+        return "Skipped";
+    case domain::ProviderState::RetryScheduled:
+        return "Retrying";
+    case domain::ProviderState::Failed:
+        return "Failed";
+    case domain::ProviderState::Cancelled:
+        return "Cancelled";
+    }
+    return "Unknown";
+}
+
+[[nodiscard]] RecentLogRow make_row(const application::UploadJobSnapshot& job) {
+    RecentLogRow row;
+    row.id = job.id.value;
+    row.filename = job.file.canonical_path.filename().string();
+    if (job.dps_report_result) {
+        row.encounter = job.dps_report_result->encounter_name;
+        if (!job.dps_report_result->mode.empty()) {
+            row.encounter += " (" + job.dps_report_result->mode + ")";
+        }
+    } else if (job.encounter_metadata) {
+        row.encounter = "Encounter " + std::to_string(job.encounter_metadata->boss_id);
+    } else {
+        row.encounter = "Reading metadata";
+    }
+    for (std::size_t index = 0; index < row.providers.size(); ++index) {
+        row.providers[index] = ProviderCell{
+            .status = provider_state_text(job.providers[index].state),
+            .detail = job.providers[index].detail,
+        };
+    }
+    return row;
+}
+
+[[nodiscard]] RuntimeSnapshot publish_snapshot(const RuntimeComponents& components,
+                                               std::string diagnostic, bool root_available,
+                                               std::uint64_t revision) {
+    const auto options_snapshot = components.options_controller->snapshot();
+    RuntimeSnapshot snapshot{
+        .options_snapshot = options_snapshot,
+        .options_model = ui::build_nexus_options_model(options_snapshot),
+        .recent_logs = {},
+        .runtime_diagnostic = std::move(diagnostic),
+        .log_root_available = root_available,
+        .twitch_application_configured = components.twitch_application_configured,
+        .revision = revision,
+    };
+    auto jobs = components.upload_coordinator->snapshots();
+    snapshot.recent_logs.reserve(jobs.size());
+    for (auto iterator = jobs.rbegin(); iterator != jobs.rend(); ++iterator) {
+        snapshot.recent_logs.push_back(make_row(*iterator));
+    }
+    return snapshot;
+}
+
+class ProductionRuntime final : public IAddonRuntime {
+  public:
+    [[nodiscard]] static std::expected<std::unique_ptr<IAddonRuntime>, AddonRuntimeError>
+    create(std::unique_ptr<RuntimeComponents> components) {
+        try {
+            auto runtime =
+                std::unique_ptr<ProductionRuntime>{new ProductionRuntime{std::move(components)}};
+            runtime->owner_thread_ =
+                std::jthread{[self = runtime.get()](std::stop_token token) { self->run(token); }};
+            return runtime;
+        } catch (...) {
+            return std::unexpected(runtime_error("Unable to start the application owner thread"));
+        }
+    }
+
+    ~ProductionRuntime() override {
+        shutdown();
+        std::fill(donbot_key_.begin(), donbot_key_.end(), '\0');
+    }
+
+    void render_main() override {
+        auto snapshot = snapshot_copy();
+        bool visible = snapshot.options_model.ordinary.general.window_visible;
+        if (!visible) {
+            return;
+        }
+
+        ImGui::SetNextWindowSize(ImVec2{900.0F, 420.0F}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin(window_name, &visible)) {
+            if (!snapshot.runtime_diagnostic.empty()) {
+                ImGui::TextWrapped("%s", snapshot.runtime_diagnostic.c_str());
+            }
+            ImGui::Text("Log directory: %s",
+                        snapshot.options_model.ordinary.general.log_directory.c_str());
+            ImGui::SameLine();
+            ImGui::TextUnformatted(snapshot.log_root_available ? "(available)" : "(not found yet)");
+            ImGui::Separator();
+
+            if (snapshot.recent_logs.empty()) {
+                ImGui::TextUnformatted("No logs detected yet.");
+            } else if (ImGui::BeginTable("RecentLogs", 6,
+                                         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                             ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY)) {
+                ImGui::TableSetupColumn("Log");
+                ImGui::TableSetupColumn("Encounter");
+                ImGui::TableSetupColumn("dps.report");
+                ImGui::TableSetupColumn("GW2Wingman");
+                ImGui::TableSetupColumn("DonBot");
+                ImGui::TableSetupColumn("Twitch");
+                ImGui::TableHeadersRow();
+                for (const auto& row : snapshot.recent_logs) {
+                    ImGui::PushID(static_cast<int>(row.id & 0x7fffffffU));
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted(row.filename.c_str());
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TextUnformatted(row.encounter.c_str());
+                    for (std::size_t index = 0; index < row.providers.size(); ++index) {
+                        ImGui::TableSetColumnIndex(static_cast<int>(index + 2));
+                        ImGui::TextUnformatted(row.providers[index].status.c_str());
+                        if (!row.providers[index].detail.empty() && ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("%s", row.providers[index].detail.c_str());
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+        ImGui::End();
+
+        if (!visible) {
+            auto ordinary = snapshot.options_model.ordinary;
+            ordinary.general.window_visible = false;
+            submit(application::SaveOrdinaryOptionsCommand{.options = std::move(ordinary)});
+        }
+    }
+
+    void render_options() override {
+        auto snapshot = snapshot_copy();
+        initialize_draft(snapshot);
+        ImGui::Separator();
+        ImGui::TextUnformatted(window_name);
+
+        bool window_visible = draft_.general.window_visible;
+        if (ImGui::Checkbox("Show uploader window", &window_visible)) {
+            draft_.general.window_visible = window_visible;
+            submit_draft();
+        }
+
+        if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::InputText("Log directory", log_directory_.data(), log_directory_.size());
+            ImGui::Checkbox("Watch subdirectories", &draft_.general.watch_subdirectories);
+            ImGui::InputScalar("Poll interval (ms)", ImGuiDataType_U32,
+                               &draft_.general.poll_interval_ms);
+            ImGui::InputScalar("Stability observations", ImGuiDataType_U32,
+                               &draft_.general.stability_observations);
+            ImGui::InputScalar("Recent log limit", ImGuiDataType_U32,
+                               &draft_.general.recent_log_limit);
+            ImGui::InputScalar("Parser queue capacity", ImGuiDataType_U32,
+                               &draft_.general.parser_queue_capacity);
+            ImGui::InputScalar("Maximum candidates", ImGuiDataType_U32,
+                               &draft_.general.max_candidates);
+            ImGui::TextWrapped("Directory, stability, history, and queue-size changes take effect "
+                               "after reloading the addon.");
+        }
+
+        if (ImGui::CollapsingHeader("Upload providers", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Upload to dps.report", &draft_.dps_report.enabled);
+            ImGui::Checkbox("Upload to GW2Wingman", &draft_.wingman.enabled);
+        }
+
+        render_donbot(snapshot);
+        render_twitch(snapshot);
+
+        if (ImGui::Button("Save ordinary settings")) {
+            submit_draft();
+        }
+        ImGui::SameLine();
+        if (snapshot.options_model.command_pending) {
+            ImGui::TextUnformatted("Applying...");
+        }
+        if (snapshot.options_model.last_error) {
+            ImGui::TextWrapped("Error: %s", snapshot.options_model.last_error->c_str());
+            if (ImGui::Button("Dismiss error")) {
+                submit(application::DismissNexusOptionsErrorCommand{});
+            }
+        }
+        ImGui::TextWrapped("Protected storage: %s",
+                           snapshot.options_model.protected_storage_text.c_str());
+    }
+
+    void shutdown() noexcept override {
+        bool expected = false;
+        if (!shutting_down_.compare_exchange_strong(expected, true)) {
+            return;
+        }
+        owner_thread_.request_stop();
+        owner_condition_.notify_all();
+        if (owner_thread_.joinable()) {
+            owner_thread_.join();
+        }
+    }
+
+  private:
+    explicit ProductionRuntime(std::unique_ptr<RuntimeComponents> components)
+        : components_{std::move(components)},
+          published_{publish_snapshot(*components_, {}, false, 1)} {}
+
+    template <typename Command> void submit(Command command) {
+        (void)components_->options_controller->submit(
+            application::NexusOptionsCommand{std::move(command)});
+        owner_condition_.notify_all();
+    }
+
+    void initialize_draft(const RuntimeSnapshot& snapshot) {
+        if (draft_initialized_) {
+            return;
+        }
+        draft_ = snapshot.options_model.ordinary;
+        copy_to_buffer(draft_.general.log_directory, log_directory_);
+        copy_to_buffer(draft_.twitch_message_template, twitch_template_);
+        copy_to_buffer(snapshot.options_snapshot.configuration.settings.donbot.api_base_url,
+                       donbot_url_);
+        draft_initialized_ = true;
+    }
+
+    template <std::size_t Size>
+    static void copy_to_buffer(std::string_view text, std::array<char, Size>& buffer) {
+        std::fill(buffer.begin(), buffer.end(), '\0');
+        const auto length = std::min(text.size(), buffer.size() - 1);
+        if (length > 0) {
+            std::memcpy(buffer.data(), text.data(), length);
+        }
+    }
+
+    void submit_draft() {
+        draft_.general.log_directory = log_directory_.data();
+        draft_.twitch_message_template = twitch_template_.data();
+        submit(application::SaveOrdinaryOptionsCommand{.options = draft_});
+    }
+
+    void render_donbot(const RuntimeSnapshot& snapshot) {
+        if (!ImGui::CollapsingHeader("DonBot", ImGuiTreeNodeFlags_DefaultOpen)) {
+            return;
+        }
+        ImGui::TextWrapped("Status: %s", snapshot.options_model.donbot.status_text.c_str());
+        if (!snapshot.options_model.donbot.diagnostic.empty()) {
+            ImGui::TextWrapped("%s", snapshot.options_model.donbot.diagnostic.c_str());
+        }
+        ImGui::InputText("DonBot API", donbot_url_.data(), donbot_url_.size());
+        ImGui::InputText("GW2 API key", donbot_key_.data(), donbot_key_.size(),
+                         ImGuiInputTextFlags_Password);
+        if (snapshot.options_model.donbot.verify_available && ImGui::Button("Verify DonBot")) {
+            auto key = support::SecretValue::from_text(donbot_key_.data());
+            submit(application::VerifyDonBotCommand{
+                .api_base_url = donbot_url_.data(),
+                .api_key = std::move(key),
+            });
+            std::fill(donbot_key_.begin(), donbot_key_.end(), '\0');
+        }
+
+        if (snapshot.options_model.donbot.guild_selection_available) {
+            for (const auto& guild : snapshot.options_snapshot.donbot.guilds) {
+                const bool selected =
+                    snapshot.options_snapshot.donbot.selected_guild_id == guild.guild_id;
+                if (ImGui::RadioButton(guild.guild_name.c_str(), selected)) {
+                    submit(application::SelectDonBotGuildCommand{.guild_id = guild.guild_id});
+                }
+            }
+        }
+        if (snapshot.options_model.donbot.enable_toggle_available) {
+            bool enabled = snapshot.options_snapshot.configuration.settings.donbot.enabled;
+            if (ImGui::Checkbox("Enable DonBot uploads", &enabled)) {
+                submit(application::SetDonBotEnabledCommand{.enabled = enabled});
+            }
+        }
+        if (snapshot.options_model.donbot.disconnect_available &&
+            ImGui::Button("Disconnect DonBot")) {
+            submit(application::DisconnectDonBotCommand{});
+        }
+    }
+
+    void render_twitch(const RuntimeSnapshot& snapshot) {
+        if (!ImGui::CollapsingHeader("Twitch", ImGuiTreeNodeFlags_DefaultOpen)) {
+            return;
+        }
+        if (!snapshot.twitch_application_configured) {
+            ImGui::TextWrapped("This development build needs the public Twitch application client "
+                               "ID before account connection can be enabled.");
+        }
+        ImGui::TextWrapped("Status: %s", snapshot.options_model.twitch.status_text.c_str());
+        if (!snapshot.options_model.twitch.diagnostic.empty()) {
+            ImGui::TextWrapped("%s", snapshot.options_model.twitch.diagnostic.c_str());
+        }
+        if (snapshot.options_model.twitch.user_code) {
+            ImGui::Text("Code: %s", snapshot.options_model.twitch.user_code->c_str());
+        }
+        if (snapshot.options_model.twitch.verification_uri) {
+            ImGui::TextWrapped("Open: %s", snapshot.options_model.twitch.verification_uri->c_str());
+        }
+        if (snapshot.twitch_application_configured &&
+            snapshot.options_model.twitch.connect_available && ImGui::Button("Connect Twitch")) {
+            submit(application::ConnectTwitchCommand{});
+        }
+        if (snapshot.options_model.twitch.enable_toggle_available) {
+            bool enabled = snapshot.options_snapshot.configuration.settings.twitch.enabled;
+            if (ImGui::Checkbox("Enable Twitch chat upload", &enabled)) {
+                submit(application::SetTwitchEnabledCommand{.enabled = enabled});
+            }
+        }
+        if (snapshot.options_model.twitch.disconnect_available &&
+            ImGui::Button("Disconnect Twitch")) {
+            submit(application::DisconnectTwitchCommand{});
+        }
+        if (snapshot.options_model.twitch.test_message_available &&
+            ImGui::Button("Send test message")) {
+            submit(application::SendTwitchTestMessageCommand{});
+        }
+        ImGui::TextWrapped("Test message: %s",
+                           snapshot.options_model.twitch.test_message_status_text.c_str());
+        ImGui::InputTextMultiline("Message template", twitch_template_.data(),
+                                  twitch_template_.size(), ImVec2{-1.0F, 70.0F});
+        ImGui::Checkbox("Post successful encounters", &draft_.twitch_post_success);
+        ImGui::Checkbox("Post failed encounters", &draft_.twitch_post_failure);
+    }
+
+    [[nodiscard]] RuntimeSnapshot snapshot_copy() const {
+        const std::scoped_lock lock{published_mutex_};
+        return published_;
+    }
+
+    void set_published(RuntimeSnapshot snapshot) {
+        const std::scoped_lock lock{published_mutex_};
+        published_ = std::move(snapshot);
+    }
+
+    void run(const std::stop_token& stop_token) noexcept {
+        std::string diagnostic;
+        bool root_available{};
+        std::uint64_t revision{2};
+        auto next_poll = components_->clock->steady_now();
+        std::uint64_t applied_settings_revision{};
+
+        try {
+            const auto initial = components_->configuration->snapshot();
+            if (components_->persistent_secrets_available &&
+                !initial.settings.donbot.selected_guild_id.empty()) {
+                (void)components_->donbot_controller->begin_saved_verification();
+            }
+            if (components_->persistent_secrets_available &&
+                components_->twitch_application_configured) {
+                (void)components_->twitch_controller->begin_saved_connection();
+            }
+
+            while (!stop_token.stop_requested()) {
+                auto options_tick = components_->options_controller->tick();
+                if (!options_tick) {
+                    diagnostic = options_tick.error().message;
+                }
+
+                const auto configuration = components_->configuration->snapshot();
+                if (configuration.revision != applied_settings_revision) {
+                    applied_settings_revision = configuration.revision;
+                    (void)components_->donbot_worker->update_config(providers::DonBotProviderConfig{
+                        .api_base_url = configuration.settings.donbot.api_base_url,
+                        .guild_id = configuration.settings.donbot.selected_guild_id,
+                    });
+                    (void)components_->twitch_worker->update_config(providers::TwitchProviderConfig{
+                        .message_template = configuration.settings.twitch.message_template,
+                        .post_success = configuration.settings.twitch.post_success,
+                        .post_failure = configuration.settings.twitch.post_failure,
+                    });
+                }
+
+                const auto now = components_->clock->steady_now();
+                if (now >= next_poll) {
+                    auto report = components_->application_pump->tick(
+                        config::enabled_provider_selection(configuration.settings), stop_token);
+                    if (report) {
+                        root_available = report->root_available;
+                        if (!report->source_issues.empty()) {
+                            diagnostic = report->source_issues.front().message;
+                        } else if (!root_available) {
+                            diagnostic = "Waiting for the configured log directory";
+                        } else {
+                            diagnostic.clear();
+                        }
+                    } else if (report.error().code !=
+                               application::ApplicationPumpErrorCode::ShuttingDown) {
+                        diagnostic = report.error().message;
+                    }
+                    next_poll = now + std::chrono::milliseconds{
+                                          configuration.settings.general.poll_interval_ms};
+                }
+
+                set_published(
+                    publish_snapshot(*components_, diagnostic, root_available, revision++));
+                std::unique_lock lock{owner_mutex_};
+                owner_condition_.wait_for(lock, 50ms);
+            }
+        } catch (...) {
+            diagnostic = "The application owner stopped after an unexpected failure";
+            try {
+                set_published(
+                    publish_snapshot(*components_, diagnostic, root_available, revision++));
+            } catch (...) {
+            }
+        }
+
+        components_->options_controller->shutdown();
+        components_->application_pump->cancel_all();
+        components_->donbot_controller->shutdown();
+        components_->twitch_controller->shutdown();
+        components_->twitch_session_owner->shutdown();
+        components_->configuration->shutdown();
+    }
+
+    std::unique_ptr<RuntimeComponents> components_;
+    mutable std::mutex published_mutex_;
+    RuntimeSnapshot published_;
+    std::mutex owner_mutex_;
+    std::condition_variable_any owner_condition_;
+    std::jthread owner_thread_;
+    std::atomic_bool shutting_down_{};
+
+    bool draft_initialized_{};
+    application::NexusOrdinaryOptions draft_;
+    std::array<char, 4097> log_directory_{};
+    std::array<char, 2049> twitch_template_{};
+    std::array<char, 2049> donbot_url_{};
+    std::array<char, 513> donbot_key_{};
+};
+
+} // namespace
+
+std::expected<std::unique_ptr<IAddonRuntime>, AddonRuntimeError>
+create_production_runtime(const AddonPaths& paths) {
+    auto components = create_components(paths);
+    if (!components) {
+        return std::unexpected(std::move(components.error()));
+    }
+    return ProductionRuntime::create(std::move(*components));
+}
+
+} // namespace manny_uploader::addon

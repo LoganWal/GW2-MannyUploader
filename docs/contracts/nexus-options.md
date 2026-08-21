@@ -1,0 +1,119 @@
+# Nexus options command boundary
+
+- Status: Implemented application, view-model, and Nexus/ImGui adapter boundary
+- Date: 2026-08-21
+- Scope: ordinary settings plus DonBot and broadcaster-owned Twitch configuration and test delivery
+
+## Ownership and thread boundary
+
+`NexusOptionsController` is the sole bridge between a Nexus options renderer and the application
+configuration workflows. The renderer receives a deep-copy `NexusOptionsSnapshot` and may submit a
+move-owned `NexusOptionsCommand`. It does not receive `ConfigurationService`, either workflow
+controller, a persistence adapter, an HTTP client, or a worker port.
+
+The render callback may only:
+
+1. read a published snapshot;
+2. build the pure `NexusOptionsModel`;
+3. edit adapter-owned bounded input buffers; and
+4. submit a value command to the bounded queue.
+
+Submission performs in-memory validation, one short mutex acquisition, and queue insertion. It does
+not save settings, access protected storage, enqueue provider work, poll OAuth, or perform HTTP. The
+background application owner calls `tick()` outside rendering. A tick drains at most the configured
+command limit in FIFO order, performs write-through configuration actions, starts asynchronous
+verification or authentication operations, polls at most one result from each workflow, and
+publishes a new snapshot. Twitch test-message HTTP work runs only in its dedicated worker; a tick only
+queues or polls that worker.
+
+## Commands
+
+Ordinary editing is represented by `SaveOrdinaryOptionsCommand`. Its payload contains general,
+dps.report, GW2Wingman, and Twitch message-policy fields only. Applying it preserves the current
+DonBot endpoint, guild selection, and enabled state, and preserves the Twitch enabled state.
+
+Workflow-owned values use dedicated commands:
+
+- verify a candidate DonBot endpoint/key;
+- select a guild returned by the current verified DonBot identity;
+- enable or disable DonBot;
+- disconnect DonBot and erase its protected key;
+- begin broadcaster-owned Twitch Device Code authentication;
+- enable or disable Twitch posting;
+- send one explicit test message to the connected broadcaster's own chat;
+- disconnect Twitch and revoke/erase its session; and
+- dismiss the last options error.
+
+DonBot can be enabled only while the current verified endpoint still matches ordinary settings and
+the selected guild remains in the verified authorized-guild set. Twitch can be enabled only while
+the authentication workflow is connected. Final settings validation still runs inside
+`ConfigurationService`, so enabling Twitch also requires dps.report and at least one post-result
+policy.
+
+There is no command or settings field for a Twitch channel, broadcaster ID, sender ID, raw token,
+client secret, or client ID. The Twitch workflow's validated user remains both broadcaster and
+sender.
+
+The test-message command has no payload. Application execution requires the Twitch workflow to be
+`Connected`, permits one in-flight request, assigns a correlated ID, and queues that ID through
+`ITwitchTestMessenger`. The worker constructs fixed text containing the request ID. It does not use
+the encounter template and cannot fabricate a log, upload job, dps.report result, or target channel.
+Safe-retry and ambiguous results become visible terminal errors; no automatic test-message resend is
+scheduled.
+
+## Queue and diagnostics
+
+The command queue is bounded, defaults to 32 entries, and rejects overflow instead of blocking.
+Application ticks default to at most eight commands. Queue limits must be non-zero, the tick limit
+must not exceed capacity, and capacity is capped at 256.
+
+Malformed ordinary settings and DonBot candidates are rejected before insertion. Rejection publishes
+a safe error immediately. Workflow or persistence failures encountered by the application owner are
+recorded as a safe last error and retain typed underlying categories where available. Errors contain
+no credential bytes, raw provider documents, HTTP values, or chat messages.
+
+## Snapshot and view model
+
+`NexusOptionsSnapshot` deep-copies:
+
+- the existing secret-free configuration snapshot;
+- the DonBot account/guild workflow snapshot;
+- the Twitch public connection snapshot;
+- the correlated Twitch test-message state, safe diagnostic, normalized delivery status, and
+  ambiguity flag;
+- a safe last error;
+- pending-command count, revision, acceptance, and shutdown state.
+
+It never contains a DonBot key, Twitch device code, access token, refresh token, or encoded session.
+The public Twitch user code and activation URI are intentionally visible while authorization is
+pending.
+
+`build_nexus_options_model` is a pure mapping used to test status text and control availability
+without ImGui. It disables credential-dependent controls when protected storage is unavailable,
+exposes verified/connected account labels, and disables every mutating control once command
+acceptance stops. The test-message control is enabled only for a connected broadcaster while no test
+request is being sent.
+
+## Shutdown
+
+`shutdown()` first stops command acceptance and destroys all queued commands. Destruction of a queued
+move-only `SecretValue` wipes its storage. Shutdown cancels the test-message port once so queued or
+in-flight chat work observes addon shutdown; it performs no persistence, authentication, or
+revocation itself. The operation is idempotent. The addon lifecycle closes callback admission,
+deregisters callbacks, waits for admitted renders, and then stops the remaining DonBot/Twitch
+workflows and joins their workers before unload returns.
+
+## Required tests
+
+Portable deterministic tests must prove:
+
+- submission alone causes no settings, protected-storage, verifier, or authenticator activity;
+- FIFO command drainage and per-tick limits;
+- queue overflow and malformed input rejection;
+- DonBot verify/select/enable/disconnect rules and persistence ordering;
+- Twitch connect/enable/disconnect rules using the authenticated broadcaster only;
+- Twitch test-message render-boundary isolation, connected/in-flight gating, correlation, typed
+  terminal status, redaction, and cancellation;
+- protected-storage capability and workflow states drive view-model enablement;
+- keys and tokens never appear in snapshots or view models; and
+- shutdown clears queued secret-bearing commands without dispatch.

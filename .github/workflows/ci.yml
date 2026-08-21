@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S . -B out/build/ci
+          -DCMAKE_BUILD_TYPE=Debug
+          -DBUILD_TESTING=ON
+          -DMANNY_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build out/build/ci --config Debug --parallel
+
+      - name: Test
+        run: ctest --test-dir out/build/ci -C Debug --output-on-failure
+

@@ -102,3 +102,8 @@ string(FIND "${collision_diagnostic}" "paths must be distinct" collision_diagnos
 if(collision_diagnostic_offset EQUAL -1)
     message(FATAL_ERROR "Symbol/checksum path collision returned the wrong diagnostic")
 endif()
+
+file(REMOVE_RECURSE "${MANNY_TEST_ROOT}")
+if(EXISTS "${MANNY_TEST_ROOT}")
+    message(FATAL_ERROR "Symbol-verification fixtures were not removed")
+endif()

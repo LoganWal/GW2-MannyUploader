@@ -36,7 +36,20 @@ file(
 list(SORT symbol_candidates)
 list(LENGTH symbol_candidates symbol_candidate_count)
 if(NOT symbol_candidate_count EQUAL 1)
-    message(FATAL_ERROR "Expected exactly one manny_uploader.pdb, found ${symbol_candidate_count}")
+    set(symbol_candidate_listing "")
+    foreach(symbol_candidate IN LISTS symbol_candidates)
+        cmake_path(
+            RELATIVE_PATH symbol_candidate
+            BASE_DIRECTORY "${MANNY_SYMBOL_SEARCH_DIRECTORY}"
+            OUTPUT_VARIABLE relative_symbol_candidate
+        )
+        string(APPEND symbol_candidate_listing "\n  - ${relative_symbol_candidate}")
+    endforeach()
+    message(
+        FATAL_ERROR
+        "Expected exactly one manny_uploader.pdb, found ${symbol_candidate_count}:"
+        "${symbol_candidate_listing}"
+    )
 endif()
 
 list(GET symbol_candidates 0 symbol_candidate)

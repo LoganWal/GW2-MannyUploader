@@ -4,6 +4,9 @@
 - Date: 2026-08-22
 - Scope: MSVC, DPAPI, Schannel, packaged Nexus DLL, and in-game behavior
 
+Copy [`evidence-template.md`](evidence-template.md) for each candidate and keep it with the matching
+workflow, package, checksums, and safe manual-test results.
+
 ## Automated native gate
 
 The `Windows x64 release package` CI job is the authoritative native build. It must pass on an

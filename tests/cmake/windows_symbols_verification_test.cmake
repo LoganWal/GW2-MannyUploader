@@ -25,12 +25,11 @@ function(create_symbol fixture_name magic payload_length out_symbol)
     set(${out_symbol} "${symbol}" PARENT_SCOPE)
 endfunction()
 
-function(run_verification symbol checksum out_result out_diagnostic)
+function(run_verification symbol out_result out_diagnostic)
     execute_process(
         COMMAND
             "${CMAKE_COMMAND}"
             "-DMANNY_SYMBOL_FILE=${symbol}"
-            "-DMANNY_SYMBOL_CHECKSUM_FILE=${checksum}"
             -P "${MANNY_VERIFY_SCRIPT}"
         RESULT_VARIABLE verification_result
         OUTPUT_VARIABLE verification_output
@@ -43,7 +42,6 @@ endfunction()
 function(expect_failure symbol fixture_name expected_diagnostic)
     run_verification(
         "${symbol}"
-        "${MANNY_TEST_ROOT}/${fixture_name}/manny_uploader.pdb.sha256"
         verification_result
         verification_diagnostic
     )
@@ -61,7 +59,7 @@ file(MAKE_DIRECTORY "${MANNY_TEST_ROOT}")
 
 create_symbol(valid "Microsoft C/C++ MSF 7.00" 70000 valid_symbol)
 set(valid_checksum "${MANNY_TEST_ROOT}/valid/manny_uploader.pdb.sha256")
-run_verification("${valid_symbol}" "${valid_checksum}" valid_result valid_diagnostic)
+run_verification("${valid_symbol}" valid_result valid_diagnostic)
 if(NOT valid_result EQUAL 0)
     message(FATAL_ERROR "Valid Windows symbol failed verification: ${valid_diagnostic}")
 endif()
@@ -69,6 +67,36 @@ file(SHA256 "${valid_symbol}" expected_checksum)
 file(READ "${valid_checksum}" checksum_document)
 if(NOT checksum_document STREQUAL "${expected_checksum}  manny_uploader.pdb\n")
     message(FATAL_ERROR "Windows symbol checksum sidecar has unexpected content")
+endif()
+
+create_symbol(relative-valid "Microsoft C/C++ MSF 7.00" 70000 relative_valid_symbol)
+set(relative_valid_checksum "${relative_valid_symbol}.sha256")
+get_filename_component(verify_script_directory "${MANNY_VERIFY_SCRIPT}" DIRECTORY)
+cmake_path(
+    ABSOLUTE_PATH verify_script_directory
+    NORMALIZE
+    OUTPUT_VARIABLE normalized_verify_script_directory
+)
+get_filename_component(verify_base_directory "${normalized_verify_script_directory}/.." ABSOLUTE)
+cmake_path(
+    RELATIVE_PATH relative_valid_symbol
+    BASE_DIRECTORY "${verify_base_directory}"
+    OUTPUT_VARIABLE relative_symbol_argument
+)
+run_verification(
+    "${relative_symbol_argument}"
+    relative_valid_result
+    relative_valid_diagnostic
+)
+if(NOT relative_valid_result EQUAL 0)
+    message(
+        FATAL_ERROR
+        "Valid repository-relative Windows symbol failed verification: "
+        "${relative_valid_diagnostic}"
+    )
+endif()
+if(NOT EXISTS "${relative_valid_checksum}")
+    message(FATAL_ERROR "Repository-relative verification did not create the checksum sidecar")
 endif()
 
 expect_failure(
@@ -87,21 +115,6 @@ create_symbol(wrong-name "Microsoft C/C++ MSF 7.00" 70000 wrong_name_symbol)
 set(unexpected_name "${MANNY_TEST_ROOT}/wrong-name/unexpected.pdb")
 file(RENAME "${wrong_name_symbol}" "${unexpected_name}")
 expect_failure("${unexpected_name}" wrong-name "unexpected name")
-
-create_symbol(path-collision "Microsoft C/C++ MSF 7.00" 70000 collision_symbol)
-run_verification(
-    "${collision_symbol}"
-    "${collision_symbol}"
-    collision_result
-    collision_diagnostic
-)
-if(collision_result EQUAL 0)
-    message(FATAL_ERROR "Symbol/checksum path collision unexpectedly passed verification")
-endif()
-string(FIND "${collision_diagnostic}" "paths must be distinct" collision_diagnostic_offset)
-if(collision_diagnostic_offset EQUAL -1)
-    message(FATAL_ERROR "Symbol/checksum path collision returned the wrong diagnostic")
-endif()
 
 file(REMOVE_RECURSE "${MANNY_TEST_ROOT}")
 if(EXISTS "${MANNY_TEST_ROOT}")

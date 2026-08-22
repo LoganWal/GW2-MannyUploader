@@ -116,8 +116,7 @@ jobs:
       - name: Verify release symbols
         run: >-
           cmake
-          -DMANNY_SYMBOL_FILE=out/build/windows-release/symbols/Release/manny_uploader.pdb
-          -DMANNY_SYMBOL_CHECKSUM_FILE=out/build/windows-release/symbols/Release/manny_uploader.pdb.sha256
+          "-DMANNY_SYMBOL_FILE=out/build/windows-release/symbols/Release/manny_uploader.pdb"
           -P cmake/VerifyWindowsSymbols.cmake
 
       - name: Upload verified package

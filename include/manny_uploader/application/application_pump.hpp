@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <expected>
 #include <optional>
+#include <span>
 #include <stop_token>
 #include <string>
 #include <vector>
@@ -65,6 +66,8 @@ class ApplicationPump {
     [[nodiscard]] std::expected<void, ApplicationPumpError>
     update_required_matching_observations(std::size_t required_matching_observations);
     void reset_pending_candidates() noexcept;
+    [[nodiscard]] std::expected<void, ApplicationPumpError>
+    seed_processed_logs(std::span<const domain::LogFileIdentity> files);
 
     [[nodiscard]] bool is_shutting_down() const noexcept;
     [[nodiscard]] std::size_t tracked_candidate_count() const noexcept;

@@ -378,11 +378,20 @@ void invalid_directory_test(TestSuite& suite) {
 
 void dpapi_platform_test(TestSuite& suite) {
     const auto require_native_value = environment::value("MANNY_REQUIRE_NATIVE_DPAPI");
+    const auto require_wine_value = environment::value("MANNY_REQUIRE_WINE_DPAPI");
     const bool require_native = require_native_value == "1";
+    const bool require_wine = require_wine_value == "1";
+    MANNY_CHECK(suite, !(require_native && require_wine));
     auto protector = config::make_dpapi_secret_protector();
 #ifdef _WIN32
+    if (require_native) {
+        MANNY_CHECK(suite, !config::is_wine_environment());
+    }
+    if (require_wine) {
+        MANNY_CHECK(suite, config::is_wine_environment());
+    }
     if (!protector) {
-        MANNY_CHECK(suite, !require_native);
+        MANNY_CHECK(suite, !require_native && !require_wine);
         MANNY_CHECK(suite, protector.error().code ==
                                config::SecretProtectionErrorCode::UnsupportedEnvironment);
         MANNY_CHECK(suite, !protector.error().system_error.has_value());
@@ -394,7 +403,7 @@ void dpapi_platform_test(TestSuite& suite) {
         ProtectedFileSecretStore::create(tree.secret_directory(), std::move(*protector));
     MANNY_CHECK(suite, store_result.has_value());
     auto& store = *store_result;
-    const auto plaintext = SecretValue::from_text("native-dpapi-round-trip-marker");
+    const auto plaintext = SecretValue::from_text("dpapi-round-trip-marker");
     MANNY_CHECK(suite, store.store(SecretId::TwitchOAuthSession, plaintext).has_value());
     const auto protected_path = store.record_path(SecretId::TwitchOAuthSession);
     auto protected_value = tree.read(protected_path);
@@ -403,14 +412,15 @@ void dpapi_platform_test(TestSuite& suite) {
     MANNY_CHECK(suite, round_trip.has_value());
     MANNY_CHECK(suite, *round_trip == plaintext);
 
-    protected_value[protected_value.size() / 2] ^= std::byte{0x01};
+    protected_value.back() ^= std::byte{0x01};
     tree.write(protected_path, protected_value);
     const auto tampered = store.load(SecretId::TwitchOAuthSession);
     MANNY_CHECK(suite, !tampered.has_value());
     MANNY_CHECK(suite, tampered.error().code == SecretStoreErrorCode::UnprotectionFailed ||
                            tampered.error().code == SecretStoreErrorCode::CorruptRecord);
 #else
-    MANNY_CHECK(suite, !require_native);
+    MANNY_CHECK(suite, !require_native && !require_wine);
+    MANNY_CHECK(suite, !config::is_wine_environment());
     MANNY_CHECK(suite, !protector.has_value());
     MANNY_CHECK(suite, protector.error().code ==
                            config::SecretProtectionErrorCode::UnsupportedEnvironment);

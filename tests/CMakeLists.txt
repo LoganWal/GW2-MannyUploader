@@ -9,6 +9,7 @@ add_executable(
     unit/application/twitch_authentication_controller_test.cpp
     unit/application/twitch_message_template_test.cpp
     unit/application/log_ingestion_coordinator_test.cpp
+    unit/application/log_selection_test.cpp
     unit/application/nexus_options_controller_test.cpp
     unit/application/recent_log_actions_controller_test.cpp
     unit/application/twitch_session_test.cpp
@@ -17,6 +18,7 @@ add_executable(
     unit/config/protected_file_secret_store_test.cpp
     unit/config/settings_test.cpp
     unit/config/settings_store_test.cpp
+    unit/config/upload_history_store_test.cpp
     unit/domain/upload_job_test.cpp
     unit/evtc/metadata_decoder_test.cpp
     unit/evtc/metadata_parser_worker_test.cpp

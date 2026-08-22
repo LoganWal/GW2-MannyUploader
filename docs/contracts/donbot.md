@@ -1,7 +1,8 @@
 # DonBot upload contract
 
 This contract defines version 1 of GW2 Manny Uploader's DonBot integration. It covers API-key
-verification, server-authorized guild discovery, and one-shot TUS upload of a stable `.zevtc` file.
+verification, server-authorized guild discovery, one-shot TUS upload of a stable `.zevtc` file, and
+the completion stream used to retain the resulting DonBot fight ID.
 
 Verified 2026-08-20 against:
 
@@ -108,6 +109,25 @@ Content-Type: application/offset+octet-stream
 Success is exactly `204`. The response must contain exactly one `Tus-Resumable: 1.0.0` and one
 decimal `Upload-Offset` equal to the original file size. The source size and last-write time are
 verified before opening and after the final bytes are read.
+
+When creation returned a numeric upload ID, successful PATCH completion is followed by an anonymous
+bounded event-stream request:
+
+```text
+GET <api-base>/api/upload/stream/<upload-id>
+Accept: text/event-stream
+```
+
+Each `data:` line must contain a bounded JSON object with a stage. A `failed` stage is a permanent
+processing failure. A `complete` stage ends processing and may include one positive signed-64-bit
+`fightLogId`. That ID is retained with the upload job and used only to compose
+`https://donbot.walmslo.com/logs/aggregate?ids=<comma-separated-fight-ids>` for the current visible
+rows. The aggregate link never uses TUS upload IDs.
+
+Failure to reach the optional progress endpoint does not reinterpret an already-confirmed TUS upload
+as failed and leaves the fight ID unavailable. Cancellation remains cancellation. A malformed or
+explicitly failed event stream is a permanent DonBot result because automatically creating a second
+upload could duplicate the accepted log.
 
 ## Failure and retry policy
 

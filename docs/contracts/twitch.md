@@ -14,9 +14,10 @@ Verified 2026-08-20 against Twitch's official documentation for:
 
 ## Application identity and scope
 
-The addon is a public Twitch application using the Device Code flow. Its production client ID is
-injected by addon composition and is not ordinary user configuration. No client secret is compiled
-in, persisted, displayed, requested from the broadcaster, or sent by this client.
+The addon is a public Twitch application using the Device Code flow. Its public Client ID is ordinary
+user configuration, with an optional packager-provided build default. It may be replaced only while
+the workflow is disconnected or in error. No client secret is compiled in, persisted, displayed,
+requested from the broadcaster, or sent by this client.
 
 The only requested and accepted scope is `user:write:chat`. The integration does not read chat, join
 IRC, subscribe to EventSub, act as a bot account, or post to a separately configured channel.

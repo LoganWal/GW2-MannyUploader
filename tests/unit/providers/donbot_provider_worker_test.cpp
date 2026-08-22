@@ -146,7 +146,10 @@ class FakeDonBotClient final : public providers::IDonBotClient {
             throw std::runtime_error{"private DonBot client exception"};
         }
         if (results_.empty()) {
-            return providers::DonBotUploadSuccess{.upload_id = std::nullopt};
+            return providers::DonBotUploadSuccess{
+                .upload_id = std::nullopt,
+                .fight_log_id = std::nullopt,
+            };
         }
         auto result = std::move(results_.front());
         results_.pop_front();
@@ -253,7 +256,10 @@ void creation_and_outcome_tests(TestSuite& suite) {
     MANNY_CHECK(suite, dormant.has_value());
     MANNY_CHECK(suite, !(*dormant)->enqueue(request(10)).has_value());
 
-    client.push(providers::DonBotUploadSuccess{.upload_id = std::uint64_t{91}});
+    client.push(providers::DonBotUploadSuccess{
+        .upload_id = std::uint64_t{91},
+        .fight_log_id = std::uint64_t{191},
+    });
     client.push(
         std::unexpected(upload_error(providers::DonBotDisposition::Retry, "retry detail", 12s)));
     client.push(
@@ -281,7 +287,12 @@ void creation_and_outcome_tests(TestSuite& suite) {
         MANNY_CHECK(suite, result->detail.find("VERY-SECRET-KEY") == std::string::npos);
         if (id == 11) {
             MANNY_CHECK(suite, result->outcome == ports::UploadOutcome::Succeeded);
-            MANNY_CHECK(suite, result->detail == "Uploaded to DonBot (upload 91)");
+            MANNY_CHECK(suite, result->detail == "Uploaded and processed by DonBot (fight 191)");
+            MANNY_CHECK(suite, result->donbot_upload_receipt.has_value());
+            MANNY_CHECK(suite, result->donbot_upload_receipt &&
+                                   result->donbot_upload_receipt->upload_id == 91);
+            MANNY_CHECK(suite, result->donbot_upload_receipt &&
+                                   result->donbot_upload_receipt->fight_log_id == 191);
         } else if (id == 12) {
             MANNY_CHECK(suite, result->outcome == ports::UploadOutcome::Retry);
             MANNY_CHECK(suite, result->retry_after == 12s);

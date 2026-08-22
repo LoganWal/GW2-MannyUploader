@@ -138,15 +138,18 @@ class DpapiSecretProtector final : public ISecretProtector {
 std::expected<std::unique_ptr<ISecretProtector>, SecretProtectionError>
 make_dpapi_secret_protector() {
 #ifdef _WIN32
-    if (is_running_under_wine()) {
-        return std::unexpected(make_error(
-            SecretProtectionErrorCode::UnsupportedEnvironment,
-            "Durable credential storage is unavailable because Wine DPAPI is not user-secure"));
-    }
     return std::make_unique<DpapiSecretProtector>();
 #else
     return std::unexpected(make_error(SecretProtectionErrorCode::UnsupportedEnvironment,
                                       "DPAPI credential storage requires native Windows"));
+#endif
+}
+
+bool is_wine_environment() noexcept {
+#ifdef _WIN32
+    return is_running_under_wine();
+#else
+    return false;
 #endif
 }
 

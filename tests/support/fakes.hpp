@@ -5,6 +5,7 @@
 #include "manny_uploader/ports/upload_provider.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <deque>
 #include <expected>
 #include <optional>
@@ -89,9 +90,18 @@ class FakeMetadataParser final : public ports::ILogMetadataParser {
             return std::unexpected(
                 ports::MetadataParseDispatchError{.message = rejection_message_});
         }
+        if (pending_requests >= queue_capacity) {
+            return std::unexpected(
+                ports::MetadataParseDispatchError{.message = "Metadata parser queue is full"});
+        }
 
         requests.push_back(std::move(request));
+        ++pending_requests;
         return {};
+    }
+
+    [[nodiscard]] std::size_t available_capacity() const noexcept override {
+        return pending_requests < queue_capacity ? queue_capacity - pending_requests : 0;
     }
 
     void cancel_pending() noexcept override {
@@ -104,6 +114,9 @@ class FakeMetadataParser final : public ports::ILogMetadataParser {
         }
         auto result = std::move(results.front());
         results.pop_front();
+        if (pending_requests > 0) {
+            --pending_requests;
+        }
         return result;
     }
 
@@ -114,6 +127,8 @@ class FakeMetadataParser final : public ports::ILogMetadataParser {
 
     std::vector<ports::MetadataParseRequest> requests;
     std::deque<ports::MetadataParseResult> results;
+    std::size_t queue_capacity{1024};
+    std::size_t pending_requests{};
     std::size_t cancel_count{};
 
   private:

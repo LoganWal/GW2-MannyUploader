@@ -247,6 +247,75 @@ UploadCoordinator::retry_failed_provider(domain::UploadJobId id, domain::Provide
     return {};
 }
 
+std::expected<void, CoordinatorError> UploadCoordinator::reupload(domain::UploadJobId id) {
+    if (shutting_down_) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::ShuttingDown, "Coordinator is shutting down"));
+    }
+    auto* job = find_job(id);
+    if (job == nullptr) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::UnknownJob, "Reupload references an unknown job"));
+    }
+    auto prepared = *job;
+    for (const auto provider :
+         {domain::Provider::DpsReport, domain::Provider::Wingman, domain::Provider::DonBot}) {
+        if (auto result = prepared.prepare_explicit_delivery(provider); !result) {
+            return std::unexpected(from_domain_error(result.error()));
+        }
+    }
+    *job = std::move(prepared);
+    for (const auto provider :
+         {domain::Provider::DpsReport, domain::Provider::Wingman, domain::Provider::DonBot}) {
+        dispatch(*job, provider, true);
+    }
+    return {};
+}
+
+std::expected<void, CoordinatorError> UploadCoordinator::rechat(domain::UploadJobId id) {
+    if (shutting_down_) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::ShuttingDown, "Coordinator is shutting down"));
+    }
+    auto* job = find_job(id);
+    if (job == nullptr) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::UnknownJob, "Rechat references an unknown job"));
+    }
+    if (auto prepared = job->prepare_explicit_delivery(domain::Provider::Twitch); !prepared) {
+        return std::unexpected(from_domain_error(prepared.error()));
+    }
+    dispatch(*job, domain::Provider::Twitch, true);
+    return {};
+}
+
+std::expected<void, CoordinatorError>
+UploadCoordinator::restore_history(std::span<const domain::UploadJobRecord> records) {
+    if (shutting_down_) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::ShuttingDown, "Coordinator is shutting down"));
+    }
+    if (!jobs_.empty()) {
+        return std::unexpected(make_error(CoordinatorErrorCode::UnexpectedResult,
+                                          "Upload history must be restored before new jobs"));
+    }
+    const auto start = records.size() > history_limit_ ? records.size() - history_limit_ : 0;
+    for (std::size_t index = start; index < records.size(); ++index) {
+        if (next_job_id_ == std::numeric_limits<std::uint64_t>::max()) {
+            return std::unexpected(
+                make_error(CoordinatorErrorCode::JobIdExhausted, "Upload job IDs are exhausted"));
+        }
+        auto restored =
+            domain::UploadJob::restore(domain::UploadJobId{next_job_id_}, records[index]);
+        if (!restored) {
+            return std::unexpected(from_domain_error(restored.error()));
+        }
+        ++next_job_id_;
+        jobs_.push_back(std::move(*restored));
+    }
+    return {};
+}
+
 std::expected<void, CoordinatorError>
 UploadCoordinator::validate_result(const domain::UploadJob& job, const UploadResult& result) {
     if (job.provider_status(result.provider).state != domain::ProviderState::Active) {
@@ -261,6 +330,12 @@ UploadCoordinator::validate_result(const domain::UploadJob& job, const UploadRes
         return std::unexpected(
             make_error(CoordinatorErrorCode::UnexpectedResult,
                        "Only a successful dps.report result may include a report response"));
+    }
+    if (result.donbot_upload_receipt && (result.provider != domain::Provider::DonBot ||
+                                         result.outcome != UploadOutcome::Succeeded)) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::UnexpectedResult,
+                       "Only a successful DonBot upload may include a DonBot receipt"));
     }
     if (result.twitch_delivery_receipt && result.provider != domain::Provider::Twitch) {
         return std::unexpected(make_error(CoordinatorErrorCode::UnexpectedResult,
@@ -318,6 +393,12 @@ std::expected<void, CoordinatorError> UploadCoordinator::apply_result(domain::Up
             }
             transition_result =
                 job.record_twitch_delivery(std::move(*result.twitch_delivery_receipt));
+            if (transition_result) {
+                transition_result = job.transition(
+                    result.provider, domain::ProviderState::Succeeded, std::move(result.detail));
+            }
+        } else if (result.provider == domain::Provider::DonBot && result.donbot_upload_receipt) {
+            transition_result = job.record_donbot_upload(std::move(*result.donbot_upload_receipt));
             if (transition_result) {
                 transition_result = job.transition(
                     result.provider, domain::ProviderState::Succeeded, std::move(result.detail));
@@ -492,6 +573,7 @@ std::vector<UploadJobSnapshot> UploadCoordinator::snapshots() const {
             .detected_at = job.detected_at(),
             .encounter_metadata = job.encounter_metadata(),
             .dps_report_result = job.dps_report_result(),
+            .donbot_upload_receipt = job.donbot_upload_receipt(),
             .twitch_delivery_receipt = job.twitch_delivery_receipt(),
             .providers = {},
         };
@@ -502,6 +584,15 @@ std::vector<UploadJobSnapshot> UploadCoordinator::snapshots() const {
         result.push_back(std::move(snapshot));
     }
 
+    return result;
+}
+
+std::vector<domain::UploadJobRecord> UploadCoordinator::history_records() const {
+    std::vector<domain::UploadJobRecord> result;
+    result.reserve(jobs_.size());
+    for (const auto& job : jobs_) {
+        result.push_back(job.record());
+    }
     return result;
 }
 

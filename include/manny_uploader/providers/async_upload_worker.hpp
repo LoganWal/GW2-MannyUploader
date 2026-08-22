@@ -14,6 +14,7 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace manny_uploader::providers {
 
@@ -40,7 +41,8 @@ class AsyncUploadWorker final : public ports::IUploadProvider {
   public:
     [[nodiscard]] static std::expected<std::unique_ptr<AsyncUploadWorker>, AsyncUploadWorkerError>
     create(domain::Provider provider, const IUploadRequestProcessor& processor,
-           std::string unexpected_failure_detail, std::size_t queue_capacity = 8);
+           std::string unexpected_failure_detail, std::size_t queue_capacity = 8,
+           std::size_t parallelism = 1);
 
     ~AsyncUploadWorker() override;
 
@@ -58,10 +60,16 @@ class AsyncUploadWorker final : public ports::IUploadProvider {
     [[nodiscard]] std::size_t pending_count() const noexcept;
     [[nodiscard]] std::size_t result_count() const noexcept;
     [[nodiscard]] bool is_stopping() const noexcept;
+    [[nodiscard]] std::expected<void, AsyncUploadWorkerError>
+    update_parallelism(std::size_t parallelism);
+    [[nodiscard]] std::size_t parallelism() const noexcept;
 
   private:
     AsyncUploadWorker(domain::Provider provider, const IUploadRequestProcessor& processor,
                       std::string unexpected_failure_detail, std::size_t queue_capacity);
+
+    [[nodiscard]] std::expected<void, AsyncUploadWorkerError>
+    add_threads_until(std::size_t thread_count);
 
     void run(std::stop_token stop_token);
     [[nodiscard]] ports::UploadResult unexpected_result(domain::UploadJobId job_id) const;
@@ -71,12 +79,14 @@ class AsyncUploadWorker final : public ports::IUploadProvider {
     const IUploadRequestProcessor& processor_;
     std::string unexpected_failure_detail_;
     std::size_t queue_capacity_;
+    std::size_t parallelism_{1};
+    std::size_t active_count_{};
     mutable std::mutex mutex_;
     std::condition_variable condition_;
     std::deque<ports::UploadRequest> requests_;
     std::deque<ports::UploadResult> results_;
     bool stopping_{};
-    std::jthread thread_;
+    std::vector<std::jthread> threads_;
 };
 
 } // namespace manny_uploader::providers

@@ -16,6 +16,7 @@ not a secret store. It may be copied into diagnostics after path/account identif
     "stability_observations": 2,
     "recent_log_limit": 50,
     "parser_queue_capacity": 8,
+    "parallel_uploads_per_provider": 1,
     "max_candidates": 4096
   },
   "dps_report": {
@@ -31,6 +32,7 @@ not a secret store. It may be copied into diagnostics after path/account identif
   },
   "twitch": {
     "enabled": false,
+    "client_id": "",
     "message_template": "{encounter}{mode_suffix} — {result}: {url}",
     "post_success": true,
     "post_failure": true
@@ -52,12 +54,17 @@ must be valid UTF-8.
 - `stability_observations`: 2 through 10.
 - `recent_log_limit`: 1 through 500.
 - `parser_queue_capacity`: 1 through 64.
+- `parallel_uploads_per_provider`: 1 through 32. The limit is applied independently to every
+  provider worker and may be changed live.
 - `max_candidates`: 1 through 10,000.
 - `donbot.api_base_url` is an HTTPS base URL without credentials, query, fragment, whitespace, or an
   empty host and is at most 2048 bytes.
 - `donbot.selected_guild_id` is empty while DonBot is disabled or is a canonical positive decimal
   value within a signed 64-bit integer. Enabling DonBot requires a verified guild selection.
 - Twitch can be enabled only while dps.report is enabled and at least one posting policy is enabled.
+- `twitch.client_id` is empty or a public Twitch application Client ID of at most 128 lowercase
+  ASCII letters and digits. It is ordinary, non-secret configuration and may change only while the
+  Twitch workflow is disconnected or in error.
 - Twitch templates are non-empty valid UTF-8 without ASCII controls and at most 500 bytes. Supported placeholders are
   `{url}`, `{encounter}`, `{mode}`, `{mode_suffix}`, `{result}`, and `{boss_id}`. `{url}` is required.
   `{{` and `}}` encode literal braces; unknown, empty, or unbalanced placeholders are invalid.
@@ -74,6 +81,9 @@ The ordinary settings types deliberately have no fields for:
 - Twitch access or refresh tokens;
 - OAuth device codes; or
 - client secrets.
+
+The public Twitch application Client ID is not a credential and is deliberately stored in ordinary
+JSON. It is never sufficient to authenticate or post without the separately protected OAuth session.
 
 An attempted secret-like JSON key is therefore rejected as unknown. Protected credentials use a
 separate `ISecretStore` adapter owned by the application `ConfigurationService` and follow their own

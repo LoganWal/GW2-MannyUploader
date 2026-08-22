@@ -4,6 +4,7 @@
 #include "manny_uploader/application/configuration_service.hpp"
 #include "manny_uploader/application/donbot_configuration_controller.hpp"
 #include "manny_uploader/application/log_ingestion_coordinator.hpp"
+#include "manny_uploader/application/log_selection.hpp"
 #include "manny_uploader/application/nexus_options_controller.hpp"
 #include "manny_uploader/application/recent_log_actions_controller.hpp"
 #include "manny_uploader/application/twitch_authentication_controller.hpp"
@@ -12,6 +13,7 @@
 #include "manny_uploader/config/protected_file_secret_store.hpp"
 #include "manny_uploader/config/secret_protector.hpp"
 #include "manny_uploader/config/settings_store.hpp"
+#include "manny_uploader/config/upload_history_store.hpp"
 #include "manny_uploader/evtc/metadata_parser_worker.hpp"
 #include "manny_uploader/evtc/zevtc_archive.hpp"
 #include "manny_uploader/filesystem/change_notifying_log_candidate_source.hpp"
@@ -46,6 +48,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <expected>
 #include <filesystem>
 #include <memory>
@@ -66,9 +69,43 @@ using namespace std::chrono_literals;
 
 inline constexpr char window_name[] = "GW2 Manny Uploader";
 inline constexpr char settings_filename[] = "settings.json";
+inline constexpr char upload_history_filename[] = "upload-history.json";
 inline constexpr char secrets_directory_name[] = "secrets";
 inline constexpr char default_log_directory_name[] = "arcdps.cbtlogs";
-inline constexpr std::size_t provider_queue_capacity = 8;
+inline constexpr std::size_t provider_queue_capacity = 500;
+inline constexpr std::size_t accepted_log_dedupe_capacity = 10'000;
+
+[[nodiscard]] std::string effective_twitch_client_id(const config::Settings& settings) {
+    if (!settings.twitch.client_id.empty()) {
+        return settings.twitch.client_id;
+    }
+#if defined(MANNY_TWITCH_CLIENT_ID)
+    return MANNY_TWITCH_CLIENT_ID;
+#else
+    return {};
+#endif
+}
+
+[[nodiscard]] std::filesystem::file_time_type
+local_day_started_at(std::chrono::system_clock::time_point now) noexcept {
+    const auto timestamp = std::chrono::system_clock::to_time_t(now);
+    std::tm local{};
+    if (localtime_s(&local, &timestamp) != 0) {
+        return std::filesystem::file_time_type::clock::from_sys(
+            std::chrono::floor<std::chrono::days>(now));
+    }
+    local.tm_hour = 0;
+    local.tm_min = 0;
+    local.tm_sec = 0;
+    local.tm_isdst = -1;
+    const auto midnight = std::mktime(&local);
+    if (midnight == static_cast<std::time_t>(-1)) {
+        return std::filesystem::file_time_type::clock::from_sys(
+            std::chrono::floor<std::chrono::days>(now));
+    }
+    return std::filesystem::file_time_type::clock::from_sys(
+        std::chrono::system_clock::from_time_t(midnight));
+}
 
 class SystemClock final : public ports::IClock {
   public:
@@ -109,50 +146,6 @@ class UnavailableSecretStore final : public ports::ISecretStore {
     }
 };
 
-[[nodiscard]] providers::TwitchError twitch_unavailable() {
-    return providers::TwitchError{
-        .disposition = providers::TwitchDisposition::Failed,
-        .detail = "This build does not have a Twitch application client ID",
-        .retry_after = std::nullopt,
-        .http_error = std::nullopt,
-        .http_status = std::nullopt,
-    };
-}
-
-class UnavailableTwitchClient final : public providers::ITwitchClient {
-  public:
-    [[nodiscard]] std::expected<providers::TwitchDeviceAuthorization, providers::TwitchError>
-    start_device_authorization(const std::stop_token&) const override {
-        return std::unexpected(twitch_unavailable());
-    }
-
-    [[nodiscard]] std::expected<providers::TwitchDevicePollResult, providers::TwitchError>
-    poll_device_authorization(const support::SecretValue&, const std::stop_token&) const override {
-        return std::unexpected(twitch_unavailable());
-    }
-
-    [[nodiscard]] std::expected<providers::TwitchValidatedIdentity, providers::TwitchError>
-    validate_access_token(const support::SecretValue&, const std::stop_token&) const override {
-        return std::unexpected(twitch_unavailable());
-    }
-
-    [[nodiscard]] std::expected<providers::TwitchTokenGrant, providers::TwitchError>
-    refresh_access_token(const support::SecretValue&, const std::stop_token&) const override {
-        return std::unexpected(twitch_unavailable());
-    }
-
-    [[nodiscard]] std::expected<void, providers::TwitchError>
-    revoke_access_token(const support::SecretValue&, const std::stop_token&) const override {
-        return std::unexpected(twitch_unavailable());
-    }
-
-    [[nodiscard]] std::expected<providers::TwitchChatResult, providers::TwitchError>
-    send_chat_message(std::string_view, std::string_view, const support::SecretValue&,
-                      const std::stop_token&) const override {
-        return std::unexpected(twitch_unavailable());
-    }
-};
-
 [[nodiscard]] ports::ExternalActionError launch_error(std::string message) {
     return ports::ExternalActionError{
         .code = ports::ExternalActionErrorCode::LaunchFailed,
@@ -189,12 +182,15 @@ struct RuntimeComponents {
     std::unique_ptr<UnavailableSecretStore> unavailable_secrets;
     ports::ISecretStore* provider_secrets{};
     bool persistent_secrets_available{};
-    bool twitch_application_configured{};
+    bool wine_secret_compatibility_mode{};
+    std::filesystem::file_time_type session_started_at;
+    std::string startup_diagnostic;
 
     std::unique_ptr<providers::DpsReportClient> dps_report_client;
     std::unique_ptr<providers::WingmanClient> wingman_client;
     std::unique_ptr<providers::DonBotClient> donbot_client;
-    std::unique_ptr<providers::ITwitchClient> twitch_client;
+    std::unique_ptr<providers::TwitchClient> twitch_client;
+    std::unique_ptr<config::UploadHistoryStore> upload_history_store;
 
     std::unique_ptr<application::TwitchSessionOwner> twitch_session_owner;
     std::unique_ptr<providers::DpsReportProviderWorker> dps_report_worker;
@@ -230,8 +226,12 @@ struct RecentLogRow {
     std::string detected_at;
     std::string filename;
     std::string encounter;
+    std::string dps_report_url;
+    std::optional<std::uint64_t> donbot_fight_log_id;
     bool report_available{};
     bool directory_available{};
+    bool reupload_available{};
+    bool rechat_available{};
     std::array<ProviderCell, domain::provider_count> providers;
 };
 
@@ -240,8 +240,15 @@ struct RuntimeSnapshot {
     application::RecentLogActionsSnapshot recent_log_actions;
     ui::NexusOptionsModel options_model;
     std::vector<RecentLogRow> recent_logs;
+    std::string dps_report_clipboard_text;
+    std::string donbot_aggregate_url;
+    std::size_t dps_report_url_count{};
+    std::size_t donbot_fight_count{};
     std::string runtime_diagnostic;
     bool log_root_available{};
+    application::LogSelectionMode log_selection_mode{application::LogSelectionMode::New};
+    application::LogSelectionWindow log_selection_window;
+    bool wine_secret_compatibility_mode{};
     bool twitch_application_configured{};
     std::uint64_t revision{};
 };
@@ -285,6 +292,9 @@ create_components(const AddonPaths& paths) {
 
         auto result = std::make_unique<RuntimeComponents>();
         result->clock = std::make_unique<SystemClock>();
+        result->session_started_at =
+            std::filesystem::file_time_type::clock::from_sys(result->clock->system_now());
+        result->wine_secret_compatibility_mode = config::is_wine_environment();
 
         auto http = http::make_curl_http_client();
         if (!http) {
@@ -332,36 +342,47 @@ create_components(const AddonPaths& paths) {
             result->provider_secrets = result->unavailable_secrets.get();
         }
 
+        const auto initial_settings = result->configuration->snapshot().settings;
+        auto history =
+            config::UploadHistoryStore::create(paths.addon_directory / upload_history_filename);
+        if (!history) {
+            return std::unexpected(runtime_error("Unable to initialize persistent upload history"));
+        }
+        result->startup_diagnostic = history->recovery_diagnostic();
+        result->upload_history_store =
+            std::make_unique<config::UploadHistoryStore>(std::move(*history));
+
         result->dps_report_client = std::make_unique<providers::DpsReportClient>(*result->http);
         result->wingman_client = std::make_unique<providers::WingmanClient>(*result->http);
         result->donbot_client = std::make_unique<providers::DonBotClient>(*result->http);
 
-#if defined(MANNY_TWITCH_CLIENT_ID)
-        auto twitch = providers::TwitchClient::create(*result->http, MANNY_TWITCH_CLIENT_ID);
-        if (!twitch) {
-            return std::unexpected(runtime_error("The compiled Twitch application ID is invalid"));
+        auto twitch_client_id = effective_twitch_client_id(initial_settings);
+        if (twitch_client_id.empty()) {
+            result->twitch_client = std::make_unique<providers::TwitchClient>(
+                providers::TwitchClient::create_unconfigured(*result->http));
+        } else {
+            auto twitch =
+                providers::TwitchClient::create(*result->http, std::move(twitch_client_id));
+            if (!twitch) {
+                return std::unexpected(runtime_error("The Twitch application ID is invalid"));
+            }
+            result->twitch_client = std::make_unique<providers::TwitchClient>(std::move(*twitch));
         }
-        result->twitch_client = std::make_unique<providers::TwitchClient>(std::move(*twitch));
-        result->twitch_application_configured = true;
-#else
-        result->twitch_client = std::make_unique<UnavailableTwitchClient>();
-#endif
-
-        const auto initial_settings = result->configuration->snapshot().settings;
         result->twitch_session_owner = std::make_unique<application::TwitchSessionOwner>(
             *result->configuration, *result->twitch_client, *result->clock);
 
         auto dps_worker = providers::DpsReportProviderWorker::create(
             *result->dps_report_client,
             result->persistent_secrets_available ? result->provider_secrets : nullptr,
-            provider_queue_capacity);
+            provider_queue_capacity, initial_settings.general.parallel_uploads_per_provider);
         if (!dps_worker) {
             return std::unexpected(runtime_error("Unable to start the dps.report worker"));
         }
         result->dps_report_worker = std::move(*dps_worker);
 
-        auto wingman_worker = providers::WingmanProviderWorker::create(*result->wingman_client,
-                                                                       provider_queue_capacity);
+        auto wingman_worker = providers::WingmanProviderWorker::create(
+            *result->wingman_client, provider_queue_capacity,
+            initial_settings.general.parallel_uploads_per_provider);
         if (!wingman_worker) {
             return std::unexpected(runtime_error("Unable to start the GW2Wingman worker"));
         }
@@ -373,7 +394,7 @@ create_components(const AddonPaths& paths) {
                 .api_base_url = initial_settings.donbot.api_base_url,
                 .guild_id = initial_settings.donbot.selected_guild_id,
             },
-            provider_queue_capacity);
+            provider_queue_capacity, initial_settings.general.parallel_uploads_per_provider);
         if (!donbot_worker) {
             return std::unexpected(runtime_error("Unable to start the DonBot worker"));
         }
@@ -386,7 +407,7 @@ create_components(const AddonPaths& paths) {
                 .post_success = initial_settings.twitch.post_success,
                 .post_failure = initial_settings.twitch.post_failure,
             },
-            provider_queue_capacity);
+            provider_queue_capacity, initial_settings.general.parallel_uploads_per_provider);
         if (!twitch_worker) {
             return std::unexpected(runtime_error("Unable to start the Twitch delivery worker"));
         }
@@ -455,7 +476,7 @@ create_components(const AddonPaths& paths) {
         auto candidate_source = filesystem::ChangeNotifyingLogCandidateSource::create(
             std::filesystem::path{initial_settings.general.log_directory},
             initial_settings.general.watch_subdirectories, initial_settings.general.max_candidates,
-            filesystem::make_windows_directory_change_monitor());
+            filesystem::make_windows_directory_change_monitor(), 3, result->session_started_at);
         if (!candidate_source) {
             return std::unexpected(runtime_error("Unable to initialize log-directory monitoring"));
         }
@@ -475,6 +496,11 @@ create_components(const AddonPaths& paths) {
         }
         result->upload_coordinator =
             std::make_unique<application::UploadCoordinator>(std::move(*uploads));
+        if (auto restored = result->upload_coordinator->restore_history(
+                result->upload_history_store->records());
+            !restored) {
+            return std::unexpected(runtime_error("Unable to restore persistent upload history"));
+        }
         result->external_action_launcher = std::make_unique<WindowsExternalActionLauncher>();
         auto recent_log_actions = application::RecentLogActionsController::create(
             *result->upload_coordinator, *result->external_action_launcher);
@@ -489,7 +515,7 @@ create_components(const AddonPaths& paths) {
             *result->candidate_source, *result->metadata_worker, *result->ingestion_coordinator,
             application::ApplicationPumpConfig{
                 .required_matching_observations = initial_settings.general.stability_observations,
-                .dedupe_capacity = 256,
+                .dedupe_capacity = accepted_log_dedupe_capacity,
                 .max_metadata_results_per_tick = 8,
                 .max_upload_results_per_tick = 8,
             });
@@ -497,6 +523,14 @@ create_components(const AddonPaths& paths) {
             return std::unexpected(runtime_error("Unable to initialize the application pump"));
         }
         result->application_pump = std::make_unique<application::ApplicationPump>(std::move(*pump));
+        std::vector<domain::LogFileIdentity> processed_files;
+        processed_files.reserve(result->upload_history_store->records().size());
+        for (const auto& record : result->upload_history_store->records()) {
+            processed_files.push_back(record.file);
+        }
+        if (auto seeded = result->application_pump->seed_processed_logs(processed_files); !seeded) {
+            return std::unexpected(runtime_error("Unable to seed persistent log history"));
+        }
         return result;
     } catch (...) {
         return std::unexpected(runtime_error("Unexpected failure while composing the addon"));
@@ -505,7 +539,8 @@ create_components(const AddonPaths& paths) {
 
 [[nodiscard]] std::expected<GeneralSettingsApplyReport, AddonRuntimeError>
 apply_general_settings(RuntimeComponents& components, const config::GeneralSettings& previous,
-                       const config::GeneralSettings& current) {
+                       const config::GeneralSettings& current,
+                       std::filesystem::file_time_type minimum_last_write_time) {
     const bool source_changed = previous.log_directory != current.log_directory ||
                                 previous.watch_subdirectories != current.watch_subdirectories ||
                                 previous.max_candidates != current.max_candidates;
@@ -515,7 +550,7 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
     if (source_changed) {
         auto reconfigured = components.candidate_source->reconfigure(
             std::filesystem::path{current.log_directory}, current.watch_subdirectories,
-            current.max_candidates);
+            current.max_candidates, minimum_last_write_time);
         if (!reconfigured) {
             return std::unexpected(runtime_error("Unable to apply log-directory settings"));
         }
@@ -542,6 +577,15 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
             return std::unexpected(runtime_error("Unable to apply recent-log history settings"));
         }
     }
+    if (previous.parallel_uploads_per_provider != current.parallel_uploads_per_provider) {
+        const auto parallelism = current.parallel_uploads_per_provider;
+        if (!components.dps_report_worker->update_parallelism(parallelism) ||
+            !components.wingman_worker->update_parallelism(parallelism) ||
+            !components.donbot_worker->update_parallelism(parallelism) ||
+            !components.twitch_worker->update_parallelism(parallelism)) {
+            return std::unexpected(runtime_error("Unable to apply upload parallelism"));
+        }
+    }
 
     return GeneralSettingsApplyReport{
         .poll_now = source_changed || stability_changed ||
@@ -553,7 +597,7 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
 [[nodiscard]] std::string provider_state_text(domain::ProviderState state) {
     switch (state) {
     case domain::ProviderState::Disabled:
-        return "Disabled";
+        return "Not selected";
     case domain::ProviderState::Waiting:
         return "Waiting";
     case domain::ProviderState::Active:
@@ -594,7 +638,20 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
     row.filename = job.file.canonical_path.filename().string();
     row.report_available = job.dps_report_result.has_value();
     row.directory_available = !job.file.canonical_path.parent_path().empty();
+    const auto busy = [](domain::ProviderState state) {
+        return state == domain::ProviderState::Waiting || state == domain::ProviderState::Active ||
+               state == domain::ProviderState::RetryScheduled;
+    };
+    row.reupload_available =
+        job.encounter_metadata.has_value() &&
+        !busy(job.providers[domain::provider_index(domain::Provider::DpsReport)].state) &&
+        !busy(job.providers[domain::provider_index(domain::Provider::Wingman)].state) &&
+        !busy(job.providers[domain::provider_index(domain::Provider::DonBot)].state);
+    row.rechat_available =
+        job.dps_report_result.has_value() &&
+        !busy(job.providers[domain::provider_index(domain::Provider::Twitch)].state);
     if (job.dps_report_result) {
+        row.dps_report_url = job.dps_report_result->permalink;
         row.encounter = job.dps_report_result->encounter_name;
         if (!job.dps_report_result->mode.empty()) {
             row.encounter += " (" + job.dps_report_result->mode + ")";
@@ -603,6 +660,9 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
         row.encounter = "Encounter " + std::to_string(job.encounter_metadata->boss_id);
     } else {
         row.encounter = "Reading metadata";
+    }
+    if (job.donbot_upload_receipt) {
+        row.donbot_fight_log_id = job.donbot_upload_receipt->fight_log_id;
     }
     for (std::size_t index = 0; index < row.providers.size(); ++index) {
         row.providers[index] = ProviderCell{
@@ -617,6 +677,8 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
 
 [[nodiscard]] RuntimeSnapshot publish_snapshot(const RuntimeComponents& components,
                                                std::string diagnostic, bool root_available,
+                                               application::LogSelectionMode log_selection_mode,
+                                               application::LogSelectionWindow log_selection_window,
                                                std::uint64_t revision) {
     const auto options_snapshot = components.options_controller->snapshot();
     RuntimeSnapshot snapshot{
@@ -624,15 +686,47 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
         .recent_log_actions = components.recent_log_actions->snapshot(),
         .options_model = ui::build_nexus_options_model(options_snapshot),
         .recent_logs = {},
+        .dps_report_clipboard_text = {},
+        .donbot_aggregate_url = {},
+        .dps_report_url_count = 0,
+        .donbot_fight_count = 0,
         .runtime_diagnostic = std::move(diagnostic),
         .log_root_available = root_available,
-        .twitch_application_configured = components.twitch_application_configured,
+        .log_selection_mode = log_selection_mode,
+        .log_selection_window = log_selection_window,
+        .wine_secret_compatibility_mode = components.wine_secret_compatibility_mode,
+        .twitch_application_configured = components.twitch_client->configured(),
         .revision = revision,
     };
     auto jobs = components.upload_coordinator->snapshots();
     snapshot.recent_logs.reserve(jobs.size());
     for (auto iterator = jobs.rbegin(); iterator != jobs.rend(); ++iterator) {
+        if (!application::log_matches_selection(iterator->file.last_write_time, log_selection_mode,
+                                                log_selection_window)) {
+            continue;
+        }
         snapshot.recent_logs.push_back(make_row(*iterator));
+    }
+    std::string aggregate_ids;
+    for (const auto& row : snapshot.recent_logs) {
+        if (!row.dps_report_url.empty()) {
+            if (!snapshot.dps_report_clipboard_text.empty()) {
+                snapshot.dps_report_clipboard_text.push_back('\n');
+            }
+            snapshot.dps_report_clipboard_text += row.dps_report_url;
+            ++snapshot.dps_report_url_count;
+        }
+        if (row.donbot_fight_log_id) {
+            if (!aggregate_ids.empty()) {
+                aggregate_ids.push_back(',');
+            }
+            aggregate_ids += std::to_string(*row.donbot_fight_log_id);
+            ++snapshot.donbot_fight_count;
+        }
+    }
+    if (!aggregate_ids.empty()) {
+        snapshot.donbot_aggregate_url = std::string{providers::donbot_default_web_base} +
+                                        "/logs/aggregate?ids=" + aggregate_ids;
     }
     return snapshot;
 }
@@ -676,19 +770,50 @@ class ProductionRuntime final : public IAddonRuntime {
                     submit_action(application::DismissRecentLogActionErrorCommand{});
                 }
             }
+            if (ImGui::RadioButton("Show New", snapshot.log_selection_mode ==
+                                                   application::LogSelectionMode::New)) {
+                select_log_mode(application::LogSelectionMode::New);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Includes logs completed after this addon load");
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Show Today", snapshot.log_selection_mode ==
+                                                     application::LogSelectionMode::Today)) {
+                select_log_mode(application::LogSelectionMode::Today);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Includes all logs completed since local midnight");
+            }
             ImGui::Text("Log directory: %s",
                         snapshot.options_model.ordinary.general.log_directory.c_str());
             ImGui::SameLine();
             ImGui::TextUnformatted(snapshot.log_root_available ? "(available)" : "(not found yet)");
             ImGui::Separator();
 
+            if (!snapshot.dps_report_clipboard_text.empty() &&
+                ImGui::Button("Copy dps.report URLs")) {
+                ImGui::SetClipboardText(snapshot.dps_report_clipboard_text.c_str());
+            }
+            if (!snapshot.dps_report_clipboard_text.empty() &&
+                !snapshot.donbot_aggregate_url.empty()) {
+                ImGui::SameLine();
+            }
+            if (!snapshot.donbot_aggregate_url.empty() &&
+                ImGui::Button("Copy DonBot aggregate URL")) {
+                ImGui::SetClipboardText(snapshot.donbot_aggregate_url.c_str());
+            }
+            if (!snapshot.dps_report_clipboard_text.empty() ||
+                !snapshot.donbot_aggregate_url.empty()) {
+                ImGui::Separator();
+            }
+
             if (snapshot.recent_logs.empty()) {
                 ImGui::TextUnformatted("No logs detected yet.");
-            } else if (ImGui::BeginTable("RecentLogs", 8,
+            } else if (ImGui::BeginTable("RecentLogs", 7,
                                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                              ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY)) {
                 ImGui::TableSetupColumn("Detected");
-                ImGui::TableSetupColumn("Log");
                 ImGui::TableSetupColumn("Encounter");
                 ImGui::TableSetupColumn("dps.report");
                 ImGui::TableSetupColumn("GW2Wingman");
@@ -702,11 +827,9 @@ class ProductionRuntime final : public IAddonRuntime {
                     ImGui::TableSetColumnIndex(0);
                     ImGui::TextUnformatted(row.detected_at.c_str());
                     ImGui::TableSetColumnIndex(1);
-                    ImGui::TextUnformatted(row.filename.c_str());
-                    ImGui::TableSetColumnIndex(2);
                     ImGui::TextUnformatted(row.encounter.c_str());
                     for (std::size_t index = 0; index < row.providers.size(); ++index) {
-                        ImGui::TableSetColumnIndex(static_cast<int>(index + 3));
+                        ImGui::TableSetColumnIndex(static_cast<int>(index + 2));
                         ImGui::TextUnformatted(row.providers[index].status.c_str());
                         if (!row.providers[index].detail.empty() && ImGui::IsItemHovered()) {
                             ImGui::SetTooltip("%s", row.providers[index].detail.c_str());
@@ -722,17 +845,25 @@ class ProductionRuntime final : public IAddonRuntime {
                             ImGui::PopID();
                         }
                     }
-                    ImGui::TableSetColumnIndex(7);
-                    if (row.report_available && ImGui::SmallButton("Report")) {
-                        submit_action(application::OpenDpsReportCommand{
-                            .job_id = domain::UploadJobId{row.id}});
-                    }
-                    if (row.report_available && row.directory_available) {
-                        ImGui::SameLine();
-                    }
+                    ImGui::TableSetColumnIndex(6);
                     if (row.directory_available && ImGui::SmallButton("Folder")) {
                         submit_action(application::OpenLogDirectoryCommand{
                             .job_id = domain::UploadJobId{row.id}});
+                    }
+                    if (row.directory_available && row.reupload_available) {
+                        ImGui::SameLine();
+                    }
+                    if (row.reupload_available && ImGui::SmallButton("Reupload")) {
+                        submit_action(
+                            application::ReuploadLogCommand{.job_id = domain::UploadJobId{row.id}});
+                    }
+                    if ((row.directory_available || row.reupload_available) &&
+                        row.rechat_available) {
+                        ImGui::SameLine();
+                    }
+                    if (row.rechat_available && ImGui::SmallButton("Rechat")) {
+                        submit_action(
+                            application::RechatLogCommand{.job_id = domain::UploadJobId{row.id}});
                     }
                     ImGui::PopID();
                 }
@@ -768,6 +899,8 @@ class ProductionRuntime final : public IAddonRuntime {
                                &draft_.general.recent_log_limit);
             ImGui::InputScalar("Parser queue capacity", ImGuiDataType_U32,
                                &draft_.general.parser_queue_capacity);
+            ImGui::InputScalar("Parallel uploads per provider", ImGuiDataType_U32,
+                               &draft_.general.parallel_uploads_per_provider);
             ImGui::InputScalar("Maximum candidates", ImGuiDataType_U32,
                                &draft_.general.max_candidates);
             ImGui::TextWrapped("Saved general settings apply without reloading. Active parses and "
@@ -797,6 +930,12 @@ class ProductionRuntime final : public IAddonRuntime {
         }
         ImGui::TextWrapped("Protected storage: %s",
                            snapshot.options_model.protected_storage_text.c_str());
+        if (snapshot.wine_secret_compatibility_mode) {
+            ImGui::TextWrapped("Wine compatibility mode: DonBot and Twitch "
+                               "credentials are encrypted with Wine "
+                               "DPAPI, which does not provide native Windows "
+                               "user-scoped protection.");
+        }
     }
 
     void toggle_window() override {
@@ -805,6 +944,24 @@ class ProductionRuntime final : public IAddonRuntime {
                                                       std::memory_order_acquire)) {
         }
         submit(application::SetWindowVisibleCommand{.visible = !visible});
+    }
+
+    [[nodiscard]] QuickAccessStatus quick_access_status() const override {
+        const auto snapshot = snapshot_copy();
+        const auto& settings = snapshot.options_snapshot.configuration.settings;
+        std::string donbot_guild;
+        if (settings.donbot.enabled) {
+            donbot_guild = settings.donbot.selected_guild_id;
+            for (const auto& guild : snapshot.options_snapshot.donbot.guilds) {
+                if (guild.guild_id == settings.donbot.selected_guild_id) {
+                    donbot_guild = guild.guild_name;
+                    break;
+                }
+            }
+        }
+        return make_quick_access_status(settings.dps_report.enabled, settings.wingman.enabled,
+                                        settings.donbot.enabled, donbot_guild,
+                                        settings.twitch.enabled);
     }
 
     void shutdown() noexcept override {
@@ -822,7 +979,13 @@ class ProductionRuntime final : public IAddonRuntime {
   private:
     explicit ProductionRuntime(std::unique_ptr<RuntimeComponents> components)
         : components_{std::move(components)},
-          published_{publish_snapshot(*components_, {}, false, 1)},
+          published_{publish_snapshot(
+              *components_, {}, false, application::LogSelectionMode::New,
+              application::LogSelectionWindow{
+                  .session_started_at = components_->session_started_at,
+                  .local_day_started_at = local_day_started_at(components_->clock->system_now()),
+              },
+              1)},
           window_visible_{published_.options_model.ordinary.general.window_visible} {}
 
     template <typename Command> void submit(Command command) {
@@ -844,6 +1007,7 @@ class ProductionRuntime final : public IAddonRuntime {
         draft_ = snapshot.options_model.ordinary;
         copy_to_buffer(draft_.general.log_directory, log_directory_);
         copy_to_buffer(draft_.twitch_message_template, twitch_template_);
+        copy_to_buffer(components_->twitch_client->client_id(), twitch_client_id_);
         copy_to_buffer(snapshot.options_snapshot.configuration.settings.donbot.api_base_url,
                        donbot_url_);
         draft_initialized_ = true;
@@ -861,6 +1025,7 @@ class ProductionRuntime final : public IAddonRuntime {
     void submit_draft() {
         draft_.general.log_directory = log_directory_.data();
         draft_.general.window_visible = window_visible_.load(std::memory_order_acquire);
+        draft_.twitch_client_id = twitch_client_id_.data();
         draft_.twitch_message_template = twitch_template_.data();
         submit(application::SaveOrdinaryOptionsCommand{.options = draft_});
     }
@@ -868,6 +1033,11 @@ class ProductionRuntime final : public IAddonRuntime {
     void set_window_visible(bool visible) {
         window_visible_.store(visible, std::memory_order_release);
         submit(application::SetWindowVisibleCommand{.visible = visible});
+    }
+
+    void select_log_mode(application::LogSelectionMode mode) {
+        requested_log_selection_mode_.store(mode, std::memory_order_release);
+        owner_condition_.notify_all();
     }
 
     void render_donbot(const RuntimeSnapshot& snapshot) {
@@ -878,35 +1048,56 @@ class ProductionRuntime final : public IAddonRuntime {
         if (!snapshot.options_model.donbot.diagnostic.empty()) {
             ImGui::TextWrapped("%s", snapshot.options_model.donbot.diagnostic.c_str());
         }
-        ImGui::InputText("DonBot API", donbot_url_.data(), donbot_url_.size());
-        ImGui::InputText("GW2 API key", donbot_key_.data(), donbot_key_.size(),
-                         ImGuiInputTextFlags_Password);
-        if (snapshot.options_model.donbot.verify_available && ImGui::Button("Verify DonBot")) {
-            auto key = support::SecretValue::from_text(donbot_key_.data());
-            submit(application::VerifyDonBotCommand{
-                .api_base_url = donbot_url_.data(),
-                .api_key = std::move(key),
-            });
-            std::fill(donbot_key_.begin(), donbot_key_.end(), '\0');
+        const bool verified = snapshot.options_snapshot.donbot.state ==
+                                  application::DonBotConfigurationState::Verified &&
+                              snapshot.options_snapshot.donbot.account_name.has_value();
+        if (!verified) {
+            ImGui::InputText("DonBot API", donbot_url_.data(), donbot_url_.size());
+            ImGui::InputText("GW2 API key", donbot_key_.data(), donbot_key_.size(),
+                             ImGuiInputTextFlags_Password);
+            if (snapshot.options_model.donbot.verify_available && ImGui::Button("Verify DonBot")) {
+                auto key = support::SecretValue::from_text(donbot_key_.data());
+                submit(application::VerifyDonBotCommand{
+                    .api_base_url = donbot_url_.data(),
+                    .api_key = std::move(key),
+                });
+                std::fill(donbot_key_.begin(), donbot_key_.end(), '\0');
+            }
+            return;
         }
 
-        if (snapshot.options_model.donbot.guild_selection_available) {
-            for (const auto& guild : snapshot.options_snapshot.donbot.guilds) {
-                const bool selected =
-                    snapshot.options_snapshot.donbot.selected_guild_id == guild.guild_id;
-                if (ImGui::RadioButton(guild.guild_name.c_str(), selected)) {
-                    submit(application::SelectDonBotGuildCommand{.guild_id = guild.guild_id});
-                }
+        const auto& selected_id = snapshot.options_snapshot.donbot.selected_guild_id;
+        std::string selected_name = "Select a server";
+        for (const auto& guild : snapshot.options_snapshot.donbot.guilds) {
+            if (guild.guild_id == selected_id) {
+                selected_name = guild.guild_name;
+                break;
             }
         }
-        if (snapshot.options_model.donbot.enable_toggle_available) {
+        if (snapshot.options_model.donbot.guild_selection_available) {
+            ImGui::SetNextItemWidth(280.0F);
+            if (ImGui::BeginCombo("Server##DonBotServer", selected_name.c_str())) {
+                for (const auto& guild : snapshot.options_snapshot.donbot.guilds) {
+                    const bool selected = selected_id == guild.guild_id;
+                    if (ImGui::Selectable(guild.guild_name.c_str(), selected)) {
+                        submit(application::SelectDonBotGuildCommand{.guild_id = guild.guild_id});
+                    }
+                    if (selected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
             bool enabled = snapshot.options_snapshot.configuration.settings.donbot.enabled;
-            if (ImGui::Checkbox("Enable DonBot uploads", &enabled)) {
+            if (ImGui::Checkbox("Enable uploads##DonBot", &enabled)) {
                 submit(application::SetDonBotEnabledCommand{.enabled = enabled});
             }
         }
+        ImGui::TextWrapped("Provider changes apply to newly detected logs. Existing delivery "
+                           "history is never replayed automatically.");
         if (snapshot.options_model.donbot.disconnect_available &&
-            ImGui::Button("Disconnect DonBot")) {
+            ImGui::Button("Deverify DonBot")) {
             submit(application::DisconnectDonBotCommand{});
         }
     }
@@ -916,9 +1107,17 @@ class ProductionRuntime final : public IAddonRuntime {
             return;
         }
         if (!snapshot.twitch_application_configured) {
-            ImGui::TextWrapped("This development build needs the public Twitch application client "
-                               "ID before account connection can be enabled.");
+            ImGui::TextWrapped("Enter the public Client ID from your Twitch developer application, "
+                               "save settings, then connect the broadcaster account. A client "
+                               "secret is not used or stored.");
         }
+        const auto twitch_state = snapshot.options_snapshot.twitch.state;
+        const bool client_id_editable =
+            twitch_state == application::TwitchConnectionState::Disconnected ||
+            twitch_state == application::TwitchConnectionState::Error;
+        ImGui::InputText(
+            "Application client ID", twitch_client_id_.data(), twitch_client_id_.size(),
+            client_id_editable ? ImGuiInputTextFlags_None : ImGuiInputTextFlags_ReadOnly);
         ImGui::TextWrapped("Status: %s", snapshot.options_model.twitch.status_text.c_str());
         if (!snapshot.options_model.twitch.diagnostic.empty()) {
             ImGui::TextWrapped("%s", snapshot.options_model.twitch.diagnostic.c_str());
@@ -966,21 +1165,29 @@ class ProductionRuntime final : public IAddonRuntime {
     }
 
     void run(const std::stop_token& stop_token) noexcept {
-        std::string diagnostic;
+        std::string diagnostic = components_->startup_diagnostic;
         bool root_available{};
         std::uint64_t revision{2};
         auto next_poll = components_->clock->steady_now();
+        auto applied_log_selection_mode = application::LogSelectionMode::New;
+        auto log_selection_window = application::LogSelectionWindow{
+            .session_started_at = components_->session_started_at,
+            .local_day_started_at = local_day_started_at(components_->clock->system_now()),
+        };
+        auto applied_log_cutoff =
+            application::log_selection_cutoff(applied_log_selection_mode, log_selection_window);
 
         try {
             const auto initial = components_->configuration->snapshot();
             auto applied_general_settings = initial.settings.general;
             auto applied_settings_revision = initial.revision;
+            auto last_persisted_records = components_->upload_history_store->records();
             if (components_->persistent_secrets_available &&
                 !initial.settings.donbot.selected_guild_id.empty()) {
                 (void)components_->donbot_controller->begin_saved_verification();
             }
             if (components_->persistent_secrets_available &&
-                components_->twitch_application_configured) {
+                components_->twitch_client->configured()) {
                 (void)components_->twitch_controller->begin_saved_connection();
             }
 
@@ -1000,7 +1207,8 @@ class ProductionRuntime final : public IAddonRuntime {
                     applied_settings_revision = configuration.revision;
                     if (configuration.settings.general != applied_general_settings) {
                         auto applied = apply_general_settings(
-                            *components_, applied_general_settings, configuration.settings.general);
+                            *components_, applied_general_settings, configuration.settings.general,
+                            applied_log_cutoff);
                         if (!applied) {
                             diagnostic = applied.error().message;
                         } else {
@@ -1017,12 +1225,45 @@ class ProductionRuntime final : public IAddonRuntime {
                         .api_base_url = configuration.settings.donbot.api_base_url,
                         .guild_id = configuration.settings.donbot.selected_guild_id,
                     });
+                    if (auto updated = components_->twitch_client->update_client_id(
+                            effective_twitch_client_id(configuration.settings));
+                        !updated) {
+                        diagnostic = updated.error().detail;
+                    }
                     (void)components_->twitch_worker->update_config(providers::TwitchProviderConfig{
                         .message_template = configuration.settings.twitch.message_template,
                         .post_success = configuration.settings.twitch.post_success,
                         .post_failure = configuration.settings.twitch.post_failure,
                     });
                 }
+
+                auto desired_window = application::LogSelectionWindow{
+                    .session_started_at = components_->session_started_at,
+                    .local_day_started_at = local_day_started_at(components_->clock->system_now()),
+                };
+                const auto desired_mode =
+                    requested_log_selection_mode_.load(std::memory_order_acquire);
+                const auto desired_cutoff =
+                    application::log_selection_cutoff(desired_mode, desired_window);
+                if (desired_mode != applied_log_selection_mode ||
+                    desired_cutoff != applied_log_cutoff) {
+                    auto reconfigured = components_->candidate_source->reconfigure(
+                        std::filesystem::path{configuration.settings.general.log_directory},
+                        configuration.settings.general.watch_subdirectories,
+                        configuration.settings.general.max_candidates, desired_cutoff);
+                    if (!reconfigured) {
+                        diagnostic = "Unable to apply the log selection";
+                        requested_log_selection_mode_.store(applied_log_selection_mode,
+                                                            std::memory_order_release);
+                    } else {
+                        components_->application_pump->reset_pending_candidates();
+                        applied_log_selection_mode = desired_mode;
+                        applied_log_cutoff = desired_cutoff;
+                        root_available = false;
+                        next_poll = components_->clock->steady_now();
+                    }
+                }
+                log_selection_window = desired_window;
 
                 const auto now = components_->clock->steady_now();
                 if (now >= next_poll) {
@@ -1045,16 +1286,29 @@ class ProductionRuntime final : public IAddonRuntime {
                                           configuration.settings.general.poll_interval_ms};
                 }
 
-                set_published(
-                    publish_snapshot(*components_, diagnostic, root_available, revision++));
+                auto history_records = components_->upload_coordinator->history_records();
+                if (history_records != last_persisted_records) {
+                    if (auto saved =
+                            components_->upload_history_store->merge_and_save(history_records);
+                        !saved) {
+                        diagnostic = "Unable to persist upload history: " + saved.error().message;
+                    } else {
+                        last_persisted_records = std::move(history_records);
+                    }
+                }
+
+                set_published(publish_snapshot(*components_, diagnostic, root_available,
+                                               applied_log_selection_mode, log_selection_window,
+                                               revision++));
                 std::unique_lock lock{owner_mutex_};
                 owner_condition_.wait_for(lock, 50ms);
             }
         } catch (...) {
             diagnostic = "The application owner stopped after an unexpected failure";
             try {
-                set_published(
-                    publish_snapshot(*components_, diagnostic, root_available, revision++));
+                set_published(publish_snapshot(*components_, diagnostic, root_available,
+                                               applied_log_selection_mode, log_selection_window,
+                                               revision++));
             } catch (...) {
             }
         }
@@ -1062,6 +1316,8 @@ class ProductionRuntime final : public IAddonRuntime {
         components_->recent_log_actions->shutdown();
         components_->options_controller->shutdown();
         components_->application_pump->cancel_all();
+        (void)components_->upload_history_store->merge_and_save(
+            components_->upload_coordinator->history_records());
         components_->donbot_controller->shutdown();
         components_->twitch_controller->shutdown();
         components_->twitch_session_owner->shutdown();
@@ -1076,11 +1332,14 @@ class ProductionRuntime final : public IAddonRuntime {
     std::jthread owner_thread_;
     std::atomic_bool shutting_down_{};
     std::atomic_bool window_visible_;
+    std::atomic<application::LogSelectionMode> requested_log_selection_mode_{
+        application::LogSelectionMode::New};
 
     bool draft_initialized_{};
     application::NexusOrdinaryOptions draft_;
     std::array<char, 4097> log_directory_{};
     std::array<char, 2049> twitch_template_{};
+    std::array<char, 129> twitch_client_id_{};
     std::array<char, 2049> donbot_url_{};
     std::array<char, 513> donbot_key_{};
 };

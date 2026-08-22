@@ -47,7 +47,7 @@ bounded_retry_delay(std::optional<std::chrono::seconds> delay) noexcept {
 
 std::expected<std::unique_ptr<DpsReportProviderWorker>, DpsReportProviderWorkerError>
 DpsReportProviderWorker::create(const IDpsReportClient& client, ports::ISecretStore* secret_store,
-                                std::size_t queue_capacity) {
+                                std::size_t queue_capacity, std::size_t parallelism) {
     if (queue_capacity == 0) {
         return std::unexpected(
             make_worker_error(DpsReportProviderWorkerErrorCode::InvalidCapacity,
@@ -57,9 +57,9 @@ DpsReportProviderWorker::create(const IDpsReportClient& client, ports::ISecretSt
     try {
         auto provider = std::unique_ptr<DpsReportProviderWorker>{
             new DpsReportProviderWorker{client, secret_store}};
-        auto worker =
-            AsyncUploadWorker::create(domain::Provider::DpsReport, *provider,
-                                      "The dps.report worker failed unexpectedly", queue_capacity);
+        auto worker = AsyncUploadWorker::create(domain::Provider::DpsReport, *provider,
+                                                "The dps.report worker failed unexpectedly",
+                                                queue_capacity, parallelism);
         if (!worker) {
             return std::unexpected(
                 make_worker_error(DpsReportProviderWorkerErrorCode::ThreadStartFailed,
@@ -121,6 +121,15 @@ std::size_t DpsReportProviderWorker::result_count() const noexcept {
 
 bool DpsReportProviderWorker::is_stopping() const noexcept {
     return worker_->is_stopping();
+}
+
+std::expected<void, AsyncUploadWorkerError>
+DpsReportProviderWorker::update_parallelism(std::size_t parallelism) {
+    return worker_->update_parallelism(parallelism);
+}
+
+std::size_t DpsReportProviderWorker::parallelism() const noexcept {
+    return worker_->parallelism();
 }
 
 ports::UploadResult DpsReportProviderWorker::process(const ports::UploadRequest& request,

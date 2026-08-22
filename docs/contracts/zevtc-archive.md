@@ -16,9 +16,11 @@ The adapter does not trust the filename extension as proof that the bytes are a 
 ## Entry selection
 
 - The central directory must contain no more than 16 entries by default.
-- Exactly one non-directory entry must end in `.evtc`, matched with ASCII case folding.
+- Prefer exactly one non-directory entry ending in `.evtc`, matched with ASCII case folding.
+- When there is exactly one non-directory entry total, an extensionless arcdps timestamp entry is
+  accepted and its EVTC header is validated after extraction.
 - Other entries are ignored but still count toward the archive entry limit.
-- A missing or second matching entry makes the archive invalid.
+- A missing compatible entry, second `.evtc` entry, or ambiguous extensionless archive is invalid.
 - Encrypted entries and compression methods unsupported by the pinned reader are rejected.
 - The selected EVTC entry must not be empty.
 - Entry filenames are limited to 1 KiB by default.

@@ -126,6 +126,7 @@ void round_trip_tests(TestSuite& suite) {
     settings.general.stability_observations = 10;
     settings.general.recent_log_limit = 500;
     settings.general.parser_queue_capacity = 64;
+    settings.general.parallel_uploads_per_provider = 10;
     settings.general.max_candidates = 10'000;
     settings.dps_report.enabled = true;
     settings.wingman.enabled = false;
@@ -133,6 +134,7 @@ void round_trip_tests(TestSuite& suite) {
     settings.donbot.api_base_url = "https://donbot.example/v1/";
     settings.donbot.selected_guild_id = "123456789012345678";
     settings.twitch.enabled = true;
+    settings.twitch.client_id = "abc123publicclient";
     settings.twitch.message_template = "{encounter}: {url} — Uploaded";
     settings.twitch.post_failure = false;
 

@@ -40,6 +40,7 @@ class MetadataParserWorker final : public ports::ILogMetadataParser {
 
     [[nodiscard]] std::expected<void, ports::MetadataParseDispatchError>
     enqueue(ports::MetadataParseRequest request) override;
+    [[nodiscard]] std::size_t available_capacity() const noexcept override;
     void cancel_pending() noexcept override;
 
     [[nodiscard]] std::optional<ports::MetadataParseResult> try_take_result() override;

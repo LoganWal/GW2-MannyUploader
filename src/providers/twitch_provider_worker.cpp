@@ -46,7 +46,8 @@ validate_config(const TwitchProviderConfig& config) {
 std::expected<std::unique_ptr<TwitchProviderWorker>, TwitchProviderWorkerError>
 TwitchProviderWorker::create(const ITwitchClient& client,
                              const ports::ITwitchDeliverySessionAccess& session_access,
-                             TwitchProviderConfig config, std::size_t queue_capacity) {
+                             TwitchProviderConfig config, std::size_t queue_capacity,
+                             std::size_t parallelism) {
     if (queue_capacity == 0) {
         return std::unexpected(make_worker_error(TwitchProviderWorkerErrorCode::InvalidCapacity,
                                                  "Twitch provider capacity must be non-zero"));
@@ -57,9 +58,9 @@ TwitchProviderWorker::create(const ITwitchClient& client,
     try {
         auto provider = std::unique_ptr<TwitchProviderWorker>{
             new TwitchProviderWorker{client, session_access, std::move(config)}};
-        auto worker =
-            AsyncUploadWorker::create(domain::Provider::Twitch, *provider,
-                                      "The Twitch worker failed unexpectedly", queue_capacity);
+        auto worker = AsyncUploadWorker::create(domain::Provider::Twitch, *provider,
+                                                "The Twitch worker failed unexpectedly",
+                                                queue_capacity, parallelism);
         if (!worker) {
             return std::unexpected(
                 make_worker_error(TwitchProviderWorkerErrorCode::ThreadStartFailed,
@@ -153,6 +154,15 @@ bool TwitchProviderWorker::is_stopping() const noexcept {
     return worker_->is_stopping();
 }
 
+std::expected<void, AsyncUploadWorkerError>
+TwitchProviderWorker::update_parallelism(std::size_t parallelism) {
+    return worker_->update_parallelism(parallelism);
+}
+
+std::size_t TwitchProviderWorker::parallelism() const noexcept {
+    return worker_->parallelism();
+}
+
 ports::UploadResult TwitchProviderWorker::process(const ports::UploadRequest& request,
                                                   const std::stop_token& stop_token) const {
     if (!request.dps_report_result || !request.twitch_context) {
@@ -210,6 +220,10 @@ TwitchProviderWorker::finalize_delivery(const ports::UploadRequest& request,
 
 std::optional<ports::UploadResult>
 TwitchProviderWorker::previous_delivery(const ports::UploadRequest& request) const {
+    if (request.user_initiated_retry) {
+        return std::nullopt;
+    }
+    const std::scoped_lock lock{ledger_mutex_};
     const auto found = std::ranges::find_if(ledger_, [&request](const LedgerEntry& entry) {
         return entry.job_id == request.job_id && request.dps_report_result &&
                entry.permalink == request.dps_report_result->permalink;
@@ -218,9 +232,6 @@ TwitchProviderWorker::previous_delivery(const ports::UploadRequest& request) con
         return std::nullopt;
     }
     if (found->state == LedgerState::Ambiguous) {
-        if (request.user_initiated_retry) {
-            return std::nullopt;
-        }
         return make_result(
             request.job_id, ports::UploadOutcome::Failed,
             "Twitch delivery was previously ambiguous; automatic retry was suppressed");
@@ -238,6 +249,7 @@ void TwitchProviderWorker::record_delivery(const ports::UploadRequest& request, 
     if (!request.dps_report_result) {
         return;
     }
+    const std::scoped_lock lock{ledger_mutex_};
     const auto found = std::ranges::find_if(ledger_, [&request](const LedgerEntry& entry) {
         return entry.job_id == request.job_id &&
                entry.permalink == request.dps_report_result->permalink;

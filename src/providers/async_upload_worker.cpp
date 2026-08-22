@@ -14,21 +14,24 @@ namespace {
 
 std::expected<std::unique_ptr<AsyncUploadWorker>, AsyncUploadWorkerError>
 AsyncUploadWorker::create(domain::Provider provider, const IUploadRequestProcessor& processor,
-                          std::string unexpected_failure_detail, std::size_t queue_capacity) {
+                          std::string unexpected_failure_detail, std::size_t queue_capacity,
+                          std::size_t parallelism) {
     if (domain::provider_index(provider) >= domain::provider_count) {
         return std::unexpected(make_error(AsyncUploadWorkerErrorCode::InvalidProvider,
                                           "Upload worker provider is invalid"));
     }
-    if (queue_capacity == 0) {
+    if (queue_capacity == 0 || parallelism == 0 || parallelism > 32) {
         return std::unexpected(make_error(AsyncUploadWorkerErrorCode::InvalidCapacity,
-                                          "Upload worker capacity must be non-zero"));
+                                          "Upload worker capacity or parallelism is invalid"));
     }
 
     try {
         auto worker = std::unique_ptr<AsyncUploadWorker>{new AsyncUploadWorker{
             provider, processor, std::move(unexpected_failure_detail), queue_capacity}};
-        worker->thread_ = std::jthread{
-            [instance = worker.get()](std::stop_token token) { instance->run(std::move(token)); }};
+        worker->parallelism_ = parallelism;
+        if (auto started = worker->add_threads_until(parallelism); !started) {
+            return std::unexpected(std::move(started.error()));
+        }
         return worker;
     } catch (...) {
         return std::unexpected(make_error(AsyncUploadWorkerErrorCode::ThreadStartFailed,
@@ -94,7 +97,9 @@ void AsyncUploadWorker::cancel_pending() noexcept {
         stopping_ = true;
         requests_.clear();
         results_.clear();
-        thread_.request_stop();
+        for (auto& thread : threads_) {
+            thread.request_stop();
+        }
     }
     condition_.notify_all();
 }
@@ -126,19 +131,58 @@ bool AsyncUploadWorker::is_stopping() const noexcept {
     return stopping_;
 }
 
+std::expected<void, AsyncUploadWorkerError>
+AsyncUploadWorker::update_parallelism(std::size_t parallelism) {
+    if (parallelism == 0 || parallelism > 32) {
+        return std::unexpected(make_error(AsyncUploadWorkerErrorCode::InvalidCapacity,
+                                          "Upload worker parallelism must be between 1 and 32"));
+    }
+    const std::scoped_lock lock{mutex_};
+    if (stopping_) {
+        return std::unexpected(
+            make_error(AsyncUploadWorkerErrorCode::ThreadStartFailed, "Upload worker is stopping"));
+    }
+    if (auto started = add_threads_until(parallelism); !started) {
+        return started;
+    }
+    parallelism_ = parallelism;
+    condition_.notify_all();
+    return {};
+}
+
+std::size_t AsyncUploadWorker::parallelism() const noexcept {
+    const std::scoped_lock lock{mutex_};
+    return parallelism_;
+}
+
+std::expected<void, AsyncUploadWorkerError>
+AsyncUploadWorker::add_threads_until(std::size_t thread_count) {
+    try {
+        while (threads_.size() < thread_count) {
+            threads_.emplace_back([this](std::stop_token token) { run(std::move(token)); });
+        }
+        return {};
+    } catch (...) {
+        return std::unexpected(make_error(AsyncUploadWorkerErrorCode::ThreadStartFailed,
+                                          "Unable to expand upload worker parallelism"));
+    }
+}
+
 void AsyncUploadWorker::run(std::stop_token stop_token) {
     while (!stop_token.stop_requested()) {
         ports::UploadRequest request;
         {
             std::unique_lock lock{mutex_};
             condition_.wait(lock, [this, &stop_token] {
-                return stop_token.stop_requested() || !requests_.empty();
+                return stop_token.stop_requested() ||
+                       (!requests_.empty() && active_count_ < parallelism_);
             });
             if (stop_token.stop_requested()) {
                 return;
             }
             request = std::move(requests_.front());
             requests_.pop_front();
+            ++active_count_;
         }
         condition_.notify_all();
 
@@ -163,11 +207,15 @@ void AsyncUploadWorker::run(std::stop_token stop_token) {
             stopping_ = true;
             requests_.clear();
             results_.clear();
-            thread_.request_stop();
+            --active_count_;
+            for (auto& thread : threads_) {
+                thread.request_stop();
+            }
             lock.unlock();
             condition_.notify_all();
             return;
         }
+        --active_count_;
         lock.unlock();
         condition_.notify_all();
     }

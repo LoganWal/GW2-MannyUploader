@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace manny_uploader::addon {
@@ -22,5 +23,69 @@ inline std::array<std::uint8_t, 222> quick_access_icon_png{
     0x3a, 0xbd, 0xce, 0x96, 0xd3, 0x5b, 0x1f, 0xef, 0x94, 0x0b, 0x2c, 0x03, 0x0b, 0xd9, 0xd6, 0x3d,
     0x02, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 };
+
+namespace detail {
+
+[[nodiscard]] constexpr std::uint32_t png_crc32(const std::uint8_t* data,
+                                                std::size_t size) noexcept {
+    std::uint32_t crc = 0xffffffffU;
+    for (std::size_t index = 0; index < size; ++index) {
+        crc ^= data[index];
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1U) ^ (0xedb88320U & (0U - (crc & 1U)));
+        }
+    }
+    return crc ^ 0xffffffffU;
+}
+
+template <std::size_t Size>
+constexpr void set_palette_color(std::array<std::uint8_t, Size>& png, std::size_t index,
+                                 std::uint8_t red, std::uint8_t green, std::uint8_t blue) noexcept {
+    constexpr std::size_t palette_offset = 41;
+    const auto offset = palette_offset + index * 3;
+    png[offset] = red;
+    png[offset + 1] = green;
+    png[offset + 2] = blue;
+}
+
+template <std::size_t Size>
+constexpr void update_palette_crc(std::array<std::uint8_t, Size>& png) noexcept {
+    constexpr std::size_t chunk_type_offset = 37;
+    constexpr std::size_t chunk_type_and_data_size = 4 + 21;
+    constexpr std::size_t crc_offset = 62;
+    const auto crc = png_crc32(png.data() + chunk_type_offset, chunk_type_and_data_size);
+    png[crc_offset] = static_cast<std::uint8_t>((crc >> 24U) & 0xffU);
+    png[crc_offset + 1] = static_cast<std::uint8_t>((crc >> 16U) & 0xffU);
+    png[crc_offset + 2] = static_cast<std::uint8_t>((crc >> 8U) & 0xffU);
+    png[crc_offset + 3] = static_cast<std::uint8_t>(crc & 0xffU);
+}
+
+[[nodiscard]] inline auto make_idle_icon() noexcept {
+    auto result = quick_access_icon_png;
+    set_palette_color(result, 1, 0x9a, 0x9f, 0xad);
+    set_palette_color(result, 2, 0x70, 0x75, 0x80);
+    set_palette_color(result, 3, 0x50, 0x55, 0x60);
+    set_palette_color(result, 4, 0x38, 0x3d, 0x48);
+    set_palette_color(result, 5, 0xd0, 0xd2, 0xd8);
+    update_palette_crc(result);
+    return result;
+}
+
+[[nodiscard]] inline auto make_twitch_icon() noexcept {
+    auto result = quick_access_icon_png;
+    set_palette_color(result, 1, 0x91, 0x46, 0xff);
+    set_palette_color(result, 2, 0x64, 0x41, 0xa5);
+    set_palette_color(result, 3, 0x39, 0x2e, 0x5c);
+    set_palette_color(result, 4, 0x18, 0x18, 0x1b);
+    set_palette_color(result, 5, 0xf7, 0xf7, 0xf8);
+    set_palette_color(result, 6, 0xad, 0xad, 0xb8);
+    update_palette_crc(result);
+    return result;
+}
+
+} // namespace detail
+
+inline auto quick_access_idle_icon_png = detail::make_idle_icon();
+inline auto quick_access_twitch_icon_png = detail::make_twitch_icon();
 
 } // namespace manny_uploader::addon

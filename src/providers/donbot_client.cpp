@@ -33,6 +33,12 @@ struct ParsedDonBotVerification {
     std::optional<std::vector<ParsedDonBotGuild>> guilds;
 };
 
+struct ParsedDonBotProgress {
+    std::optional<std::string> stage;
+    std::optional<std::string> message;
+    std::optional<std::uint64_t> fightLogId;
+};
+
 } // namespace detail
 
 namespace {
@@ -42,6 +48,7 @@ using namespace std::chrono_literals;
 constexpr std::string_view tus_version = "1.0.0";
 constexpr std::string_view guilds_path = "/api/upload/gw2/guilds";
 constexpr std::string_view tus_path = "/api/upload/tus";
+constexpr std::string_view progress_path = "/api/upload/stream/";
 constexpr std::size_t max_api_base_bytes = 2048;
 constexpr std::size_t max_display_name_bytes = 256;
 constexpr std::size_t max_guilds = 256;
@@ -408,6 +415,92 @@ decode_verification(const ports::HttpResponse& response) {
     return result;
 }
 
+[[nodiscard]] std::expected<std::optional<std::uint64_t>, DonBotError>
+decode_progress(const ports::HttpResponse& response) {
+    const auto document =
+        std::string_view{reinterpret_cast<const char*>(response.body.data()), response.body.size()};
+    std::optional<std::uint64_t> fight_log_id;
+    bool completed{};
+    std::size_t offset{};
+    while (offset < document.size()) {
+        const auto line_end = document.find('\n', offset);
+        auto line =
+            document.substr(offset, line_end == std::string_view::npos ? document.size() - offset
+                                                                       : line_end - offset);
+        if (line.ends_with('\r')) {
+            line.remove_suffix(1);
+        }
+        offset = line_end == std::string_view::npos ? document.size() : line_end + 1;
+        if (!line.starts_with("data:")) {
+            continue;
+        }
+        line.remove_prefix(5);
+        if (line.starts_with(' ')) {
+            line.remove_prefix(1);
+        }
+        detail::ParsedDonBotProgress parsed;
+        if (const auto error = glz::read<ResponseReadOptions{}>(parsed, line);
+            error || !parsed.stage) {
+            return std::unexpected(make_error(DonBotDisposition::Failed,
+                                              "DonBot returned invalid upload progress",
+                                              std::nullopt, std::nullopt, response.status_code));
+        }
+        if (parsed.fightLogId) {
+            if (*parsed.fightLogId == 0 ||
+                *parsed.fightLogId >
+                    static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+                return std::unexpected(make_error(
+                    DonBotDisposition::Failed, "DonBot returned an invalid fight identifier",
+                    std::nullopt, std::nullopt, response.status_code));
+            }
+            fight_log_id = parsed.fightLogId;
+        }
+        if (*parsed.stage == "failed") {
+            return std::unexpected(make_error(DonBotDisposition::Failed,
+                                              "DonBot could not process the uploaded log",
+                                              std::nullopt, std::nullopt, response.status_code));
+        }
+        completed = completed || *parsed.stage == "complete";
+    }
+    if (!completed) {
+        return std::unexpected(make_error(DonBotDisposition::Failed,
+                                          "DonBot upload progress ended before completion",
+                                          std::nullopt, std::nullopt, response.status_code));
+    }
+    return fight_log_id;
+}
+
+[[nodiscard]] ports::HttpTimeouts upload_timeouts();
+[[nodiscard]] ports::HttpResponseLimits small_response_limits(std::size_t body_bytes);
+
+[[nodiscard]] std::expected<std::optional<std::uint64_t>, DonBotError>
+wait_for_processing(const ports::IHttpClient& http_client, const ParsedBaseUrl& base,
+                    std::uint64_t upload_id, const std::stop_token& stop_token) {
+    ports::HttpRequest request{
+        .method = ports::HttpMethod::Get,
+        .url = base.normalized + std::string{progress_path} + std::to_string(upload_id),
+        .headers = {ports::HttpHeader{
+            .name = "Accept",
+            .value = "text/event-stream",
+            .sensitivity = ports::HttpHeaderSensitivity::Public,
+        }},
+        .body = nullptr,
+        .timeouts = upload_timeouts(),
+        .response_limits = small_response_limits(std::size_t{256} * 1024U),
+    };
+    auto response = http_client.execute(std::move(request), stop_token);
+    if (!response) {
+        if (response.error().code == ports::HttpErrorCode::Cancelled) {
+            return std::unexpected(classify_transport_error(response.error(), true));
+        }
+        return std::optional<std::uint64_t>{};
+    }
+    if (response->status_code != 200) {
+        return std::optional<std::uint64_t>{};
+    }
+    return decode_progress(*response);
+}
+
 [[nodiscard]] ports::HttpTimeouts upload_timeouts() {
     return ports::HttpTimeouts{
         .connect = 10s,
@@ -633,7 +726,15 @@ DonBotClient::upload(const domain::LogFileIdentity& file, std::string_view api_b
                                               "DonBot returned an invalid TUS completion response",
                                               std::nullopt, std::nullopt, patched->status_code));
         }
-        return DonBotUploadSuccess{.upload_id = upload_id};
+        std::optional<std::uint64_t> fight_log_id;
+        if (upload_id) {
+            auto processed = wait_for_processing(http_client_, *base, *upload_id, stop_token);
+            if (!processed) {
+                return std::unexpected(std::move(processed.error()));
+            }
+            fight_log_id = *processed;
+        }
+        return DonBotUploadSuccess{.upload_id = upload_id, .fight_log_id = fight_log_id};
     } catch (...) {
         return std::unexpected(
             make_error(DonBotDisposition::Failed, "The DonBot upload failed unexpectedly"));

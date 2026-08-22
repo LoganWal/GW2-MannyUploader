@@ -28,11 +28,19 @@ struct RetryFailedProviderCommand {
     domain::Provider provider;
 };
 
+struct ReuploadLogCommand {
+    domain::UploadJobId job_id;
+};
+
+struct RechatLogCommand {
+    domain::UploadJobId job_id;
+};
+
 struct DismissRecentLogActionErrorCommand {};
 
 using RecentLogActionCommand =
     std::variant<OpenDpsReportCommand, OpenLogDirectoryCommand, RetryFailedProviderCommand,
-                 DismissRecentLogActionErrorCommand>;
+                 ReuploadLogCommand, RechatLogCommand, DismissRecentLogActionErrorCommand>;
 
 enum class RecentLogActionErrorCode : std::uint8_t {
     InvalidConfiguration,

@@ -9,14 +9,16 @@ application runtime. Native Nexus and ImGui types stop at that entry adapter.
 2. Install the Nexus-provided ImGui context and allocator functions.
 3. Resolve the game and addon directories into owned filesystem paths.
 4. Construct the complete runtime before accepting callbacks.
-5. Register the main render callback, options callback, configurable window input bind, embedded icon
-   texture, and quick-access shortcut in that order.
-6. Open the callback gate only after every lifecycle-owned registration succeeds.
+5. Register the main render callback, options callback, and configurable window input bind.
+6. Attempt the embedded normal, idle-grey, and Twitch-purple icon textures and quick-access shortcut,
+   then open the callback gate.
 
 Callbacks invoked synchronously during registration are safe no-ops. A partial registration failure
-deregisters completed registrations in reverse order, shuts down the runtime, and returns to the
-unloaded state. Icon creation uses Nexus's synchronous memory API; no asynchronous texture callback
-may retain code or data from the addon DLL.
+deregisters completed required registrations in reverse order, shuts down the runtime, and returns to
+the unloaded state. Quick access is optional: a texture/shortcut failure emits a warning while main
+rendering, options, the input bind, and the complete upload runtime remain active. Icon creation uses
+Nexus's synchronous memory API; no asynchronous texture callback may retain code or data from the
+addon DLL.
 
 ## Callback boundary
 
@@ -28,6 +30,10 @@ critical log message that contains no path, setting, credential, HTTP document, 
 Callbacks call only application runtime methods. The runtime supplies immutable snapshots and queues
 commands; it does not parse files, perform HTTP, or write settings inside a Nexus callback. Window
 visibility uses a dedicated value command so toggling cannot overwrite unrelated provider settings.
+The main callback may refresh the shortcut from an immutable status snapshot. The tooltip begins
+with `View MannyUploader list`, adds one line per enabled destination and the selected DonBot guild,
+and uses Twitch purple in preference to the normal upload tint. Nexus has no in-place shortcut update,
+so a changed status is applied as one balanced remove/add pair with owned tooltip storage.
 
 ## Unloading
 

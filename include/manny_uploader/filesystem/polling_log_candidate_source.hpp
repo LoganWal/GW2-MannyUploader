@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <stop_token>
 #include <vector>
 
@@ -34,10 +35,12 @@ class StandardPollingLogCandidateSource final : public ports::ILogCandidateSourc
     [[nodiscard]] static std::expected<StandardPollingLogCandidateSource,
                                        ports::LogCandidateSourceError>
     create(const std::filesystem::path& root, bool recursive = true,
-           std::size_t max_candidates = 4096);
+           std::size_t max_candidates = 4096,
+           std::optional<std::filesystem::file_time_type> minimum_last_write_time = std::nullopt);
 
-    [[nodiscard]] std::expected<void, ports::LogCandidateSourceError>
-    reconfigure(const std::filesystem::path& root, bool recursive, std::size_t max_candidates);
+    [[nodiscard]] std::expected<void, ports::LogCandidateSourceError> reconfigure(
+        const std::filesystem::path& root, bool recursive, std::size_t max_candidates,
+        std::optional<std::filesystem::file_time_type> minimum_last_write_time = std::nullopt);
 
     [[nodiscard]] std::expected<ports::LogCandidateBatch, ports::LogCandidateSourceError>
     poll(const std::stop_token& stop_token) override;
@@ -45,11 +48,14 @@ class StandardPollingLogCandidateSource final : public ports::ILogCandidateSourc
     [[nodiscard]] const std::filesystem::path& root() const noexcept;
     [[nodiscard]] bool recursive() const noexcept;
     [[nodiscard]] std::size_t max_candidates() const noexcept;
+    [[nodiscard]] std::optional<std::filesystem::file_time_type>
+    minimum_last_write_time() const noexcept;
     [[nodiscard]] std::size_t retained_count() const noexcept;
 
   private:
-    StandardPollingLogCandidateSource(std::filesystem::path root, bool recursive,
-                                      std::size_t max_candidates);
+    StandardPollingLogCandidateSource(
+        std::filesystem::path root, bool recursive, std::size_t max_candidates,
+        std::optional<std::filesystem::file_time_type> minimum_last_write_time);
 
     [[nodiscard]] std::expected<DirectorySnapshot, ports::LogCandidateSourceError>
     scan(const std::stop_token& stop_token) const;
@@ -57,6 +63,7 @@ class StandardPollingLogCandidateSource final : public ports::ILogCandidateSourc
     std::filesystem::path root_;
     bool recursive_;
     std::size_t max_candidates_;
+    std::optional<std::filesystem::file_time_type> minimum_last_write_time_;
     CandidateSnapshotTracker tracker_;
 };
 

@@ -28,7 +28,8 @@ class WingmanProviderWorker final : public ports::IUploadProvider, private IUplo
   public:
     [[nodiscard]] static std::expected<std::unique_ptr<WingmanProviderWorker>,
                                        WingmanProviderWorkerError>
-    create(const IWingmanClient& client, std::size_t queue_capacity = 8);
+    create(const IWingmanClient& client, std::size_t queue_capacity = 8,
+           std::size_t parallelism = 1);
 
     ~WingmanProviderWorker() override;
 
@@ -46,6 +47,9 @@ class WingmanProviderWorker final : public ports::IUploadProvider, private IUplo
     [[nodiscard]] std::size_t pending_count() const noexcept;
     [[nodiscard]] std::size_t result_count() const noexcept;
     [[nodiscard]] bool is_stopping() const noexcept;
+    [[nodiscard]] std::expected<void, AsyncUploadWorkerError>
+    update_parallelism(std::size_t parallelism);
+    [[nodiscard]] std::size_t parallelism() const noexcept;
 
   private:
     explicit WingmanProviderWorker(const IWingmanClient& client);

@@ -55,7 +55,8 @@ asynchronous EVTC metadata
 ```
 
 dps.report, GW2Wingman, and DonBot are independent. Twitch is the only dependent provider and may
-start only after dps.report has produced a valid permalink.
+start only after dps.report has produced a valid permalink. Job states and public delivery receipts
+are atomically persisted, then seed discovery on the next process so unchanged logs are not replayed.
 
 ## State ownership
 
@@ -84,7 +85,9 @@ The application coordinator is the sole mutable job owner. It:
 - evicts only settled jobs when the bounded history is full;
 - publishes deep-copy snapshots for consumers such as the UI;
 - re-arms only explicitly selected failed providers for user-initiated retry, including dependent
-  dps.report/Twitch recovery; and
+  dps.report/Twitch recovery;
+- restores durable history without dispatch and exposes distinct explicit Reupload and Rechat paths;
+  and
 - cancels provider queues and unsettled job states exactly once during shutdown.
 
 Provider implementations receive value-type upload requests through `IUploadProvider`; they never
@@ -109,7 +112,9 @@ The parser adapter returns a typed result to the coordinator owner:
 `MetadataParserWorker` implements the asynchronous port with one owned `std::jthread` and bounded FIFO
 request/result queues. It contains reader exceptions, preserves job IDs, applies output backpressure,
 and requests cooperative cancellation before joining during destruction. The coordinator owner drains
-completed results; the worker never receives mutable job state.
+completed results; the worker never receives mutable job state. The application pump queries available
+input capacity before consuming candidate observations, so normal queue saturation defers work to a
+later poll instead of manufacturing dispatch failures.
 
 ## Minimal EVTC payload decoder
 
@@ -155,6 +160,10 @@ The standard-library-only discovery policy then:
 - emits a `LogFileIdentity` and releases its pending state once stable; and
 - suppresses exact path/size/write-time identities through a bounded oldest-first dedupe history.
 
+At composition time the dedupe history is seeded with every identity retained by the persistent
+upload-history adapter. This makes a New/Today rescan after restart observational only for unchanged
+logs; a different size or write time remains a new identity.
+
 The policy performs no filesystem reads and never sleeps. Scheduling observations, canonicalizing
 paths, handling missing files, and selecting native-notification or polling mechanisms remain adapter
 responsibilities. Repeated notifications after a stable emission are safe: stability may emit again,
@@ -173,8 +182,8 @@ candidate bound may be replaced atomically by that same owner. A successful repl
 source-retained and pending stability observations; the accepted-log dedupe history is preserved.
 
 `ApplicationPump` owns the discovery pipeline and performs bounded ticks. It drains completed
-metadata results first, then polls, forgets confirmed removals, observes candidates, and submits newly
-stable identities. The exact scheduling and failure contract is documented in
+metadata results first, then polls, forgets confirmed removals, and observes/submits candidates only
+while parser input capacity remains. The exact scheduling and failure contract is documented in
 [`docs/contracts/log-polling-pipeline.md`](../contracts/log-polling-pipeline.md).
 
 ## Ordinary settings adapter
@@ -194,6 +203,14 @@ backup recovery rather than hiding primary corruption. The complete schema and r
 [`docs/contracts/settings-schema-v1.md`](../contracts/settings-schema-v1.md); the dependency choice is
 recorded in [`ADR 0003`](decisions/0003-glaze-for-json-settings.md).
 
+`UploadHistoryStore` is a separate bounded atomic JSON adapter for log identities, provider states,
+public report results, and normalized delivery receipts. It never contains credentials. Startup
+restores UI rows without provider dispatch and seeds the discovery deduplicator with all retained
+identities. Waiting, active, and scheduled states normalize to interrupted failures, while only
+explicit Reupload/Rechat commands can replay settled work. See
+[`docs/contracts/upload-history.md`](../contracts/upload-history.md) and
+[`ADR 0008`](decisions/0008-persist-delivery-history-and-require-explicit-replay.md).
+
 ## Protected credential adapter
 
 Protected credentials cross the application boundary through `ISecretStore` as one of three stable
@@ -207,14 +224,15 @@ or wrong-record plaintext returned by a platform adapter. The protected bytes ar
 same durable atomic-file primitive as settings, but secret records intentionally have no backup. Both
 the primary and an interrupted-write temporary are removed on erase.
 
-The production protector uses user-scoped, prompt-free Windows DPAPI and fixed application entropy.
-It explicitly omits machine scope and wipes Windows-owned plaintext before release. Construction
-detects Wine through its exported version symbol and fails as `UnsupportedEnvironment` before a
-credential can be stored; non-Windows builds expose the same unsupported result. There is no
-plaintext or embedded-key fallback. The complete behavior is in
+The production protector uses prompt-free DPAPI and fixed application entropy. It explicitly omits
+machine scope and wipes Windows-owned plaintext before release. Native Windows provides user-scoped
+protection. Wine is detected through its exported version symbol and uses the same adapter in an
+explicitly labeled reduced-protection compatibility mode; there is no plaintext or embedded-key
+fallback. The complete behavior is in
 [`docs/contracts/protected-credentials.md`](../contracts/protected-credentials.md), and the platform
-decision is recorded in
-[`ADR 0004`](decisions/0004-native-dpapi-and-fail-closed-wine-secrets.md).
+decisions are recorded in
+[`ADR 0004`](decisions/0004-native-dpapi-and-fail-closed-wine-secrets.md) and
+[`ADR 0007`](decisions/0007-enable-wine-dpapi-compatibility-mode.md).
 
 ## HTTP transport adapter
 
@@ -254,7 +272,7 @@ raw server message. HTTP and transport failures are classified by the rules in
 [`docs/contracts/dps-report.md`](../contracts/dps-report.md).
 
 `DpsReportProviderWorker` connects that synchronous adapter to `IUploadProvider` by owning the shared
-`AsyncUploadWorker`, which provides one joined thread and bounded FIFO input/output queues. The
+`AsyncUploadWorker`, which provides a bounded joined thread pool and bounded FIFO input/output queues. The
 dps.report wrapper loads the optional protected token immediately before each attempt and persists any
 replacement before making success visible. Anonymous uploads remain available when protected storage
 is unavailable; newly issued tokens are then discarded securely with a generic warning rather than
@@ -289,16 +307,18 @@ and worker behavior is frozen in [`docs/contracts/wingman.md`](../contracts/wing
 
 ## DonBot provider adapter
 
-`DonBotClient` implements two current API operations: protected-key verification with authorized guild
-discovery, and a two-request TUS upload. The creation metadata fixes the remote filename, supplies the
-selected decimal guild ID, and always sets `wingman=false` so the independent direct Wingman provider
-remains canonical. A TUS `Location` is accepted only beneath the configured creation path at the exact
-same HTTPS origin before the same key can be sent in PATCH.
+`DonBotClient` implements protected-key verification with authorized guild discovery, a two-request
+TUS upload, and the anonymous processing-progress stream used to obtain the resulting fight-log ID.
+The creation metadata fixes the remote filename, supplies the selected decimal guild ID, and always
+sets `wingman=false` so the independent direct Wingman provider remains canonical. A TUS `Location`
+is accepted only beneath the configured creation path at the exact same HTTPS origin before the same
+key can be sent in PATCH.
 
 The client requires exact `201` creation and `204` completion handshakes, including protocol version
-and final upload offset. Once creation succeeds, an ambiguous PATCH failure is not automatically
-retried because starting a new upload could create a duplicate record. The complete wire and retry
-rules are frozen in [`docs/contracts/donbot.md`](../contracts/donbot.md).
+and final upload offset. A completed event stream contributes the DonBot fight ID used for aggregate
+links. Once creation succeeds, an ambiguous PATCH or processing failure is not automatically retried
+because starting a new upload could create a duplicate record. The complete wire and retry rules are
+frozen in [`docs/contracts/donbot.md`](../contracts/donbot.md).
 
 `DonBotProviderWorker` copies the ordinary API base and guild selection into each accepted request,
 while loading the protected API key only when that attempt reaches the worker. Options changes
@@ -318,11 +338,11 @@ before protected-key erasure. The exact state and failure ordering is frozen in
 
 ## Twitch broadcaster client
 
-`TwitchClient` is the synchronous external-service boundary for a public Twitch application. Addon
-composition injects its production client ID; neither settings nor protected storage contains a
-client secret. The client requests only `user:write:chat` and implements Device Code start/poll,
-token validation, public-client refresh, revocation, and Helix Send Chat Message as typed operations
-over `IHttpClient`.
+`TwitchClient` is the synchronous external-service boundary for a public Twitch application. Its
+public Client ID comes from ordinary Nexus configuration, with an optional build-time fallback;
+neither settings nor protected storage contains a client secret. The client requests only
+`user:write:chat` and implements Device Code start/poll, token validation, public-client refresh,
+revocation, and Helix Send Chat Message as typed operations over `IHttpClient`.
 
 Device codes, access tokens, and rotating refresh tokens remain move-only secrets. OAuth form bodies,
 sensitive authorization headers, parsed token strings, and token response buffers are overwritten on
@@ -378,8 +398,8 @@ template, lease, receipt, recovery, and duplicate behavior is frozen in
 outlive their application owner. Construction loads ordinary settings once. Failure to obtain a valid
 primary, backup, or default configuration is fatal, while unavailable protected storage becomes an
 explicit `Available`, `UnsupportedEnvironment`, or `InitializationFailed` capability in the
-configuration snapshot. This lets Wine continue with providers that need no credentials without
-pretending it can persist tokens securely.
+configuration snapshot. Wine reports available storage plus a separate compatibility warning so it
+does not claim native Windows protection.
 
 Snapshots deep-copy validated ordinary settings, load/recovery state, protected-storage capability,
 revision, and shutdown state. They deliberately contain neither credential values nor credential
@@ -402,15 +422,17 @@ validate and queue values in memory but performs no settings I/O, protected-reco
 dispatch, OAuth polling, or HTTP.
 
 The application owner drains a bounded number of commands outside rendering and is the only caller of
-the DonBot and Twitch configuration workflows. General, dps.report, Wingman, and Twitch message-policy
-changes use an ordinary-options payload that cannot mutate workflow-owned DonBot or Twitch enablement.
+the DonBot and Twitch configuration workflows. General, dps.report, Wingman, the public Twitch Client
+ID, and Twitch message-policy changes use an ordinary-options payload that cannot mutate workflow-owned
+DonBot or Twitch enablement. The Client ID may change only while Twitch is disconnected or in error.
 Dedicated commands enforce verified DonBot endpoint/guild state and a connected broadcaster-owned
 Twitch session before those destinations can be enabled.
 After the durable ordinary-settings revision is published, the owner applies all general settings to
 the long-lived components in place. Poll-source and stability changes clear only pending candidate
 observations, parser-queue downsizing preserves queued and completed parses, and history downsizing
 removes only settled jobs. Active parses, uploads, retry schedules, and accepted-log dedupe entries
-retain their captured inputs.
+retain their captured inputs. Parallelism changes adjust every provider's independent active limit
+without cancelling work already in flight.
 Window visibility has its own narrow command, shared by the options checkbox, close button, Nexus
 input bind, and quick-access shortcut, so a toggle cannot overwrite a stale provider-options draft.
 
@@ -431,23 +453,26 @@ boundary, queue policy, and shutdown responsibilities are frozen in
 Main-table buttons use a separate `RecentLogActionsController`. ImGui submits only a stable job ID and
 typed action into a bounded FIFO. The application owner resolves that ID against the coordinator's
 current immutable history before it opens a report, opens the derived containing folder, or requests
-a failed-provider retry. The render callback therefore never accepts a raw external target and never
-performs shell or provider work.
+a failed-provider retry, explicit three-destination reupload, or explicit Twitch rechat. The render
+callback therefore never accepts a raw external target and never performs shell or provider work.
 
 The controller admits only exact, bounded `https://dps.report/` links and non-empty directories.
 `IExternalActionLauncher` keeps Win32 outside the application layer; the production adapter invokes
 `ShellExecuteW` directly without a shell command line. Manual retries are distinguished in the value
 request sent to a provider. This lets an explicit Twitch retry bypass a prior ambiguous-delivery
-ledger entry while all automatic attempts remain suppressed. Complete policy and tests are frozen in
+ledger entry while all automatic attempts remain suppressed. Reupload and Rechat deliberately replay
+settled work and remain separate from provider enablement. Complete policy and tests are frozen in
 [`docs/contracts/recent-log-actions.md`](../contracts/recent-log-actions.md).
 
 The production Windows adapter composes settings, protected-storage capability, Schannel HTTP,
 provider clients/workers, authentication workflows, EVTC polling/parsing, and coordinators before it
 registers the render callbacks, configurable window bind, and quick-access shortcut and opens the
-Nexus callback gate. The icon texture is decoded synchronously from embedded PNG bytes, avoiding an
-asynchronous callback that could outlive the DLL. One background application-owner thread drains
-commands, updates provider configuration, polls the log directory, advances jobs, and publishes
-UI-ready deep copies.
+Nexus callback gate. Normal, idle-grey, and Twitch-purple icon textures are decoded synchronously from
+embedded PNG bytes, avoiding an asynchronous callback that could outlive the DLL. The shortcut's
+owned multiline tooltip reports enabled destinations and selected DonBot guild; Twitch tint has
+precedence. One background application-owner thread drains commands, updates provider configuration,
+polls the log directory, advances jobs, publishes UI-ready deep copies, and atomically persists
+changed job history.
 The ImGui callbacks never perform filesystem traversal, persistence, HTTP, parsing, OAuth polling, or
 worker shutdown.
 The concrete ownership and scheduling rules are frozen in
@@ -462,9 +487,10 @@ Cancellation originates at addon unload and flows through `std::stop_token`. Shu
 2. Wait for already-admitted render or input callbacks to return.
 3. Stop accepting UI/configuration commands and file candidates.
 4. Cancel queued/in-flight metadata parsing and provider work.
-5. Shut down authentication/session/configuration owners.
-6. Join every worker and the background application-owner thread.
-7. Destroy application state and release the Nexus API pointer.
+5. Persist the final normalized upload history.
+6. Shut down authentication/session/configuration owners.
+7. Join every worker and the background application-owner thread.
+8. Destroy application state and release the Nexus API pointer.
 
 Detached threads are prohibited.
 
@@ -484,7 +510,10 @@ loopback tests for streaming, limits, redirect refusal, cancellation, and adapte
 HTTPS probing is opt-in only. Provider clients use fake transports and deterministic fake-server
 contract tests. The dps.report, GW2Wingman, and DonBot wrappers use condition-variable fakes to
 exercise the shared worker's queue, backpressure, retry, exception, and shutdown behavior; dps.report
-and DonBot additionally cover credential ordering. Twitch adds binary-session corruption fixtures,
+and DonBot additionally cover credential ordering. Shared-worker coverage raises parallelism while
+requests are blocked and proves independent active admission. Persistent-history tests cover Unicode
+paths, receipts, merge/trimming, interrupted normalization, non-dispatching restore, explicit replay,
+and restart dedupe seeding. Twitch adds binary-session corruption fixtures,
 primitive-worker backpressure, fake-clock controller tests for polling, validation, rotation,
 persistence, disconnect, and shutdown, plus adversarial session-owner tests for stale leases,
 recovery/controller exclusion, identity mismatch, and shutdown during recovery. Recent-log action

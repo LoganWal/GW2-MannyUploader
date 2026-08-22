@@ -96,7 +96,7 @@ NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnaps
             DonBotOptionsModel{
                 .status_text = donbot_status(snapshot.donbot),
                 .diagnostic = snapshot.donbot.diagnostic,
-                .verify_available = active && storage_available && donbot_idle,
+                .verify_available = active && storage_available && donbot_idle && !donbot_verified,
                 .guild_selection_available =
                     active && donbot_verified && !snapshot.donbot.guilds.empty(),
                 .enable_toggle_available =

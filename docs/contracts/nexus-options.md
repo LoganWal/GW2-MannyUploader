@@ -29,12 +29,13 @@ queues or polls that worker.
 ## Commands
 
 Ordinary editing is represented by `SaveOrdinaryOptionsCommand`. Its payload contains general,
-dps.report, GW2Wingman, and Twitch message-policy fields only. Applying it preserves the current
+dps.report, GW2Wingman, public Twitch Client ID, and Twitch message-policy fields. Applying it preserves the current
 DonBot endpoint, guild selection, and enabled state, and preserves the Twitch enabled state.
 Once that command has durably saved and published a new settings revision, the production application
-owner applies general polling, stability, parser-capacity, and recent-history values to the existing
-components. No render callback performs this reconfiguration, and active parse/upload inputs are not
-rewritten.
+owner applies general polling, stability, parser-capacity, per-provider parallelism, and recent-history
+values to the existing components. No render callback performs this reconfiguration, and active
+parse/upload inputs are not rewritten. The public Twitch Client ID can change only while disconnected
+or in error; no secret is needed for Device Code authorization.
 A dedicated `SetWindowVisibleCommand` updates only the persisted window visibility bit. The options
 checkbox, window close button, Nexus input bind, and quick-access shortcut all use that narrow path so
 they cannot replay a stale ordinary-options draft over unrelated settings.
@@ -57,9 +58,9 @@ the authentication workflow is connected. Final settings validation still runs i
 `ConfigurationService`, so enabling Twitch also requires dps.report and at least one post-result
 policy.
 
-There is no command or settings field for a Twitch channel, broadcaster ID, sender ID, raw token,
-client secret, or client ID. The Twitch workflow's validated user remains both broadcaster and
-sender.
+There is no command or settings field for a Twitch channel, broadcaster ID, sender ID, raw token, or
+client secret. The ordinary Client ID identifies the public application; the Twitch workflow's
+validated user remains both broadcaster and sender.
 
 The test-message command has no payload. Application execution requires the Twitch workflow to be
 `Connected`, permits one in-flight request, assigns a correlated ID, and queues that ID through

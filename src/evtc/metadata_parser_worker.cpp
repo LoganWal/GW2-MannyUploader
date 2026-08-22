@@ -77,6 +77,12 @@ MetadataParserWorker::enqueue(ports::MetadataParseRequest request) {
     return {};
 }
 
+std::size_t MetadataParserWorker::available_capacity() const noexcept {
+    const std::scoped_lock lock{mutex_};
+    return !stopping_ && requests_.size() < queue_capacity_ ? queue_capacity_ - requests_.size()
+                                                            : 0;
+}
+
 void MetadataParserWorker::cancel_pending() noexcept {
     {
         const std::scoped_lock lock{mutex_};

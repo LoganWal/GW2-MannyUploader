@@ -22,6 +22,7 @@ struct GeneralSettings {
     std::uint32_t stability_observations{2};
     std::uint32_t recent_log_limit{50};
     std::uint32_t parser_queue_capacity{8};
+    std::uint32_t parallel_uploads_per_provider{1};
     std::uint32_t max_candidates{4096};
 
     [[nodiscard]] friend bool operator==(const GeneralSettings&,
@@ -51,6 +52,7 @@ struct DonBotSettings {
 
 struct TwitchSettings {
     bool enabled{};
+    std::string client_id;
     std::string message_template{default_twitch_message_template};
     bool post_success{true};
     bool post_failure{true};
@@ -79,6 +81,7 @@ enum class SettingsValidationErrorCode : std::uint8_t {
     OutOfRange,
     InvalidUrl,
     InvalidGuildId,
+    InvalidTwitchClientId,
     TwitchRequiresDpsReport,
     TwitchPostingDisabled,
     InvalidTemplate,

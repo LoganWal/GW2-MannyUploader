@@ -27,6 +27,7 @@ std::size_t input_registration_count{};
 std::size_t input_deregistration_count{};
 std::size_t quick_access_registration_count{};
 std::size_t quick_access_deregistration_count{};
+std::size_t texture_creation_count{};
 Texture_t shortcut_texture{.Width = 32, .Height = 32, .Resource = &shortcut_texture};
 std::vector<std::string> lifecycle_events;
 bool host_contract_valid{true};
@@ -59,7 +60,7 @@ void deregister_render(GUI_RENDER callback) {
 void register_input_bind(const char* identifier, INPUTBINDS_PROCESS callback,
                          const char* default_bind) {
     host_contract_valid = host_contract_valid && identifier != nullptr && default_bind != nullptr &&
-                          std::string{identifier} == "KB_GW2_MANNY_UPLOADER_TOGGLE" &&
+                          std::string{identifier} == "KB_MANNY_UPLOADER_TOGGLE_WINDOW" &&
                           std::string{default_bind} == "ALT+SHIFT+M" && callback != nullptr;
     registered_input_bind = callback;
     ++input_registration_count;
@@ -68,17 +69,28 @@ void register_input_bind(const char* identifier, INPUTBINDS_PROCESS callback,
 
 void deregister_input_bind(const char* identifier) {
     host_contract_valid = host_contract_valid && identifier != nullptr &&
-                          std::string{identifier} == "KB_GW2_MANNY_UPLOADER_TOGGLE";
+                          std::string{identifier} == "KB_MANNY_UPLOADER_TOGGLE_WINDOW";
     ++input_deregistration_count;
     lifecycle_events.emplace_back("deregister_input");
 }
 
 Texture_t* create_texture(const char* identifier, void* bytes, std::uint64_t size) {
     const auto* png = static_cast<const unsigned char*>(bytes);
-    host_contract_valid = host_contract_valid && identifier != nullptr &&
-                          std::string{identifier} == "TEX_GW2_MANNY_UPLOADER" && png != nullptr &&
-                          size == 222 && png[0] == 0x89 && png[1] == 0x50 && png[2] == 0x4e &&
-                          png[3] == 0x47;
+    const std::string texture_id = identifier == nullptr ? std::string{} : identifier;
+    const bool palette_valid = png != nullptr && size > 46 &&
+                               ((texture_id == "TEX_GW2_MANNY_UPLOADER" && png[44] == 0x6c &&
+                                 png[45] == 0xd3 && png[46] == 0xeb) ||
+                                (texture_id == "TEX_GW2_MANNY_UPLOADER_IDLE" && png[44] == 0x9a &&
+                                 png[45] == 0x9f && png[46] == 0xad) ||
+                                (texture_id == "TEX_GW2_MANNY_UPLOADER_TWITCH" && png[44] == 0x91 &&
+                                 png[45] == 0x46 && png[46] == 0xff));
+    host_contract_valid =
+        host_contract_valid &&
+        (texture_id == "TEX_GW2_MANNY_UPLOADER" || texture_id == "TEX_GW2_MANNY_UPLOADER_IDLE" ||
+         texture_id == "TEX_GW2_MANNY_UPLOADER_TWITCH") &&
+        palette_valid && size == 222 && png[0] == 0x89 && png[1] == 0x50 && png[2] == 0x4e &&
+        png[3] == 0x47;
+    ++texture_creation_count;
     lifecycle_events.emplace_back("create_texture");
     return &shortcut_texture;
 }
@@ -86,14 +98,18 @@ Texture_t* create_texture(const char* identifier, void* bytes, std::uint64_t siz
 void add_quick_access(const char* identifier, const char* texture_identifier,
                       const char* hover_texture_identifier, const char* keybind_identifier,
                       const char* tooltip) {
-    host_contract_valid = host_contract_valid && identifier != nullptr &&
-                          texture_identifier != nullptr && hover_texture_identifier != nullptr &&
-                          keybind_identifier != nullptr && tooltip != nullptr &&
-                          std::string{identifier} == "QA_GW2_MANNY_UPLOADER" &&
-                          std::string{texture_identifier} == "TEX_GW2_MANNY_UPLOADER" &&
-                          std::string{hover_texture_identifier} == "TEX_GW2_MANNY_UPLOADER" &&
-                          std::string{keybind_identifier} == "KB_GW2_MANNY_UPLOADER_TOGGLE" &&
-                          std::string{tooltip} == "Toggle GW2 Manny Uploader";
+    const std::string texture = texture_identifier == nullptr ? std::string{} : texture_identifier;
+    const std::string hover =
+        hover_texture_identifier == nullptr ? std::string{} : hover_texture_identifier;
+    const std::string tooltip_text = tooltip == nullptr ? std::string{} : tooltip;
+    const bool known_texture = texture == "TEX_GW2_MANNY_UPLOADER" ||
+                               texture == "TEX_GW2_MANNY_UPLOADER_IDLE" ||
+                               texture == "TEX_GW2_MANNY_UPLOADER_TWITCH";
+    host_contract_valid =
+        host_contract_valid && identifier != nullptr && keybind_identifier != nullptr &&
+        std::string{identifier} == "QA_GW2_MANNY_UPLOADER" && known_texture && hover == texture &&
+        std::string{keybind_identifier} == "KB_MANNY_UPLOADER_TOGGLE_WINDOW" &&
+        tooltip_text.starts_with("View MannyUploader list");
     ++quick_access_registration_count;
     lifecycle_events.emplace_back("register_quick_access");
 }
@@ -163,6 +179,7 @@ int main(int argument_count, char** arguments) {
         input_deregistration_count = 0;
         quick_access_registration_count = 0;
         quick_access_deregistration_count = 0;
+        texture_creation_count = 0;
         lifecycle_events.clear();
         host_contract_valid = true;
 
@@ -183,7 +200,8 @@ int main(int argument_count, char** arguments) {
         passed =
             check(definition != nullptr, "GetAddonDef returned null") &&
             check(definition->APIVersion == NEXUS_API_VERSION, "Unexpected Nexus API version") &&
-            check(std::string{definition->Name} == "GW2 Manny Uploader", "Unexpected addon name") &&
+            check(std::string{definition->Name} == "MannyUploader", "Unexpected addon name") &&
+            check(std::string{definition->Author} == "Logan", "Unexpected addon author") &&
             check(definition->Load != nullptr && definition->Unload != nullptr,
                   "Addon lifecycle callbacks are missing") &&
             check(definition->Provider == UP_GitHub, "Unexpected update provider") && passed;
@@ -210,10 +228,13 @@ int main(int argument_count, char** arguments) {
                   "Addon did not register its window keybind") &&
             check(quick_access_registration_count == 1,
                   "Addon did not register its quick-access shortcut") &&
+            check(texture_creation_count == 3,
+                  "Addon did not register all quick-access status textures") &&
             check(host_contract_valid, "Addon registered an invalid Nexus resource") &&
-            check(lifecycle_events == std::vector<std::string>({"register_main", "register_options",
-                                                                "register_input", "create_texture",
-                                                                "register_quick_access"}),
+            check(lifecycle_events ==
+                      std::vector<std::string>(
+                          {"register_main", "register_options", "register_input", "create_texture",
+                           "create_texture", "create_texture", "register_quick_access"}),
                   "Addon resources were not registered in deterministic order") &&
             passed;
 
@@ -235,8 +256,8 @@ int main(int argument_count, char** arguments) {
         passed =
             check(deregistration_count == 2, "Addon did not deregister both callbacks") &&
             check(input_deregistration_count == 1, "Addon did not deregister its window keybind") &&
-            check(quick_access_deregistration_count == 1,
-                  "Addon did not remove its quick-access shortcut") &&
+            check(quick_access_deregistration_count == quick_access_registration_count,
+                  "Addon did not balance quick-access registrations") &&
             check(host_contract_valid, "Addon deregistered an invalid Nexus resource") && passed;
         if (deregistration_count == 2) {
             passed = check(deregistered_callbacks[0] == registered_callbacks[1],
@@ -245,13 +266,14 @@ int main(int argument_count, char** arguments) {
                            "Main callback was not deregistered second") &&
                      passed;
         }
-        passed = check(lifecycle_events.size() == 9 &&
-                           lifecycle_events[5] == "deregister_quick_access" &&
-                           lifecycle_events[6] == "deregister_input" &&
-                           lifecycle_events[7] == "deregister_options" &&
-                           lifecycle_events[8] == "deregister_main",
-                       "Addon resources were not released in reverse order") &&
-                 passed;
+        passed =
+            check(lifecycle_events.size() >= 11 &&
+                      lifecycle_events[lifecycle_events.size() - 4] == "deregister_quick_access" &&
+                      lifecycle_events[lifecycle_events.size() - 3] == "deregister_input" &&
+                      lifecycle_events[lifecycle_events.size() - 2] == "deregister_options" &&
+                      lifecycle_events.back() == "deregister_main",
+                  "Addon resources were not released in reverse order") &&
+            passed;
         passed = check(FreeLibrary(module) != 0, "Unable to unload the addon DLL") && passed;
     }
     ImGui::DestroyContext(context);

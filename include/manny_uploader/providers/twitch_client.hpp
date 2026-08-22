@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <stop_token>
 #include <string>
@@ -99,6 +101,10 @@ class TwitchClient final : public ITwitchClient {
   public:
     [[nodiscard]] static std::expected<TwitchClient, TwitchError>
     create(const ports::IHttpClient& http_client, std::string client_id);
+    [[nodiscard]] static TwitchClient create_unconfigured(const ports::IHttpClient& http_client);
+
+    [[nodiscard]] std::expected<void, TwitchError> update_client_id(std::string client_id);
+    [[nodiscard]] bool configured() const noexcept;
 
     [[nodiscard]] std::expected<TwitchDeviceAuthorization, TwitchError>
     start_device_authorization(const std::stop_token& stop_token = {}) const override;
@@ -119,13 +125,19 @@ class TwitchClient final : public ITwitchClient {
                       const support::SecretValue& access_token,
                       const std::stop_token& stop_token = {}) const override;
 
-    [[nodiscard]] const std::string& client_id() const noexcept;
+    [[nodiscard]] std::string client_id() const;
 
   private:
+    struct Configuration {
+        mutable std::mutex mutex;
+        std::string client_id;
+    };
+
     TwitchClient(const ports::IHttpClient& http_client, std::string client_id) noexcept;
+    [[nodiscard]] std::expected<std::string, TwitchError> client_id_snapshot() const;
 
     const ports::IHttpClient& http_client_;
-    std::string client_id_;
+    std::shared_ptr<Configuration> configuration_;
 };
 
 } // namespace manny_uploader::providers

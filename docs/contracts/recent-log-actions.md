@@ -9,9 +9,12 @@ application owner drains at most a configured number of commands per tick.
 
 Supported commands are:
 
-- open the retained job's dps.report permalink;
+- open the retained job's dps.report permalink (an application capability not exposed by the current
+  table UI);
 - open the retained log's containing directory;
-- retry one failed provider for the retained job; and
+- retry one failed provider for the retained job;
+- explicitly reupload the retained log to dps.report, GW2Wingman, and DonBot;
+- explicitly post the retained dps.report result to Twitch chat again; and
 - dismiss the last action error.
 
 Commands carry a stable non-zero `UploadJobId`, and retry also carries a known provider ID. A stale
@@ -52,6 +55,18 @@ Twitch state is re-armed so the new attempt can record its own receipt. A confir
 If enqueueing the retry fails, the provider returns to `Failed` with the dispatch diagnostic and the
 controller reports the action failure. No command reports success while leaving an unqueued active
 attempt.
+
+## Explicit replay
+
+`Reupload` is distinct from failed-provider retry. It requires parsed encounter metadata and requires
+all three upload destinations to be idle. It atomically resets the dps.report result and DonBot
+receipt, then dispatches dps.report, GW2Wingman, and DonBot with the user-initiated flag regardless of
+their state when the log was first detected. Twitch is not part of this action.
+
+`Rechat` requires a retained dps.report result and an idle Twitch state. It clears the prior Twitch
+receipt and queues one user-initiated chat attempt. That flag deliberately bypasses both confirmed
+and ambiguous entries in the process-local Twitch ledger. These are the only controls that replay a
+settled log; enabling a provider, switching New/Today mode, or restarting the game never does so.
 
 ## Shutdown and verification
 

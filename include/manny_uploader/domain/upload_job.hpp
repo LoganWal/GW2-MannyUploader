@@ -43,11 +43,16 @@ struct LogFileIdentity {
     std::filesystem::path canonical_path;
     std::uintmax_t size{};
     std::filesystem::file_time_type last_write_time{};
+
+    [[nodiscard]] friend bool operator==(const LogFileIdentity&, const LogFileIdentity&) = default;
 };
 
 struct EncounterMetadata {
     std::uint16_t boss_id{};
     std::string pov_account;
+
+    [[nodiscard]] friend bool operator==(const EncounterMetadata&,
+                                         const EncounterMetadata&) = default;
 };
 
 struct DpsReportResult {
@@ -56,6 +61,16 @@ struct DpsReportResult {
     std::uint16_t boss_id{};
     std::string mode;
     bool success{};
+
+    [[nodiscard]] friend bool operator==(const DpsReportResult&, const DpsReportResult&) = default;
+};
+
+struct DonBotUploadReceipt {
+    std::optional<std::uint64_t> upload_id;
+    std::optional<std::uint64_t> fight_log_id;
+
+    [[nodiscard]] friend bool operator==(const DonBotUploadReceipt&,
+                                         const DonBotUploadReceipt&) = default;
 };
 
 enum class TwitchDeliveryStatus : std::uint8_t {
@@ -74,6 +89,9 @@ enum class TwitchDeliveryStatus : std::uint8_t {
 struct TwitchDeliveryReceipt {
     TwitchDeliveryStatus status;
     std::optional<std::string> message_id;
+
+    [[nodiscard]] friend bool operator==(const TwitchDeliveryReceipt&,
+                                         const TwitchDeliveryReceipt&) = default;
 };
 
 struct ProviderStatus {
@@ -81,6 +99,8 @@ struct ProviderStatus {
     std::uint32_t attempts{};
     std::string detail;
     std::optional<std::chrono::steady_clock::time_point> retry_at;
+
+    [[nodiscard]] friend bool operator==(const ProviderStatus&, const ProviderStatus&) = default;
 };
 
 enum class JobErrorCode : std::uint8_t {
@@ -96,12 +116,29 @@ enum class JobErrorCode : std::uint8_t {
     MetadataAlreadySet,
     InvalidTwitchDelivery,
     TwitchDeliveryAlreadyRecorded,
+    InvalidDonBotUpload,
+    DonBotUploadAlreadyRecorded,
     ManualRetryRequiresFailure,
+    ExplicitDeliveryBusy,
+    EncounterMetadataRequired,
 };
 
 struct JobError {
     JobErrorCode code;
     std::string message;
+};
+
+struct UploadJobRecord {
+    LogFileIdentity file;
+    std::chrono::system_clock::time_point detected_at;
+    std::optional<EncounterMetadata> encounter_metadata;
+    std::optional<DpsReportResult> dps_report_result;
+    std::optional<DonBotUploadReceipt> donbot_upload_receipt;
+    std::optional<TwitchDeliveryReceipt> twitch_delivery_receipt;
+    std::array<ProviderStatus, provider_count> providers;
+
+    [[nodiscard]] friend bool operator==(const UploadJobRecord&,
+                                         const UploadJobRecord&) noexcept = default;
 };
 
 class UploadJob {
@@ -112,6 +149,8 @@ class UploadJob {
     [[nodiscard]] static std::expected<UploadJob, JobError>
     create(UploadJobId id, LogFileIdentity file, DetectedAt detected_at,
            const ProviderSelection& enabled_providers);
+    [[nodiscard]] static std::expected<UploadJob, JobError> restore(UploadJobId id,
+                                                                    UploadJobRecord record);
 
     [[nodiscard]] UploadJobId id() const noexcept;
     [[nodiscard]] const LogFileIdentity& file() const noexcept;
@@ -119,6 +158,7 @@ class UploadJob {
     [[nodiscard]] const ProviderStatus& provider_status(Provider provider) const noexcept;
     [[nodiscard]] const std::optional<EncounterMetadata>& encounter_metadata() const noexcept;
     [[nodiscard]] const std::optional<DpsReportResult>& dps_report_result() const noexcept;
+    [[nodiscard]] const std::optional<DonBotUploadReceipt>& donbot_upload_receipt() const noexcept;
     [[nodiscard]] const std::optional<TwitchDeliveryReceipt>&
     twitch_delivery_receipt() const noexcept;
 
@@ -132,7 +172,10 @@ class UploadJob {
                                                                     std::string detail = {});
     [[nodiscard]] std::expected<void, JobError>
     record_twitch_delivery(TwitchDeliveryReceipt receipt);
+    [[nodiscard]] std::expected<void, JobError> record_donbot_upload(DonBotUploadReceipt receipt);
     [[nodiscard]] std::expected<void, JobError> prepare_manual_retry(Provider provider);
+    [[nodiscard]] std::expected<void, JobError> prepare_explicit_delivery(Provider provider);
+    [[nodiscard]] UploadJobRecord record() const;
 
   private:
     UploadJob(UploadJobId id, LogFileIdentity file, DetectedAt detected_at,
@@ -144,6 +187,7 @@ class UploadJob {
     std::array<ProviderStatus, provider_count> providers_;
     std::optional<EncounterMetadata> encounter_metadata_;
     std::optional<DpsReportResult> dps_report_result_;
+    std::optional<DonBotUploadReceipt> donbot_upload_receipt_;
     std::optional<TwitchDeliveryReceipt> twitch_delivery_receipt_;
 };
 

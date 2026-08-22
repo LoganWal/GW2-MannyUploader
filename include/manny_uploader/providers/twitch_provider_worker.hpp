@@ -43,7 +43,8 @@ class TwitchProviderWorker final : public ports::IUploadProvider, private IUploa
     [[nodiscard]] static std::expected<std::unique_ptr<TwitchProviderWorker>,
                                        TwitchProviderWorkerError>
     create(const ITwitchClient& client, const ports::ITwitchDeliverySessionAccess& session_access,
-           TwitchProviderConfig config, std::size_t queue_capacity = 8);
+           TwitchProviderConfig config, std::size_t queue_capacity = 8,
+           std::size_t parallelism = 1);
 
     ~TwitchProviderWorker() override;
 
@@ -64,6 +65,9 @@ class TwitchProviderWorker final : public ports::IUploadProvider, private IUploa
     [[nodiscard]] std::size_t pending_count() const noexcept;
     [[nodiscard]] std::size_t result_count() const noexcept;
     [[nodiscard]] bool is_stopping() const noexcept;
+    [[nodiscard]] std::expected<void, AsyncUploadWorkerError>
+    update_parallelism(std::size_t parallelism);
+    [[nodiscard]] std::size_t parallelism() const noexcept;
 
   private:
     enum class LedgerState : std::uint8_t {
@@ -93,6 +97,7 @@ class TwitchProviderWorker final : public ports::IUploadProvider, private IUploa
 
     TwitchChatDelivery delivery_;
     mutable std::mutex config_mutex_;
+    mutable std::mutex ledger_mutex_;
     TwitchProviderConfig config_;
     mutable std::deque<LedgerEntry> ledger_;
     std::unique_ptr<AsyncUploadWorker> worker_;

@@ -72,6 +72,37 @@ std::expected<UploadJob, JobError> UploadJob::create(UploadJobId id, LogFileIden
     return UploadJob{id, std::move(file), detected_at, enabled_providers};
 }
 
+std::expected<UploadJob, JobError> UploadJob::restore(UploadJobId id, UploadJobRecord record) {
+    if (id.value == 0) {
+        return std::unexpected(
+            make_error(JobErrorCode::InvalidJobId, "Upload job ID must be non-zero"));
+    }
+    if (record.file.canonical_path.empty()) {
+        return std::unexpected(make_error(JobErrorCode::EmptyPath, "Log path must not be empty"));
+    }
+    if (record.dps_report_result && record.dps_report_result->permalink.empty()) {
+        return std::unexpected(
+            make_error(JobErrorCode::EmptyPermalink, "dps.report permalink must not be empty"));
+    }
+
+    ProviderSelection disabled{};
+    UploadJob job{id, std::move(record.file), record.detected_at, disabled};
+    job.encounter_metadata_ = std::move(record.encounter_metadata);
+    job.dps_report_result_ = std::move(record.dps_report_result);
+    job.donbot_upload_receipt_ = std::move(record.donbot_upload_receipt);
+    job.twitch_delivery_receipt_ = std::move(record.twitch_delivery_receipt);
+    job.providers_ = std::move(record.providers);
+    for (auto& provider : job.providers_) {
+        if (provider.state == ProviderState::Waiting || provider.state == ProviderState::Active ||
+            provider.state == ProviderState::RetryScheduled) {
+            provider.state = ProviderState::Failed;
+            provider.detail = "Interrupted by the previous game session";
+            provider.retry_at.reset();
+        }
+    }
+    return job;
+}
+
 UploadJob::UploadJob(UploadJobId id, LogFileIdentity file, DetectedAt detected_at,
                      const ProviderSelection& enabled_providers)
     : id_(id), file_(std::move(file)), detected_at_(detected_at) {
@@ -103,6 +134,10 @@ const std::optional<EncounterMetadata>& UploadJob::encounter_metadata() const no
 
 const std::optional<DpsReportResult>& UploadJob::dps_report_result() const noexcept {
     return dps_report_result_;
+}
+
+const std::optional<DonBotUploadReceipt>& UploadJob::donbot_upload_receipt() const noexcept {
+    return donbot_upload_receipt_;
 }
 
 const std::optional<TwitchDeliveryReceipt>& UploadJob::twitch_delivery_receipt() const noexcept {
@@ -208,6 +243,23 @@ std::expected<void, JobError> UploadJob::record_twitch_delivery(TwitchDeliveryRe
     return {};
 }
 
+std::expected<void, JobError> UploadJob::record_donbot_upload(DonBotUploadReceipt receipt) {
+    if (providers_[provider_index(Provider::DonBot)].state != ProviderState::Active) {
+        return std::unexpected(make_error(JobErrorCode::InvalidTransition, "DonBot is not active"));
+    }
+    if (donbot_upload_receipt_) {
+        return std::unexpected(make_error(JobErrorCode::DonBotUploadAlreadyRecorded,
+                                          "DonBot upload has already been recorded"));
+    }
+    if ((receipt.upload_id && *receipt.upload_id == 0) ||
+        (receipt.fight_log_id && *receipt.fight_log_id == 0)) {
+        return std::unexpected(
+            make_error(JobErrorCode::InvalidDonBotUpload, "DonBot upload receipt is invalid"));
+    }
+    donbot_upload_receipt_ = std::move(receipt);
+    return {};
+}
+
 std::expected<void, JobError> UploadJob::prepare_manual_retry(Provider provider) {
     if (!is_known_provider(provider)) {
         return std::unexpected(
@@ -233,6 +285,52 @@ std::expected<void, JobError> UploadJob::prepare_manual_retry(Provider provider)
         }
     }
     return {};
+}
+
+std::expected<void, JobError> UploadJob::prepare_explicit_delivery(Provider provider) {
+    if (!is_known_provider(provider)) {
+        return std::unexpected(
+            make_error(JobErrorCode::UnknownProvider, "Unknown upload provider"));
+    }
+    if (!encounter_metadata_) {
+        return std::unexpected(make_error(JobErrorCode::EncounterMetadataRequired,
+                                          "Encounter metadata is unavailable"));
+    }
+    const auto state = providers_[provider_index(provider)].state;
+    if (state == ProviderState::Waiting || state == ProviderState::Active ||
+        state == ProviderState::RetryScheduled) {
+        return std::unexpected(make_error(JobErrorCode::ExplicitDeliveryBusy,
+                                          "The provider is already processing this log"));
+    }
+    if (provider == Provider::Twitch && !dps_report_result_) {
+        return std::unexpected(make_error(JobErrorCode::DpsReportResultRequired,
+                                          "Twitch requires a successful dps.report result"));
+    }
+
+    auto& status = providers_[provider_index(provider)];
+    status.state = ProviderState::Waiting;
+    status.detail.clear();
+    status.retry_at.reset();
+    if (provider == Provider::DpsReport) {
+        dps_report_result_.reset();
+    } else if (provider == Provider::DonBot) {
+        donbot_upload_receipt_.reset();
+    } else if (provider == Provider::Twitch) {
+        twitch_delivery_receipt_.reset();
+    }
+    return {};
+}
+
+UploadJobRecord UploadJob::record() const {
+    return UploadJobRecord{
+        .file = file_,
+        .detected_at = detected_at_,
+        .encounter_metadata = encounter_metadata_,
+        .dps_report_result = dps_report_result_,
+        .donbot_upload_receipt = donbot_upload_receipt_,
+        .twitch_delivery_receipt = twitch_delivery_receipt_,
+        .providers = providers_,
+    };
 }
 
 std::string_view provider_name(Provider provider) noexcept {

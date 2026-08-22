@@ -40,7 +40,8 @@ class DonBotProviderWorker final : public ports::IUploadProvider, private IUploa
     [[nodiscard]] static std::expected<std::unique_ptr<DonBotProviderWorker>,
                                        DonBotProviderWorkerError>
     create(const IDonBotClient& client, const ports::ISecretStore& secret_store,
-           DonBotProviderConfig config, std::size_t queue_capacity = 8);
+           DonBotProviderConfig config, std::size_t queue_capacity = 8,
+           std::size_t parallelism = 1);
 
     ~DonBotProviderWorker() override;
 
@@ -61,6 +62,9 @@ class DonBotProviderWorker final : public ports::IUploadProvider, private IUploa
     [[nodiscard]] std::size_t pending_count() const noexcept;
     [[nodiscard]] std::size_t result_count() const noexcept;
     [[nodiscard]] bool is_stopping() const noexcept;
+    [[nodiscard]] std::expected<void, AsyncUploadWorkerError>
+    update_parallelism(std::size_t parallelism);
+    [[nodiscard]] std::size_t parallelism() const noexcept;
 
   private:
     DonBotProviderWorker(const IDonBotClient& client, const ports::ISecretStore& secret_store,

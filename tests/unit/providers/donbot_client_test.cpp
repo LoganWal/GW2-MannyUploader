@@ -244,6 +244,10 @@ void upload_success_tests(TestSuite& suite, const domain::LogFileIdentity& file,
         SequencedHttpClient http;
         http.push(response(201, created_headers(std::string{location})));
         http.push(response(204, patched_headers(file.size)));
+        http.push(response(200, {},
+                           "data: {\"stage\":\"parsing\",\"message\":\"Working\"}\n\n"
+                           "data: {\"stage\":\"complete\",\"message\":\"Done\","
+                           "\"fightLogId\":314}\n\n"));
         providers::DonBotClient client{http};
         const auto key = support::SecretValue::from_text("SECRET-API-KEY-123");
         const auto uploaded =
@@ -251,12 +255,14 @@ void upload_success_tests(TestSuite& suite, const domain::LogFileIdentity& file,
 
         MANNY_CHECK(suite, uploaded.has_value());
         MANNY_CHECK(suite, uploaded && uploaded->upload_id == std::uint64_t{42});
-        MANNY_CHECK(suite, http.requests().size() == 2);
-        if (http.requests().size() != 2) {
+        MANNY_CHECK(suite, uploaded && uploaded->fight_log_id == std::uint64_t{314});
+        MANNY_CHECK(suite, http.requests().size() == 3);
+        if (http.requests().size() != 3) {
             continue;
         }
         const auto& create = http.requests()[0];
         const auto& patch = http.requests()[1];
+        const auto& progress = http.requests()[2];
         MANNY_CHECK(suite, create.method == ports::HttpMethod::Post);
         MANNY_CHECK(suite, create.url == "https://donbot-api.walmslo.com/api/upload/tus");
         MANNY_CHECK(suite, create.body.empty());
@@ -288,6 +294,9 @@ void upload_success_tests(TestSuite& suite, const domain::LogFileIdentity& file,
         const auto* patch_key = find_header(patch, "X-GW2-API-Key");
         MANNY_CHECK(suite, patch_key && patch_key->value == secret_text(key));
         MANNY_CHECK(suite, patch.url.find(secret_text(key)) == std::string::npos);
+        MANNY_CHECK(suite, progress.method == ports::HttpMethod::Get);
+        MANNY_CHECK(suite, progress.url == "https://donbot-api.walmslo.com/api/upload/stream/42");
+        MANNY_CHECK(suite, find_header(progress, "X-GW2-API-Key") == nullptr);
     }
 
     SequencedHttpClient no_id_http;

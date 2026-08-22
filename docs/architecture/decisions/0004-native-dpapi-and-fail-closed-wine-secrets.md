@@ -1,6 +1,6 @@
 # ADR 0004: Use native user-scoped DPAPI and fail closed under Wine
 
-- Status: Accepted with Wine persistence limitation
+- Status: Superseded by ADR 0007
 - Date: 2026-08-20
 
 ## Context

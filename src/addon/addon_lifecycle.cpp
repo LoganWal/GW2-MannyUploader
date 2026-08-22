@@ -20,6 +20,33 @@ namespace {
 
 } // namespace
 
+QuickAccessStatus make_quick_access_status(bool dps_report_enabled, bool wingman_enabled,
+                                           bool donbot_enabled, std::string_view donbot_guild,
+                                           bool twitch_enabled) {
+    QuickAccessStatus status{.tooltip = "View MannyUploader list", .tint = QuickAccessTint::Idle};
+    if (dps_report_enabled) {
+        status.tooltip += "\nUploading to dps.report";
+        status.tint = QuickAccessTint::Upload;
+    }
+    if (wingman_enabled) {
+        status.tooltip += "\nUploading to GW2Wingman";
+        status.tint = QuickAccessTint::Upload;
+    }
+    if (donbot_enabled) {
+        status.tooltip += "\nUploading to DonBot";
+        if (!donbot_guild.empty()) {
+            status.tooltip += " - ";
+            status.tooltip += donbot_guild;
+        }
+        status.tint = QuickAccessTint::Upload;
+    }
+    if (twitch_enabled) {
+        status.tooltip += "\nReporting to Twitch chat";
+        status.tint = QuickAccessTint::Twitch;
+    }
+    return status;
+}
+
 AddonLifecycle::~AddonLifecycle() {
     unload();
 }
@@ -100,16 +127,20 @@ std::expected<void, AddonLifecycleError> AddonLifecycle::load(IAddonHost& host,
             input_bind_registered_ = true;
         }
 
-        auto registered_quick_access = host.register_quick_access_shortcut();
-        if (!registered_quick_access) {
-            rollback_load();
-            return std::unexpected(from_host_error(registered_quick_access.error()));
-        }
-
+        QuickAccessStatus initial_quick_access =
+            make_quick_access_status(false, false, false, {}, false);
         {
             const std::scoped_lock lock{mutex_};
-            quick_access_registered_ = true;
+            initial_quick_access = runtime_->quick_access_status();
+        }
+        auto registered_quick_access = host.register_quick_access_shortcut(initial_quick_access);
+        {
+            const std::scoped_lock lock{mutex_};
+            quick_access_registered_ = registered_quick_access.has_value();
             state_ = AddonLifecycleState::Running;
+        }
+        if (!registered_quick_access) {
+            host.log(AddonLogLevel::Warning, registered_quick_access.error().message);
         }
         host.log(AddonLogLevel::Info, "GW2 Manny Uploader loaded");
         return {};
@@ -251,6 +282,25 @@ void AddonLifecycle::process_input_bind(bool is_release) noexcept {
     if (!is_release) {
         invoke(RuntimeCallbackKind::ToggleWindow);
     }
+}
+
+std::optional<QuickAccessStatus> AddonLifecycle::quick_access_status() noexcept {
+    IAddonRuntime* runtime = nullptr;
+    {
+        const std::scoped_lock lock{mutex_};
+        if (state_ != AddonLifecycleState::Running || runtime_ == nullptr) {
+            return std::nullopt;
+        }
+        ++active_callbacks_;
+        runtime = runtime_.get();
+    }
+    std::optional<QuickAccessStatus> status;
+    try {
+        status = runtime->quick_access_status();
+    } catch (...) {
+    }
+    finish_callback();
+    return status;
 }
 
 void AddonLifecycle::invoke(RuntimeCallbackKind kind) noexcept {

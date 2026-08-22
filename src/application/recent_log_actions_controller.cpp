@@ -210,6 +210,18 @@ RecentLogActionsController::execute(const RecentLogActionCommand& command) {
             !retried) {
             return std::unexpected(from_coordinator_error(retried.error()));
         }
+        return {};
+    }
+    if (const auto* reupload = std::get_if<ReuploadLogCommand>(&command)) {
+        if (auto started = uploads_.reupload(reupload->job_id); !started) {
+            return std::unexpected(from_coordinator_error(started.error()));
+        }
+        return {};
+    }
+    if (const auto* rechat = std::get_if<RechatLogCommand>(&command)) {
+        if (auto started = uploads_.rechat(rechat->job_id); !started) {
+            return std::unexpected(from_coordinator_error(started.error()));
+        }
     }
     return {};
 }

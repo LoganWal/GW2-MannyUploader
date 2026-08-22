@@ -26,18 +26,21 @@ static_assert(IMGUI_VERSION_NUM == 18000, "Nexus and addon ImGui ABIs must match
 
 // Development-only identity until Raidcore assigns or confirms the public listing signature.
 inline constexpr std::uint32_t provisional_addon_signature = 0xB2D15965U;
-inline constexpr char addon_name[] = "GW2 Manny Uploader";
-inline constexpr char addon_author[] = "LoganWal";
+inline constexpr char addon_name[] = "MannyUploader";
+inline constexpr char addon_author[] = "Logan";
 inline constexpr char addon_description[] =
     "Uploads arcdps logs to dps.report, GW2Wingman, DonBot, and broadcaster Twitch chat.";
 inline constexpr char addon_update_link[] = "https://github.com/LoganWal/GW2-MannyUploader";
 inline constexpr char addon_storage_name[] = "GW2MannyUploader";
 inline constexpr char log_channel[] = "GW2 Manny Uploader";
-inline constexpr std::string_view input_bind_identifier = "KB_GW2_MANNY_UPLOADER_TOGGLE";
+inline constexpr std::string_view input_bind_identifier = "KB_MANNY_UPLOADER_TOGGLE_WINDOW";
 inline constexpr std::string_view default_input_bind = "ALT+SHIFT+M";
 inline constexpr std::string_view quick_access_identifier = "QA_GW2_MANNY_UPLOADER";
 inline constexpr std::string_view quick_access_texture_identifier = "TEX_GW2_MANNY_UPLOADER";
-inline constexpr std::string_view quick_access_tooltip = "Toggle GW2 Manny Uploader";
+inline constexpr std::string_view quick_access_idle_texture_identifier =
+    "TEX_GW2_MANNY_UPLOADER_IDLE";
+inline constexpr std::string_view quick_access_twitch_texture_identifier =
+    "TEX_GW2_MANNY_UPLOADER_TWITCH";
 
 class NexusHost final : public IAddonHost {
   public:
@@ -67,6 +70,7 @@ class NexusHost final : public IAddonHost {
 
     void detach() noexcept {
         api_ = nullptr;
+        quick_access_status_.reset();
     }
 
     [[nodiscard]] std::expected<AddonPaths, AddonHostError> paths() const override {
@@ -131,7 +135,8 @@ class NexusHost final : public IAddonHost {
         }
     }
 
-    [[nodiscard]] std::expected<void, AddonHostError> register_quick_access_shortcut() override {
+    [[nodiscard]] std::expected<void, AddonHostError>
+    register_quick_access_shortcut(const QuickAccessStatus& status) override {
         if (api_ == nullptr) {
             return std::unexpected(AddonHostError{
                 .code = AddonHostErrorCode::RegistrationFailed,
@@ -147,17 +152,49 @@ class NexusHost final : public IAddonHost {
                 .message = "Nexus could not create the quick-access icon texture",
             });
         }
-        api_->QuickAccess_Add(quick_access_identifier.data(),
-                              quick_access_texture_identifier.data(),
-                              quick_access_texture_identifier.data(), input_bind_identifier.data(),
-                              quick_access_tooltip.data());
+        Texture_t* idle_texture = api_->Textures_GetOrCreateFromMemory(
+            quick_access_idle_texture_identifier.data(), quick_access_idle_icon_png.data(),
+            static_cast<std::uint64_t>(quick_access_idle_icon_png.size()));
+        Texture_t* twitch_texture = api_->Textures_GetOrCreateFromMemory(
+            quick_access_twitch_texture_identifier.data(), quick_access_twitch_icon_png.data(),
+            static_cast<std::uint64_t>(quick_access_twitch_icon_png.size()));
+        if (idle_texture == nullptr || twitch_texture == nullptr) {
+            return std::unexpected(AddonHostError{
+                .code = AddonHostErrorCode::RegistrationFailed,
+                .message = "Nexus could not create the quick-access status textures",
+            });
+        }
+        const auto texture_identifier = quick_access_texture_identifier_for(status.tint);
+        quick_access_tooltip_storage_ = status.tooltip;
+        api_->QuickAccess_Add(quick_access_identifier.data(), texture_identifier.data(),
+                              texture_identifier.data(), input_bind_identifier.data(),
+                              quick_access_tooltip_storage_.c_str());
+        quick_access_status_ = status;
         return {};
+    }
+
+    void update_quick_access(const std::optional<QuickAccessStatus>& status) noexcept {
+        if (api_ == nullptr || !status || quick_access_status_ == status) {
+            return;
+        }
+        try {
+            const auto texture_identifier = quick_access_texture_identifier_for(status->tint);
+            api_->QuickAccess_Remove(quick_access_identifier.data());
+            quick_access_tooltip_storage_ = status->tooltip;
+            api_->QuickAccess_Add(quick_access_identifier.data(), texture_identifier.data(),
+                                  texture_identifier.data(), input_bind_identifier.data(),
+                                  quick_access_tooltip_storage_.c_str());
+            quick_access_status_ = *status;
+        } catch (...) {
+        }
     }
 
     void deregister_quick_access_shortcut() noexcept override {
         if (api_ != nullptr) {
             api_->QuickAccess_Remove(quick_access_identifier.data());
         }
+        quick_access_status_.reset();
+        quick_access_tooltip_storage_.clear();
     }
 
     void log(AddonLogLevel level, std::string_view message) noexcept override {
@@ -187,7 +224,22 @@ class NexusHost final : public IAddonHost {
     }
 
   private:
+    [[nodiscard]] static std::string_view
+    quick_access_texture_identifier_for(QuickAccessTint tint) noexcept {
+        switch (tint) {
+        case QuickAccessTint::Idle:
+            return quick_access_idle_texture_identifier;
+        case QuickAccessTint::Upload:
+            return quick_access_texture_identifier;
+        case QuickAccessTint::Twitch:
+            return quick_access_twitch_texture_identifier;
+        }
+        return quick_access_idle_texture_identifier;
+    }
+
     AddonAPI_t* api_{};
+    std::optional<QuickAccessStatus> quick_access_status_;
+    std::string quick_access_tooltip_storage_;
 };
 
 class NexusRuntimeFactory final : public IAddonRuntimeFactory {
@@ -203,6 +255,7 @@ AddonLifecycle addon_lifecycle;
 NexusRuntimeFactory runtime_factory;
 
 void render_main_callback() {
+    nexus_host.update_quick_access(addon_lifecycle.quick_access_status());
     addon_lifecycle.render_main();
 }
 

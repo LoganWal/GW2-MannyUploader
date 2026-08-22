@@ -16,6 +16,7 @@
 namespace manny_uploader::providers {
 
 inline constexpr std::string_view donbot_default_api_base = "https://donbot-api.walmslo.com";
+inline constexpr std::string_view donbot_default_web_base = "https://donbot.walmslo.com";
 inline constexpr std::size_t max_donbot_api_key_bytes = 512;
 
 using DonBotGuild = ports::DonBotGuild;
@@ -23,6 +24,7 @@ using DonBotVerification = ports::DonBotVerification;
 
 struct DonBotUploadSuccess {
     std::optional<std::uint64_t> upload_id;
+    std::optional<std::uint64_t> fight_log_id;
 };
 
 enum class DonBotDisposition : std::uint8_t {

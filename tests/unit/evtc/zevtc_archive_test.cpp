@@ -287,6 +287,11 @@ void successful_extraction_tests(TestSuite& suite) {
     const auto result = extract(archive);
     MANNY_CHECK(suite, result.has_value());
     MANNY_CHECK(suite, result.value() == expected);
+
+    const auto arcdps_archive = make_zip({ZipEntry{"20260822-172726", expected}});
+    const auto extensionless = extract(arcdps_archive);
+    MANNY_CHECK(suite, extensionless.has_value());
+    MANNY_CHECK(suite, extensionless.value() == expected);
 }
 
 void file_validation_tests(TestSuite& suite) {
@@ -323,6 +328,14 @@ void entry_validation_tests(TestSuite& suite) {
     }));
     MANNY_CHECK(suite, !multiple.has_value());
     MANNY_CHECK(suite, multiple.error().code == MetadataParseErrorCode::InvalidArchive);
+
+    const auto multiple_extensionless = extract(make_zip({
+        ZipEntry{"20260822-172726", bytes("one")},
+        ZipEntry{"20260822-172727", bytes("two")},
+    }));
+    MANNY_CHECK(suite, !multiple_extensionless.has_value());
+    MANNY_CHECK(suite,
+                multiple_extensionless.error().code == MetadataParseErrorCode::InvalidArchive);
 
     const auto encrypted = extract(make_zip({with_flags(ZipEntry{"log.evtc", bytes("x")}, 1)}));
     MANNY_CHECK(suite, !encrypted.has_value());
@@ -390,7 +403,7 @@ void archive_integrity_tests(TestSuite& suite) {
 }
 
 void metadata_reader_integration_tests(TestSuite& suite) {
-    const auto archive = make_zip({ZipEntry{"nested/encounter.evtc", valid_evtc_payload()}});
+    const auto archive = make_zip({ZipEntry{"20260822-172726", valid_evtc_payload()}});
     TempArchive fixture{archive};
     auto reader = evtc::ZevtcMetadataReader::create();
     MANNY_CHECK(suite, reader.has_value());

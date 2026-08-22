@@ -14,13 +14,15 @@ Current contracts:
 - [`settings-schema-v1.md`](settings-schema-v1.md): ordinary settings, validation, secret separation,
   atomic persistence, and last-known-good recovery.
 - [`protected-credentials.md`](protected-credentials.md): stable secret identifiers, redaction,
-  atomic protected records, native Windows DPAPI policy, and fail-closed Wine behavior.
+  atomic protected records, native Windows DPAPI policy, and warned Wine compatibility behavior.
 - [`configuration-service.md`](configuration-service.md): application ownership, startup capability,
   secret-free snapshots, durable write-through updates, errors, and shutdown.
 - [`nexus-options.md`](nexus-options.md): render-safe snapshots, bounded configuration commands,
   workflow-owned DonBot/Twitch controls, view-model state, redaction, and shutdown.
 - [`recent-log-actions.md`](recent-log-actions.md): render-safe open-report/open-folder commands,
-  explicit failed-provider retries, trusted-target validation, backpressure, and shutdown.
+  explicit retry/reupload/rechat behavior, trusted-target validation, backpressure, and shutdown.
+- [`upload-history.md`](upload-history.md): bounded durable log identity and provider receipt state,
+  restart normalization, discovery seeding, and no-automatic-replay policy.
 - [`http-transport.md`](http-transport.md): provider-independent requests, streaming bodies,
   timeouts, cancellation, redirects, response limits, TLS policy, and secret redaction.
 - [`dps-report.md`](dps-report.md): multipart log upload, protected user tokens, response validation,

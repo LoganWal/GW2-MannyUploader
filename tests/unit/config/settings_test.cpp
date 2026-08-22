@@ -34,12 +34,14 @@ void default_and_selection_tests(TestSuite& suite) {
     MANNY_CHECK(suite, settings.general.stability_observations == 2);
     MANNY_CHECK(suite, settings.general.recent_log_limit == 50);
     MANNY_CHECK(suite, settings.general.parser_queue_capacity == 8);
+    MANNY_CHECK(suite, settings.general.parallel_uploads_per_provider == 1);
     MANNY_CHECK(suite, settings.general.max_candidates == 4096);
     MANNY_CHECK(suite, settings.dps_report.enabled);
     MANNY_CHECK(suite, settings.wingman.enabled);
     MANNY_CHECK(suite, !settings.donbot.enabled);
     MANNY_CHECK(suite, settings.donbot.api_base_url == "https://donbot-api.walmslo.com");
     MANNY_CHECK(suite, !settings.twitch.enabled);
+    MANNY_CHECK(suite, settings.twitch.client_id.empty());
     MANNY_CHECK(suite, settings.twitch.message_template.find("{url}") != std::string::npos);
     MANNY_CHECK(suite, config::validate_settings(settings).empty());
 
@@ -117,12 +119,15 @@ void numeric_range_tests(TestSuite& suite) {
     settings = valid_settings();
     settings.general.recent_log_limit = 0;
     settings.general.parser_queue_capacity = 65;
+    settings.general.parallel_uploads_per_provider = 0;
     settings.general.max_candidates = 10'001;
     errors = config::validate_settings(settings);
     MANNY_CHECK(suite, has_error(errors, SettingsValidationErrorCode::OutOfRange,
                                  "general.recent_log_limit"));
     MANNY_CHECK(suite, has_error(errors, SettingsValidationErrorCode::OutOfRange,
                                  "general.parser_queue_capacity"));
+    MANNY_CHECK(suite, has_error(errors, SettingsValidationErrorCode::OutOfRange,
+                                 "general.parallel_uploads_per_provider"));
     MANNY_CHECK(suite, has_error(errors, SettingsValidationErrorCode::OutOfRange,
                                  "general.max_candidates"));
 
@@ -131,6 +136,7 @@ void numeric_range_tests(TestSuite& suite) {
     settings.general.stability_observations = 10;
     settings.general.recent_log_limit = 500;
     settings.general.parser_queue_capacity = 64;
+    settings.general.parallel_uploads_per_provider = 32;
     settings.general.max_candidates = 10'000;
     MANNY_CHECK(suite, config::validate_settings(settings).empty());
 }
@@ -178,9 +184,17 @@ void donbot_validation_tests(TestSuite& suite) {
 
 void twitch_validation_tests(TestSuite& suite) {
     auto settings = valid_settings();
+    settings.twitch.client_id = "abc123publicclient";
     settings.twitch.message_template =
         "{{log}} {encounter} {mode} {mode_suffix} {result} {boss_id}: {url}";
     MANNY_CHECK(suite, config::validate_settings(settings).empty());
+
+    settings = valid_settings();
+    settings.twitch.client_id = "BAD-CLIENT-ID";
+    auto client_id_errors = config::validate_settings(settings);
+    MANNY_CHECK(suite,
+                has_error(client_id_errors, SettingsValidationErrorCode::InvalidTwitchClientId,
+                          "twitch.client_id"));
 
     for (const auto& invalid_template : {
              std::string{"{unknown}: {url}"},

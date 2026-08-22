@@ -310,6 +310,35 @@ void bounded_queue_and_backpressure_tests(TestSuite& suite) {
     MANNY_CHECK(suite, third && third->job_id == domain::UploadJobId{33});
 }
 
+void configurable_parallelism_tests(TestSuite& suite) {
+    FakeWingmanClient client;
+    client.block();
+    auto worker = WingmanProviderWorker::create(client, 8, 3);
+    MANNY_CHECK(suite, worker.has_value());
+    MANNY_CHECK(suite, worker && (*worker)->parallelism() == 3);
+
+    for (std::uint64_t id = 51; id <= 55; ++id) {
+        MANNY_CHECK(suite, (*worker)->enqueue(request(id)).has_value());
+    }
+    MANNY_CHECK(suite, client.wait_for_calls(3, 2s));
+    MANNY_CHECK(suite, !client.wait_for_calls(4, 50ms));
+
+    MANNY_CHECK(suite, (*worker)->update_parallelism(5).has_value());
+    MANNY_CHECK(suite, (*worker)->parallelism() == 5);
+    MANNY_CHECK(suite, client.wait_for_calls(5, 2s));
+
+    const auto invalid = (*worker)->update_parallelism(0);
+    MANNY_CHECK(suite, !invalid.has_value());
+    MANNY_CHECK(suite,
+                invalid.error().code == providers::AsyncUploadWorkerErrorCode::InvalidCapacity);
+    MANNY_CHECK(suite, (*worker)->parallelism() == 5);
+
+    client.release();
+    for (std::size_t index = 0; index < 5; ++index) {
+        MANNY_CHECK(suite, (*worker)->wait_for_result(2s).has_value());
+    }
+}
+
 void cancellation_and_shutdown_tests(TestSuite& suite) {
     FakeWingmanClient client;
     client.block();
@@ -338,6 +367,7 @@ void run_wingman_provider_worker_tests(TestSuite& suite) {
     creation_and_outcome_tests(suite);
     request_validation_tests(suite);
     bounded_queue_and_backpressure_tests(suite);
+    configurable_parallelism_tests(suite);
     cancellation_and_shutdown_tests(suite);
 }
 

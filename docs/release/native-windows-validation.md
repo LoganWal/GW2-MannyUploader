@@ -13,9 +13,8 @@ The `Windows x64 release package` CI job is the authoritative native build. It m
 ordinary Microsoft-hosted Windows runner, not Wine, and must use the x64 Release configuration with
 warnings treated as errors.
 
-The job sets `MANNY_REQUIRE_NATIVE_DPAPI=1`. This turns the portable test's normal Wine-compatible
-`UnsupportedEnvironment` result into a failure and therefore requires a real user-scoped DPAPI store
-round trip, ciphertext/plaintext separation, and tamper rejection. The same suite exercises the
+The job sets `MANNY_REQUIRE_NATIVE_DPAPI=1`, requiring a real user-scoped DPAPI store round trip,
+ciphertext/plaintext separation, and tamper rejection. The same suite exercises the
 production libcurl adapter through deterministic loopback requests, including streaming, limits,
 redirect refusal, cancellation, and error redaction.
 
@@ -43,6 +42,19 @@ with `run_live_https_probe` enabled. The probe performs one credential-free GET 
 The probe is evidence for the selected Windows runner only. Record the workflow URL and Windows image
 version in the release notes; do not generalize one successful probe into a guarantee for every user
 environment.
+
+## Wine compatibility gate
+
+Cross-build the complete Windows test suite and run it under the maintained Wine environment with
+`MANNY_REQUIRE_WINE_DPAPI=1`. This requires Wine detection plus the same protected-store round trip,
+ciphertext/plaintext separation, and tamper rejection used by the native gate. The remaining suite
+exercises the shared Windows HTTP, archive, configuration, provider, and application behavior; a
+failure is a Wine release blocker.
+
+The in-game matrix below must also be repeated under Wine for log-directory access, Nexus rendering,
+all four enabled destinations, credential restart recovery, browser launch, and unload/reload. Wine
+uses polling automatically if its implementation of the native directory notification API fails;
+that fallback is supported behavior rather than a disabled feature.
 
 ## Packaged-artifact checks
 

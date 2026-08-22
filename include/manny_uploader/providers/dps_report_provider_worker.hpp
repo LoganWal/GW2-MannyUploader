@@ -31,7 +31,7 @@ class DpsReportProviderWorker final : public ports::IUploadProvider,
     [[nodiscard]] static std::expected<std::unique_ptr<DpsReportProviderWorker>,
                                        DpsReportProviderWorkerError>
     create(const IDpsReportClient& client, ports::ISecretStore* secret_store = nullptr,
-           std::size_t queue_capacity = 8);
+           std::size_t queue_capacity = 8, std::size_t parallelism = 1);
 
     ~DpsReportProviderWorker() override;
 
@@ -49,6 +49,9 @@ class DpsReportProviderWorker final : public ports::IUploadProvider,
     [[nodiscard]] std::size_t pending_count() const noexcept;
     [[nodiscard]] std::size_t result_count() const noexcept;
     [[nodiscard]] bool is_stopping() const noexcept;
+    [[nodiscard]] std::expected<void, AsyncUploadWorkerError>
+    update_parallelism(std::size_t parallelism);
+    [[nodiscard]] std::size_t parallelism() const noexcept;
 
   private:
     DpsReportProviderWorker(const IDpsReportClient& client, ports::ISecretStore* secret_store);

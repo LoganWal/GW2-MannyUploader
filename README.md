@@ -1,8 +1,8 @@
 # GW2 Manny Uploader
 
 GW2 Manny Uploader is a native Windows x64 [Raidcore Nexus](https://raidcore.gg/gw2/nexus) addon
-that watches completed arcdps `.zevtc` logs and uploads them without blocking the game thread.
-The intended version-1 code scope is implemented and undergoing final native release validation.
+that watches completed arcdps `.zevtc` logs and sends them to the services you enable without
+blocking the game thread.
 
 ## Supported destinations
 
@@ -17,13 +17,14 @@ setting: the authenticated account is always both sender and broadcaster.
 
 ## Requirements
 
-- Guild Wars 2 on Windows x64
+- Guild Wars 2 on native Windows x64 or through Wine/Proton
 - Raidcore Nexus
 - arcdps configured to save compressed `.zevtc` combat logs
 - HTTPS access to each enabled provider
 
-The addon is one native DLL and does not require .NET or a companion runtime DLL. Version 1 disables
-persistent protected credentials under Wine, so DonBot and Twitch connection require native Windows.
+The addon is one native DLL and does not require .NET or a companion runtime DLL. DonBot and Twitch
+work under Wine, but Wine DPAPI provides weaker protection than native Windows; the options UI shows
+an explicit compatibility warning.
 
 ## Installation
 
@@ -41,7 +42,7 @@ Until GW2 Manny Uploader has a public Nexus listing, install a verified Windows 
    The calculated value must match the first value in the sidecar.
 3. Confirm the ZIP contains only `manny_uploader.dll`.
 4. Copy the DLL directly to `<Guild Wars 2>\addons\manny_uploader.dll`.
-5. Launch Guild Wars 2 and load or enable GW2 Manny Uploader through Nexus.
+5. Launch Guild Wars 2 and load or enable `MannyUploader` through Nexus.
 
 Do not install the separately published PDB or its checksum. Those files are retained only with
 release evidence or a matching crash investigation.
@@ -49,10 +50,23 @@ release evidence or a matching crash investigation.
 ## Using the addon
 
 Open the uploader from its quick-access icon or the Nexus-managed `Alt+Shift+M` default keybind. The
-keybind can be changed through Nexus. The main window shows recent logs, each provider's state,
-failed-provider retry controls, and actions to open a dps.report link or source-log directory.
+keybind can be changed through Nexus. Hovering the icon shows every enabled destination. It is grey
+when none are enabled, uses the normal accent when one or more upload providers are enabled, and uses
+Twitch purple whenever Twitch reporting is enabled. If Nexus cannot create the optional textures,
+the addon remains active through its keybind and options entry.
 
-All configuration is under GW2 Manny Uploader in Nexus options. Saved settings apply without
+The main window shows recent logs and each provider's state. `Copy dps.report URLs` copies the
+visible report links, while `Copy DonBot aggregate URL` copies one aggregate page for the visible
+DonBot fight IDs. Each row can open its source folder. `Reupload` deliberately submits that log to
+dps.report, GW2Wingman, and DonBot again; `Rechat` deliberately sends its dps.report link to Twitch
+again.
+
+`Show New` is the safe startup default and accepts only logs completed after the addon loaded.
+`Show Today` includes logs completed since local midnight plus new logs that arrive afterward. Upload
+history is persisted across game restarts, so switching modes or disabling and re-enabling a provider
+does not resubmit an already-seen log. Only the explicit `Reupload` and `Rechat` actions replay work.
+
+All configuration is under `MannyUploader` in Nexus options. Saved settings apply without
 reloading; active parses and uploads keep the inputs captured when they started.
 
 ### General options
@@ -65,7 +79,8 @@ reloading; active parses and uploads keep the inputs captured when they started.
 | Stability observations | 2 | 2–10 unchanged observations before accepting a log. |
 | Recent log limit | 50 | 1–500 settled rows retained in memory. |
 | Parser queue capacity | 8 | 1–64 queued metadata parses. |
-| Maximum candidates | 4,096 | 1–10,000 candidates per scan. |
+| Parallel uploads per provider | 1 | 1–32 concurrent requests for each destination independently. A value of 10 gives each of dps.report, GW2Wingman, DonBot, and Twitch its own limit of 10. |
+| Maximum candidates | 4,096 | 1–10,000 logs inside the selected New/Today window per scan. |
 
 Only `.zevtc` files are supported in version 1. If arcdps writes elsewhere, select that exact
 directory. A missing directory is a waiting state and is discovered when it appears.
@@ -85,23 +100,25 @@ compatibility endpoint is retired, Wingman can fail without blocking the other d
 
 1. Leave the default API URL unless the DonBot operator supplied another HTTPS endpoint.
 2. Enter the Guild Wars 2 API key associated with the DonBot account and select `Verify DonBot`.
-3. Select one guild from the authorized guilds returned by DonBot.
-4. Enable DonBot uploads.
+3. Once verified, the API-key field is hidden. Select one authorized server from the dropdown.
+4. Enable uploads with the checkbox beside the server dropdown.
 
 The key is protected separately from ordinary JSON. DonBot always submits with `wingman=false`, so
 enabling direct Wingman and DonBot does not ask DonBot to create a duplicate Wingman upload.
-`Disconnect DonBot` disables the workflow and erases its locally protected key.
+`Deverify DonBot` disables the workflow and erases its locally protected key. Completed DonBot
+processing IDs are retained so the main window can compose its aggregate URL.
 
 ### Twitch broadcaster chat
 
-Twitch controls require a build configured with the registered public Twitch client ID and an
-available protected store.
+Twitch uses a public Device Code application and an available protected store. It never asks for or
+stores a client secret.
 
-1. Select `Connect Twitch`.
-2. Open the displayed verification address and enter the displayed Device Code.
-3. Authorize using the broadcaster account whose chat should receive links.
-4. Wait for the connected status, then enable Twitch chat upload.
-5. Use `Send test message` before relying on encounter posts.
+1. Create or select an application in the [Twitch developer console](https://dev.twitch.tv/console/apps).
+2. Paste its public application Client ID into MannyUploader and save ordinary settings.
+3. Select `Connect Twitch`.
+4. Open the displayed verification address and enter the displayed Device Code.
+5. Authorize using the broadcaster account whose chat should receive links.
+6. Wait for the connected status, enable Twitch chat upload, and use `Send test message`.
 
 `Disconnect Twitch` disables posting, attempts revocation, and erases the protected local session.
 Successful and failed encounter posting can be enabled independently, but at least one must remain
@@ -135,13 +152,16 @@ Nexus supplies the addon data directory. The current storage identity produces:
 <Guild Wars 2>\addons\GW2MannyUploader\
 ├── settings.json
 ├── settings.json.bak
+├── upload-history.json
 └── secrets\
 ```
 
-`settings.json` contains ordinary options only; `.bak` is the last known-good ordinary document.
-DonBot and Twitch values are bounded, user-scoped DPAPI records under `secrets`. They are never
-written into ordinary JSON. Do not edit them, copy them between Windows accounts, or include them in
-support bundles.
+`settings.json` contains ordinary options, including the public Twitch Client ID; `.bak` is its last
+known-good document. `upload-history.json` contains log identities, provider states, public report
+links, and delivery receipts used to prevent automatic replay. DonBot keys and Twitch OAuth sessions
+are bounded DPAPI records under `secrets` and are never written into ordinary JSON. Native Windows
+DPAPI is user-scoped. Wine DPAPI encryption does not provide the same protection against a copied
+profile or local attacker. Do not edit these files or include them in support bundles.
 
 If the primary settings file is corrupt, the addon attempts the valid backup and reports recovery. If
 both existing files are invalid, startup fails closed instead of silently discarding configuration.
@@ -160,11 +180,12 @@ both existing files are invalid, startup fails closed instead of silently discar
 - Confirm arcdps creates compressed `.zevtc` files.
 - Compare the configured directory with the newest log's location.
 - Enable subdirectory watching if arcdps creates encounter-specific folders.
+- Use `Show New` for logs completed after addon load or `Show Today` for the current local day.
 
 ### DonBot or Twitch cannot be enabled
 
 - DonBot requires a verified key and one authorized guild selection.
-- Twitch requires a production client ID, native protected storage, dps.report, and at least one
+- Twitch requires a valid public application Client ID, available protected storage, dps.report, and at least one
   encounter-result policy.
 - Do not paste credentials into `settings.json`; secret-like JSON keys are rejected.
 
@@ -212,14 +233,13 @@ cmake --build --preset release
 ctest --preset release
 ```
 
-Production Twitch builds inject the public client ID at configure time:
+Packagers may optionally provide a default public Twitch Client ID at configure time:
 
 ```sh
 cmake -S . -B out/build/release -DMANNY_TWITCH_CLIENT_ID=yourlowercaseclientid
 ```
 
-Without it, the addon remains loadable and non-Twitch providers work, but Twitch connection is
-visibly disabled.
+Users can override that fallback—or configure Twitch in a build without one—through Nexus options.
 
 Check source formatting with:
 

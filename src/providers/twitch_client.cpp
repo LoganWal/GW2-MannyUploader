@@ -578,7 +578,38 @@ std::expected<TwitchClient, TwitchError> TwitchClient::create(const ports::IHttp
 }
 
 TwitchClient::TwitchClient(const ports::IHttpClient& http_client, std::string client_id) noexcept
-    : http_client_{http_client}, client_id_{std::move(client_id)} {}
+    : http_client_{http_client}, configuration_{std::make_shared<Configuration>()} {
+    configuration_->client_id = std::move(client_id);
+}
+
+TwitchClient TwitchClient::create_unconfigured(const ports::IHttpClient& http_client) {
+    return TwitchClient{http_client, {}};
+}
+
+std::expected<void, TwitchError> TwitchClient::update_client_id(std::string client_id) {
+    if (!client_id.empty() && !valid_client_id(client_id)) {
+        return std::unexpected(
+            make_error(TwitchDisposition::Failed, "The Twitch application client ID is invalid"));
+    }
+    const std::scoped_lock lock{configuration_->mutex};
+    configuration_->client_id = std::move(client_id);
+    return {};
+}
+
+std::expected<std::string, TwitchError> TwitchClient::client_id_snapshot() const {
+    const std::scoped_lock lock{configuration_->mutex};
+    if (configuration_->client_id.empty()) {
+        return std::unexpected(
+            make_error(TwitchDisposition::Failed,
+                       "Enter and save a Twitch application client ID before connecting"));
+    }
+    return configuration_->client_id;
+}
+
+bool TwitchClient::configured() const noexcept {
+    const std::scoped_lock lock{configuration_->mutex};
+    return !configuration_->client_id.empty();
+}
 
 std::expected<TwitchDeviceAuthorization, TwitchError>
 TwitchClient::start_device_authorization(const std::stop_token& stop_token) const {
@@ -588,8 +619,12 @@ TwitchClient::start_device_authorization(const std::stop_token& stop_token) cons
             return std::unexpected(
                 make_error(TwitchDisposition::Cancelled, "Twitch authorization was cancelled"));
         }
+        auto client_id = client_id_snapshot();
+        if (!client_id) {
+            return std::unexpected(std::move(client_id.error()));
+        }
         std::string form;
-        append_form_field(form, FormFieldName{"client_id"}, client_id_);
+        append_form_field(form, FormFieldName{"client_id"}, *client_id);
         append_form_field(form, FormFieldName{"scopes"}, twitch_chat_scope);
         auto request = make_oauth_post(device_url, form, operation);
         if (!request) {
@@ -645,8 +680,12 @@ TwitchClient::poll_device_authorization(const support::SecretValue& device_code,
             return std::unexpected(make_error(TwitchDisposition::Failed,
                                               "The Twitch device authorization is invalid"));
         }
+        auto client_id = client_id_snapshot();
+        if (!client_id) {
+            return std::unexpected(std::move(client_id.error()));
+        }
         std::string form;
-        append_form_field(form, FormFieldName{"client_id"}, client_id_);
+        append_form_field(form, FormFieldName{"client_id"}, *client_id);
         append_form_field(form, FormFieldName{"scopes"}, twitch_chat_scope);
         append_form_field(form, FormFieldName{"device_code"}, device_code);
         append_form_field(form, FormFieldName{"grant_type"}, device_grant_type);
@@ -689,6 +728,10 @@ TwitchClient::validate_access_token(const support::SecretValue& access_token,
             return std::unexpected(
                 make_error(TwitchDisposition::Reconnect, "The Twitch session is invalid"));
         }
+        auto client_id = client_id_snapshot();
+        if (!client_id) {
+            return std::unexpected(std::move(client_id.error()));
+        }
         ports::HttpRequest request;
         request.method = ports::HttpMethod::Get;
         request.url = validate_url;
@@ -719,7 +762,7 @@ TwitchClient::validate_access_token(const support::SecretValue& access_token,
         if (const auto parse_error =
                 glz::read<ResponseReadOptions{}>(parsed, response_document(*response));
             parse_error || !parsed.client_id || !parsed.login || !parsed.scopes ||
-            !parsed.user_id || !parsed.expires_in || *parsed.client_id != client_id_ ||
+            !parsed.user_id || !parsed.expires_in || *parsed.client_id != *client_id ||
             !valid_login(*parsed.login) || !valid_user_id(*parsed.user_id) ||
             !valid_duration(*parsed.expires_in) || !valid_scopes(*parsed.scopes)) {
             return std::unexpected(make_error(TwitchDisposition::Reconnect,
@@ -751,10 +794,14 @@ TwitchClient::refresh_access_token(const support::SecretValue& refresh_token,
             return std::unexpected(
                 make_error(TwitchDisposition::Reconnect, "The Twitch refresh token is invalid"));
         }
+        auto client_id = client_id_snapshot();
+        if (!client_id) {
+            return std::unexpected(std::move(client_id.error()));
+        }
         std::string form;
         append_form_field(form, FormFieldName{"grant_type"}, "refresh_token");
         append_form_field(form, FormFieldName{"refresh_token"}, refresh_token);
-        append_form_field(form, FormFieldName{"client_id"}, client_id_);
+        append_form_field(form, FormFieldName{"client_id"}, *client_id);
         auto request = make_oauth_post(token_url, form, operation);
         if (!request) {
             return std::unexpected(std::move(request.error()));
@@ -787,8 +834,12 @@ TwitchClient::revoke_access_token(const support::SecretValue& access_token,
             return std::unexpected(
                 make_error(TwitchDisposition::Failed, "The Twitch access token is invalid"));
         }
+        auto client_id = client_id_snapshot();
+        if (!client_id) {
+            return std::unexpected(std::move(client_id.error()));
+        }
         std::string form;
-        append_form_field(form, FormFieldName{"client_id"}, client_id_);
+        append_form_field(form, FormFieldName{"client_id"}, *client_id);
         append_form_field(form, FormFieldName{"token"}, access_token);
         auto request = make_oauth_post(revoke_url, form, operation);
         if (!request) {
@@ -823,6 +874,10 @@ TwitchClient::send_chat_message(std::string_view authenticated_user_id, std::str
             return std::unexpected(
                 make_error(TwitchDisposition::Failed, "The Twitch chat request is invalid"));
         }
+        auto client_id = client_id_snapshot();
+        if (!client_id) {
+            return std::unexpected(std::move(client_id.error()));
+        }
         detail::TwitchChatRequestBody body{
             .broadcaster_id = std::string{authenticated_user_id},
             .sender_id = std::string{authenticated_user_id},
@@ -847,7 +902,7 @@ TwitchClient::send_chat_message(std::string_view authenticated_user_id, std::str
             },
             ports::HttpHeader{
                 .name = "Client-Id",
-                .value = client_id_,
+                .value = *client_id,
                 .sensitivity = ports::HttpHeaderSensitivity::Public,
             },
             ports::HttpHeader{
@@ -918,8 +973,9 @@ TwitchClient::send_chat_message(std::string_view authenticated_user_id, std::str
     }
 }
 
-const std::string& TwitchClient::client_id() const noexcept {
-    return client_id_;
+std::string TwitchClient::client_id() const {
+    const std::scoped_lock lock{configuration_->mutex};
+    return configuration_->client_id;
 }
 
 } // namespace manny_uploader::providers

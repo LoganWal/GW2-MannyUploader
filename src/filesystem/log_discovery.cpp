@@ -242,6 +242,15 @@ LogDiscoveryPipeline::release(const domain::LogFileIdentity& file) {
     return {};
 }
 
+std::expected<bool, LogDiscoveryError>
+LogDiscoveryPipeline::remember(const domain::LogFileIdentity& file) {
+    auto key = make_log_dedupe_key(file);
+    if (!key) {
+        return std::unexpected(key.error());
+    }
+    return deduplicator_.remember(std::move(*key));
+}
+
 void LogDiscoveryPipeline::clear() noexcept {
     stability_.clear();
     deduplicator_.clear();

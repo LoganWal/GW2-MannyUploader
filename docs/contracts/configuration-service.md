@@ -22,8 +22,8 @@ instead, construction records one of these secret-free capability states:
 - `InitializationFailed`.
 
 The capability snapshot contains only the state, typed store error, safe diagnostic, and optional
-numeric system code. Under Wine, the expected state is `UnsupportedEnvironment` as required by the
-protected-credential contract.
+numeric system code. Under Wine the state is normally `Available`; the Nexus adapter independently
+publishes the reduced-protection compatibility warning required by the protected-credential contract.
 
 Null adapter ownership is rejected unless it is paired with an explicit protected-storage failure.
 The service never silently substitutes an in-memory or plaintext secret store.

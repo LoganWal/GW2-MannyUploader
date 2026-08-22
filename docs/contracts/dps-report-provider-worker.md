@@ -9,16 +9,18 @@ credential persistence; the wire protocol remains in [`dps-report.md`](dps-repor
 `DpsReportProviderWorker` implements the application-owned `IUploadProvider` port and always reports
 `Provider::DpsReport`. Its client and optional protected secret store are borrowed dependencies and
 must outlive the provider. The wrapper owns the shared `AsyncUploadWorker`, which provides one
-`std::jthread`, a bounded FIFO request queue, and an equally bounded FIFO result queue. Queue capacity
-must be non-zero and defaults to eight. The common mechanics are frozen in
+bounded joined thread pool, a bounded FIFO request queue, and an equally bounded result queue. Queue
+capacity must be non-zero and defaults to eight; parallelism defaults to one and is configurable from
+1 through 32. The common mechanics are frozen in
 [`async-provider-workers.md`](async-provider-workers.md).
 
 Each accepted request must have a non-zero job ID and attempt, the dps.report provider ID, a non-empty
 stable file path, and no previous dps.report result. Full, stopping, or malformed requests are rejected
-synchronously with generic diagnostics. One request executes at a time away from Nexus callbacks.
-Results preserve job ID and provider ID so the coordinator can reject stale or mismatched completion.
+synchronously with generic diagnostics. Up to the configured number execute concurrently away from
+Nexus callbacks. Results preserve job ID and provider ID so the coordinator can reject stale or
+mismatched completion.
 
-The worker blocks its own thread when the result queue is full. Taking a result releases that
+Provider threads block when the result queue is full. Taking a result releases that
 backpressure. It never creates detached tasks, unbounded queues, or one thread per upload.
 
 ## Credential ordering
@@ -34,8 +36,7 @@ completed. No token, protected-store message, path, or client exception text ent
 
 When protected storage is unavailable, anonymous uploads remain supported. A server-issued token is
 discarded through move-only wipe-on-destruction memory and the valid report is returned with a generic
-warning. This is deliberate for Wine, where the protected-store contract fails closed rather than
-persisting credentials insecurely.
+warning. Wine normally supplies its explicitly warned DPAPI compatibility store instead.
 
 The protected store must serialize access to the dps.report record while the worker is alive. Nexus
 options will submit credential changes through the eventual application owner rather than calling the

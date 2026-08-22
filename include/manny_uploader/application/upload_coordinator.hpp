@@ -25,6 +25,7 @@ struct UploadJobSnapshot {
     domain::UploadJob::DetectedAt detected_at;
     std::optional<domain::EncounterMetadata> encounter_metadata;
     std::optional<domain::DpsReportResult> dps_report_result;
+    std::optional<domain::DonBotUploadReceipt> donbot_upload_receipt;
     std::optional<domain::TwitchDeliveryReceipt> twitch_delivery_receipt;
     std::array<domain::ProviderStatus, domain::provider_count> providers;
 };
@@ -72,6 +73,10 @@ class UploadCoordinator {
     [[nodiscard]] std::expected<void, CoordinatorError> handle_result(UploadResult result);
     [[nodiscard]] std::expected<void, CoordinatorError>
     retry_failed_provider(domain::UploadJobId id, domain::Provider provider);
+    [[nodiscard]] std::expected<void, CoordinatorError> reupload(domain::UploadJobId id);
+    [[nodiscard]] std::expected<void, CoordinatorError> rechat(domain::UploadJobId id);
+    [[nodiscard]] std::expected<void, CoordinatorError>
+    restore_history(std::span<const domain::UploadJobRecord> records);
     [[nodiscard]] std::expected<std::size_t, CoordinatorError>
     drain_provider_results(std::size_t maximum_results);
     [[nodiscard]] std::size_t dispatch_due_retries();
@@ -80,6 +85,7 @@ class UploadCoordinator {
     void cancel_all() noexcept;
 
     [[nodiscard]] std::vector<UploadJobSnapshot> snapshots() const;
+    [[nodiscard]] std::vector<domain::UploadJobRecord> history_records() const;
     [[nodiscard]] std::size_t history_limit() const noexcept;
     [[nodiscard]] bool is_shutting_down() const noexcept;
 

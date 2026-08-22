@@ -84,11 +84,10 @@ implementation constant, salt, and optional entropy. Wine Credential Manager is 
 this use because its generic-credential key is stored in the same user registry tree as the encrypted
 blob.
 
-The DPAPI adapter therefore detects Wine through the Wine-owned `ntdll!wine_get_version` export and
-returns `UnsupportedEnvironment` before accepting a credential. There is no plaintext, obfuscation,
-Wine-DPAPI, or Wine-Credential-Manager fallback. Durable credentials under Wine remain unavailable
-until a separately reviewed host Secret Service/KWallet bridge exists. Session-only credentials may
-be considered later, but must be presented honestly as non-persistent.
+The DPAPI adapter detects Wine through the Wine-owned `ntdll!wine_get_version` export and enables a
+clearly warned compatibility mode. Records remain encrypted, bounded, atomically replaced, and
+integrity checked, but the UI states that Wine does not provide native Windows user-scoped
+protection. There is no plaintext, obfuscation, embedded-key, or Wine-Credential-Manager fallback.
 
 ## Error and redaction rules
 
@@ -100,5 +99,6 @@ Required deterministic cases include create validation, all stable IDs, missing 
 idempotent erase, empty/oversized input, protected-record size cap, corrupt envelope, wrong-ID record,
 protector failure, failed replacement preserving the old record, and stale temporary cleanup. Native
 Windows CI additionally sets `MANNY_REQUIRE_NATIVE_DPAPI=1`, so unavailable DPAPI is a hard failure,
-then exercises a real DPAPI-backed store round trip and tamper rejection. A Wine
-probe requires `UnsupportedEnvironment` and confirms that no record is written.
+then exercises a real DPAPI-backed store round trip and tamper rejection. Wine validation requires
+the same protect/store/load round trip and tamper rejection with `MANNY_REQUIRE_WINE_DPAPI=1`, which
+also requires compatibility-mode detection.

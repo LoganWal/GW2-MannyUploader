@@ -6,6 +6,7 @@ int main() {
     manny_uploader::test::run_addon_lifecycle_tests(suite);
     manny_uploader::test::run_settings_tests(suite);
     manny_uploader::test::run_settings_store_tests(suite);
+    manny_uploader::test::run_upload_history_store_tests(suite);
     manny_uploader::test::run_protected_secret_store_tests(suite);
     manny_uploader::test::run_configuration_service_tests(suite);
     manny_uploader::test::run_donbot_configuration_controller_tests(suite);
@@ -37,6 +38,7 @@ int main() {
     manny_uploader::test::run_wingman_client_tests(suite);
     manny_uploader::test::run_wingman_provider_worker_tests(suite);
     manny_uploader::test::run_log_ingestion_coordinator_tests(suite);
+    manny_uploader::test::run_log_selection_tests(suite);
     manny_uploader::test::run_nexus_options_controller_tests(suite);
     manny_uploader::test::run_recent_log_actions_controller_tests(suite);
     manny_uploader::test::run_nexus_options_model_tests(suite);

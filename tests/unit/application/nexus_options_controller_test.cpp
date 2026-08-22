@@ -439,6 +439,7 @@ void render_boundary_and_queue_tests(TestSuite& suite) {
     Fixture fixture{{.command_capacity = 2, .max_commands_per_tick = 1}};
     auto ordinary = application::ordinary_options_from(fixture.configuration->snapshot().settings);
     ordinary.wingman.enabled = false;
+    ordinary.twitch_client_id = "abc123publicclient";
     ordinary.twitch_message_template = "{result}: {url}";
 
     MANNY_CHECK(suite, fixture.options
@@ -461,6 +462,8 @@ void render_boundary_and_queue_tests(TestSuite& suite) {
     MANNY_CHECK(suite, first_tick.has_value() && first_tick->commands_processed == 1);
     MANNY_CHECK(suite, fixture.events == std::vector<std::string>({"settings.save"}));
     MANNY_CHECK(suite, !fixture.configuration->snapshot().settings.wingman.enabled);
+    MANNY_CHECK(suite, fixture.configuration->snapshot().settings.twitch.client_id ==
+                           "abc123publicclient");
     MANNY_CHECK(suite, fixture.options->snapshot().pending_commands == 1);
 
     fixture.events.clear();
@@ -645,6 +648,18 @@ void twitch_workflow_tests(TestSuite& suite) {
     MANNY_CHECK(suite, fixture.options->snapshot().twitch.login == "broadcaster_name");
     MANNY_CHECK(suite, !snapshot_contains(fixture.options->snapshot(), "PRIVATE-ACCESS"));
     MANNY_CHECK(suite, !snapshot_contains(fixture.options->snapshot(), "PRIVATE-REFRESH"));
+
+    auto changed_client_id =
+        application::ordinary_options_from(fixture.configuration->snapshot().settings);
+    changed_client_id.twitch_client_id = "different123client";
+    MANNY_CHECK(suite, fixture.options
+                           ->submit(application::SaveOrdinaryOptionsCommand{
+                               .options = std::move(changed_client_id),
+                           })
+                           .has_value());
+    const auto rejected_client_change = fixture.options->tick();
+    MANNY_CHECK(suite, rejected_client_change && rejected_client_change->action_failures == 1);
+    MANNY_CHECK(suite, fixture.configuration->snapshot().settings.twitch.client_id.empty());
 
     fixture.events.clear();
     MANNY_CHECK(

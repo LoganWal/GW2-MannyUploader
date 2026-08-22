@@ -38,7 +38,8 @@ bounded_retry_delay(std::optional<std::chrono::seconds> delay) noexcept {
 } // namespace
 
 std::expected<std::unique_ptr<WingmanProviderWorker>, WingmanProviderWorkerError>
-WingmanProviderWorker::create(const IWingmanClient& client, std::size_t queue_capacity) {
+WingmanProviderWorker::create(const IWingmanClient& client, std::size_t queue_capacity,
+                              std::size_t parallelism) {
     if (queue_capacity == 0) {
         return std::unexpected(
             make_worker_error(WingmanProviderWorkerErrorCode::InvalidCapacity,
@@ -47,9 +48,9 @@ WingmanProviderWorker::create(const IWingmanClient& client, std::size_t queue_ca
 
     try {
         auto provider = std::unique_ptr<WingmanProviderWorker>{new WingmanProviderWorker{client}};
-        auto worker =
-            AsyncUploadWorker::create(domain::Provider::Wingman, *provider,
-                                      "The GW2Wingman worker failed unexpectedly", queue_capacity);
+        auto worker = AsyncUploadWorker::create(domain::Provider::Wingman, *provider,
+                                                "The GW2Wingman worker failed unexpectedly",
+                                                queue_capacity, parallelism);
         if (!worker) {
             return std::unexpected(
                 make_worker_error(WingmanProviderWorkerErrorCode::ThreadStartFailed,
@@ -108,6 +109,15 @@ std::size_t WingmanProviderWorker::result_count() const noexcept {
 
 bool WingmanProviderWorker::is_stopping() const noexcept {
     return worker_->is_stopping();
+}
+
+std::expected<void, AsyncUploadWorkerError>
+WingmanProviderWorker::update_parallelism(std::size_t parallelism) {
+    return worker_->update_parallelism(parallelism);
+}
+
+std::size_t WingmanProviderWorker::parallelism() const noexcept {
+    return worker_->parallelism();
 }
 
 ports::UploadResult WingmanProviderWorker::process(const ports::UploadRequest& request,

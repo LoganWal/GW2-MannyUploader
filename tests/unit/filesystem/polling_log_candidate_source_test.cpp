@@ -72,6 +72,15 @@ class TempTree {
         }
     }
 
+    void set_last_write_time(const std::filesystem::path& relative_path,
+                             std::filesystem::file_time_type value) const {
+        std::error_code error;
+        std::filesystem::last_write_time(root_ / relative_path, value, error);
+        if (error) {
+            throw std::runtime_error{"Unable to timestamp polling fixture"};
+        }
+    }
+
     void remove_root() const {
         std::error_code error;
         static_cast<void>(std::filesystem::remove_all(root_, error));
@@ -267,6 +276,51 @@ void resource_limit_and_cancellation_tests(TestSuite& suite) {
     MANNY_CHECK(suite, source.retained_count() == 1);
 }
 
+void cutoff_and_large_archive_tests(TestSuite& suite) {
+    TempTree tree;
+    tree.create_root();
+    const auto cutoff = std::filesystem::file_time_type::clock::now();
+    for (std::size_t index = 0; index < 12; ++index) {
+        const auto name = "old-" + std::to_string(index) + ".zevtc";
+        tree.write(name, "old");
+        tree.set_last_write_time(name, cutoff - std::chrono::hours{2});
+    }
+    tree.write("new-one.zevtc", "one");
+    tree.write("new-two.zevtc", "two");
+    tree.set_last_write_time("new-one.zevtc", cutoff + std::chrono::seconds{1});
+    tree.set_last_write_time("new-two.zevtc", cutoff + std::chrono::seconds{2});
+
+    auto created = StandardPollingLogCandidateSource::create(tree.root(), true, 2, cutoff);
+    MANNY_CHECK(suite, created.has_value());
+    auto source = std::move(*created);
+    MANNY_CHECK(suite, source.minimum_last_write_time() == cutoff);
+    const auto filtered = source.poll({});
+    MANNY_CHECK(suite, filtered.has_value());
+    MANNY_CHECK(suite, filtered->observations.size() == 2);
+    MANNY_CHECK(suite,
+                filtered->observations.front().canonical_path == tree.canonical("new-one.zevtc"));
+    MANNY_CHECK(suite,
+                filtered->observations.back().canonical_path == tree.canonical("new-two.zevtc"));
+
+    tree.write("new-three.zevtc", "three");
+    tree.set_last_write_time("new-three.zevtc", cutoff + std::chrono::seconds{3});
+    const auto eligible_limit = source.poll({});
+    MANNY_CHECK(suite, !eligible_limit.has_value());
+    MANNY_CHECK(suite, eligible_limit.error().code == LogCandidateSourceErrorCode::ResourceLimit);
+
+    MANNY_CHECK(
+        suite,
+        source.reconfigure(tree.root(), true, 2, cutoff + std::chrono::hours{1}).has_value());
+    const auto none = source.poll({});
+    MANNY_CHECK(suite, none.has_value());
+    MANNY_CHECK(suite, none->observations.empty());
+
+    MANNY_CHECK(suite, source.reconfigure(tree.root(), true, 2).has_value());
+    const auto unfiltered = source.poll({});
+    MANNY_CHECK(suite, !unfiltered.has_value());
+    MANNY_CHECK(suite, unfiltered.error().code == LogCandidateSourceErrorCode::ResourceLimit);
+}
+
 void incomplete_snapshot_reconciliation_tests(TestSuite& suite) {
     const auto a = std::filesystem::path{"/logs/a.zevtc"};
     const auto b = std::filesystem::path{"/logs/b.zevtc"};
@@ -342,6 +396,7 @@ void run_polling_log_candidate_source_tests(TestSuite& suite) {
     non_recursive_and_root_validation_tests(suite);
     live_reconfiguration_tests(suite);
     resource_limit_and_cancellation_tests(suite);
+    cutoff_and_large_archive_tests(suite);
     incomplete_snapshot_reconciliation_tests(suite);
 }
 

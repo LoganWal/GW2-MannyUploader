@@ -58,6 +58,7 @@ from_twitch_test_message_result(const ports::TwitchTestMessageResult& result) {
     settings.general = options.general;
     settings.dps_report = options.dps_report;
     settings.wingman = options.wingman;
+    settings.twitch.client_id = options.twitch_client_id;
     settings.twitch.message_template = options.twitch_message_template;
     settings.twitch.post_success = options.twitch_post_success;
     settings.twitch.post_failure = options.twitch_post_failure;
@@ -186,7 +187,16 @@ NexusOptionsController::State::save_settings(config::Settings settings) {
 
 std::expected<void, NexusOptionsError>
 NexusOptionsController::State::execute(SaveOrdinaryOptionsCommand& command) {
-    auto settings = apply_ordinary_options(configuration.snapshot().settings, command.options);
+    const auto current = configuration.snapshot().settings;
+    if (command.options.twitch_client_id != current.twitch.client_id) {
+        const auto state = twitch.snapshot().state;
+        if (state != TwitchConnectionState::Disconnected && state != TwitchConnectionState::Error) {
+            return std::unexpected(
+                make_error(NexusOptionsErrorCode::ActionFailed,
+                           "Disconnect Twitch before changing its application client ID"));
+        }
+    }
+    auto settings = apply_ordinary_options(current, command.options);
     return save_settings(std::move(settings));
 }
 
@@ -375,6 +385,7 @@ NexusOrdinaryOptions ordinary_options_from(const config::Settings& settings) {
         .general = settings.general,
         .dps_report = settings.dps_report,
         .wingman = settings.wingman,
+        .twitch_client_id = settings.twitch.client_id,
         .twitch_message_template = settings.twitch.message_template,
         .twitch_post_success = settings.twitch.post_success,
         .twitch_post_failure = settings.twitch.post_failure,

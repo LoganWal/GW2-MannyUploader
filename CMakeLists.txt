@@ -46,6 +46,7 @@ target_sources(
         src/config/protected_file_secret_store.cpp
         src/config/settings.cpp
         src/config/settings_store.cpp
+        src/config/upload_history_store.cpp
         src/domain/upload_job.cpp
         src/evtc/metadata_decoder.cpp
         src/evtc/metadata_parser_worker.cpp
@@ -86,6 +87,7 @@ target_sources(
             include/manny_uploader/application/configuration_service.hpp
             include/manny_uploader/application/donbot_configuration_controller.hpp
             include/manny_uploader/application/log_ingestion_coordinator.hpp
+            include/manny_uploader/application/log_selection.hpp
             include/manny_uploader/application/nexus_options_controller.hpp
             include/manny_uploader/application/recent_log_actions_controller.hpp
             include/manny_uploader/application/twitch_authentication_controller.hpp
@@ -97,6 +99,7 @@ target_sources(
             include/manny_uploader/config/secret_protector.hpp
             include/manny_uploader/config/settings.hpp
             include/manny_uploader/config/settings_store.hpp
+            include/manny_uploader/config/upload_history_store.hpp
             include/manny_uploader/domain/upload_job.hpp
             include/manny_uploader/evtc/metadata_decoder.hpp
             include/manny_uploader/evtc/metadata_parser_worker.hpp

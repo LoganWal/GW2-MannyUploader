@@ -103,6 +103,8 @@ class LogDiscoveryPipeline {
     void forget(const std::filesystem::path& canonical_path);
     [[nodiscard]] std::expected<void, LogDiscoveryError>
     release(const domain::LogFileIdentity& file);
+    [[nodiscard]] std::expected<bool, LogDiscoveryError>
+    remember(const domain::LogFileIdentity& file);
     void clear() noexcept;
     void clear_pending() noexcept;
     [[nodiscard]] std::expected<void, LogDiscoveryError>

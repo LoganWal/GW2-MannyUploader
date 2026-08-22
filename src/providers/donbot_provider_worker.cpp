@@ -55,7 +55,8 @@ constexpr auto default_retry_delay = std::chrono::seconds{30};
 
 [[nodiscard]] ports::UploadResult
 make_result(domain::UploadJobId job_id, ports::UploadOutcome outcome, std::string detail,
-            std::optional<std::chrono::seconds> retry_after = std::nullopt) {
+            std::optional<std::chrono::seconds> retry_after = std::nullopt,
+            std::optional<domain::DonBotUploadReceipt> receipt = std::nullopt) {
     return ports::UploadResult{
         .job_id = job_id,
         .provider = domain::Provider::DonBot,
@@ -63,6 +64,7 @@ make_result(domain::UploadJobId job_id, ports::UploadOutcome outcome, std::strin
         .detail = std::move(detail),
         .retry_after = retry_after,
         .dps_report_result = std::nullopt,
+        .donbot_upload_receipt = std::move(receipt),
         .twitch_delivery_receipt = std::nullopt,
     };
 }
@@ -79,7 +81,8 @@ bounded_retry_delay(std::optional<std::chrono::seconds> delay) noexcept {
 
 std::expected<std::unique_ptr<DonBotProviderWorker>, DonBotProviderWorkerError>
 DonBotProviderWorker::create(const IDonBotClient& client, const ports::ISecretStore& secret_store,
-                             DonBotProviderConfig config, std::size_t queue_capacity) {
+                             DonBotProviderConfig config, std::size_t queue_capacity,
+                             std::size_t parallelism) {
     if (queue_capacity == 0) {
         return std::unexpected(
             make_worker_error(DonBotProviderWorkerErrorCode::InvalidCapacity,
@@ -93,9 +96,9 @@ DonBotProviderWorker::create(const IDonBotClient& client, const ports::ISecretSt
     try {
         auto provider = std::unique_ptr<DonBotProviderWorker>{
             new DonBotProviderWorker{client, secret_store, std::move(config)}};
-        auto worker =
-            AsyncUploadWorker::create(domain::Provider::DonBot, *provider,
-                                      "The DonBot worker failed unexpectedly", queue_capacity);
+        auto worker = AsyncUploadWorker::create(domain::Provider::DonBot, *provider,
+                                                "The DonBot worker failed unexpectedly",
+                                                queue_capacity, parallelism);
         if (!worker) {
             return std::unexpected(
                 make_worker_error(DonBotProviderWorkerErrorCode::ThreadStartFailed,
@@ -194,6 +197,15 @@ bool DonBotProviderWorker::is_stopping() const noexcept {
     return worker_->is_stopping();
 }
 
+std::expected<void, AsyncUploadWorkerError>
+DonBotProviderWorker::update_parallelism(std::size_t parallelism) {
+    return worker_->update_parallelism(parallelism);
+}
+
+std::size_t DonBotProviderWorker::parallelism() const noexcept {
+    return worker_->parallelism();
+}
+
 ports::UploadResult DonBotProviderWorker::process(const ports::UploadRequest& request,
                                                   const std::stop_token& stop_token) const {
     if (!request.donbot_context) {
@@ -226,9 +238,16 @@ ports::UploadResult DonBotProviderWorker::process(const ports::UploadRequest& re
     }
 
     return make_result(request.job_id, ports::UploadOutcome::Succeeded,
-                       uploaded->upload_id ? "Uploaded to DonBot (upload " +
-                                                 std::to_string(*uploaded->upload_id) + ")"
-                                           : "Uploaded to DonBot");
+                       uploaded->fight_log_id ? "Uploaded and processed by DonBot (fight " +
+                                                    std::to_string(*uploaded->fight_log_id) + ")"
+                       : uploaded->upload_id  ? "Uploaded to DonBot (upload " +
+                                                    std::to_string(*uploaded->upload_id) + ")"
+                                              : "Uploaded to DonBot",
+                       std::nullopt,
+                       domain::DonBotUploadReceipt{
+                           .upload_id = uploaded->upload_id,
+                           .fight_log_id = uploaded->fight_log_id,
+                       });
 }
 
 } // namespace manny_uploader::providers

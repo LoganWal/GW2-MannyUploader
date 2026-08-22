@@ -20,6 +20,7 @@ struct NexusOrdinaryOptions {
     config::GeneralSettings general;
     config::DpsReportSettings dps_report;
     config::WingmanSettings wingman;
+    std::string twitch_client_id;
     std::string twitch_message_template;
     bool twitch_post_success{true};
     bool twitch_post_failure{true};

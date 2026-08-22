@@ -35,10 +35,12 @@ class ChangeNotifyingLogCandidateSource final : public ports::ILogCandidateSourc
                                        ports::LogCandidateSourceError>
     create(const std::filesystem::path& root, bool recursive, std::size_t max_candidates,
            std::unique_ptr<IDirectoryChangeMonitor> monitor,
-           std::size_t max_consecutive_monitor_failures = 3);
+           std::size_t max_consecutive_monitor_failures = 3,
+           std::optional<std::filesystem::file_time_type> minimum_last_write_time = std::nullopt);
 
-    [[nodiscard]] std::expected<void, ports::LogCandidateSourceError>
-    reconfigure(const std::filesystem::path& root, bool recursive, std::size_t max_candidates);
+    [[nodiscard]] std::expected<void, ports::LogCandidateSourceError> reconfigure(
+        const std::filesystem::path& root, bool recursive, std::size_t max_candidates,
+        std::optional<std::filesystem::file_time_type> minimum_last_write_time = std::nullopt);
 
     [[nodiscard]] std::expected<ports::LogCandidateBatch, ports::LogCandidateSourceError>
     poll(const std::stop_token& stop_token) override;
@@ -46,6 +48,8 @@ class ChangeNotifyingLogCandidateSource final : public ports::ILogCandidateSourc
     [[nodiscard]] const std::filesystem::path& root() const noexcept;
     [[nodiscard]] bool recursive() const noexcept;
     [[nodiscard]] std::size_t max_candidates() const noexcept;
+    [[nodiscard]] std::optional<std::filesystem::file_time_type>
+    minimum_last_write_time() const noexcept;
     [[nodiscard]] bool using_native_notifications() const noexcept;
     [[nodiscard]] std::size_t consecutive_monitor_failures() const noexcept;
 

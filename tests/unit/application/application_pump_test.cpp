@@ -219,6 +219,47 @@ void stable_submission_and_result_tests(TestSuite& suite) {
     MANNY_CHECK(suite, fixture.parser.requests.size() == 1);
 }
 
+void persisted_identity_seed_tests(TestSuite& suite) {
+    PumpFixture fixture;
+    auto upload_created = UploadCoordinator::create(fixture.clock, fixture.provider_ports);
+    MANNY_CHECK(suite, upload_created.has_value());
+    auto upload = std::move(*upload_created);
+    LogIngestionCoordinator ingestion{upload, fixture.parser};
+    auto pump_created = ApplicationPump::create(fixture.source, fixture.parser, ingestion,
+                                                ApplicationPumpConfig{
+                                                    .required_matching_observations = 2,
+                                                    .dedupe_capacity = 8,
+                                                    .max_metadata_results_per_tick = 4,
+                                                });
+    MANNY_CHECK(suite, pump_created.has_value());
+    auto pump = std::move(*pump_created);
+
+    const auto persisted_observation = observation("logs/persisted.zevtc");
+    const std::array persisted{domain::LogFileIdentity{
+        .canonical_path = persisted_observation.canonical_path,
+        .size = persisted_observation.size,
+        .last_write_time = persisted_observation.last_write_time,
+    }};
+    MANNY_CHECK(suite, pump.seed_processed_logs(persisted).has_value());
+    MANNY_CHECK(suite, pump.dedupe_size() == 1);
+
+    fixture.source.push(batch({persisted_observation}));
+    fixture.source.push(batch({persisted_observation}));
+    MANNY_CHECK(suite, pump.tick(dps_only()).has_value());
+    const auto duplicate = pump.tick(dps_only());
+    MANNY_CHECK(suite, duplicate.has_value());
+    MANNY_CHECK(suite, duplicate->submitted_jobs == 0);
+    MANNY_CHECK(suite, fixture.parser.requests.empty());
+
+    fixture.source.push(batch({observation("logs/persisted.zevtc", 101)}));
+    fixture.source.push(batch({observation("logs/persisted.zevtc", 101)}));
+    MANNY_CHECK(suite, pump.tick(dps_only()).has_value());
+    const auto changed = pump.tick(dps_only());
+    MANNY_CHECK(suite, changed.has_value());
+    MANNY_CHECK(suite, changed->submitted_jobs == 1);
+    MANNY_CHECK(suite, fixture.parser.requests.size() == 1);
+}
+
 void upload_result_and_retry_pump_tests(TestSuite& suite) {
     PumpFixture fixture;
     auto upload_created = UploadCoordinator::create(fixture.clock, fixture.provider_ports);
@@ -419,6 +460,45 @@ void bounded_result_drain_tests(TestSuite& suite) {
     MANNY_CHECK(suite, fixture.dps.requests.size() == 2);
 }
 
+void bounded_parser_dispatch_tests(TestSuite& suite) {
+    PumpFixture fixture;
+    fixture.parser.queue_capacity = 1;
+    auto upload_created = UploadCoordinator::create(fixture.clock, fixture.provider_ports);
+    MANNY_CHECK(suite, upload_created.has_value());
+    auto upload = std::move(*upload_created);
+    LogIngestionCoordinator ingestion{upload, fixture.parser};
+    auto pump_created = ApplicationPump::create(fixture.source, fixture.parser, ingestion,
+                                                ApplicationPumpConfig{
+                                                    .required_matching_observations = 2,
+                                                    .dedupe_capacity = 8,
+                                                });
+    MANNY_CHECK(suite, pump_created.has_value());
+    auto pump = std::move(*pump_created);
+
+    const auto both = batch({observation("logs/a.zevtc"), observation("logs/b.zevtc")});
+    fixture.source.push(both);
+    fixture.source.push(both);
+    MANNY_CHECK(suite, pump.tick(dps_only()).has_value());
+    const auto saturated = pump.tick(dps_only());
+    MANNY_CHECK(suite, saturated.has_value());
+    MANNY_CHECK(suite, saturated->submitted_jobs == 1);
+    MANNY_CHECK(suite, fixture.parser.requests.size() == 1);
+    MANNY_CHECK(suite, upload.snapshots().size() == 1);
+
+    fixture.parser.results.push_back(ports::MetadataParseResult{
+        .job_id = fixture.parser.requests.front().job_id,
+        .metadata = metadata(100),
+    });
+    fixture.source.push(both);
+    const auto resumed = pump.tick(dps_only());
+    MANNY_CHECK(suite, resumed.has_value());
+    MANNY_CHECK(suite, resumed->metadata_results_handled == 1);
+    MANNY_CHECK(suite, resumed->submitted_jobs == 1);
+    MANNY_CHECK(suite, fixture.parser.requests.size() == 2);
+    MANNY_CHECK(suite, fixture.parser.requests.back().file.canonical_path == "logs/b.zevtc");
+    MANNY_CHECK(suite, upload.snapshots().size() == 2);
+}
+
 void failure_and_dedupe_rollback_tests(TestSuite& suite) {
     PumpFixture fixture;
     auto upload_created = UploadCoordinator::create(fixture.clock, fixture.provider_ports, 1);
@@ -514,9 +594,11 @@ void source_failure_and_shutdown_tests(TestSuite& suite) {
 void run_application_pump_tests(TestSuite& suite) {
     creation_tests(suite);
     stable_submission_and_result_tests(suite);
+    persisted_identity_seed_tests(suite);
     removal_resets_stability_tests(suite);
     live_stability_reconfiguration_tests(suite);
     bounded_result_drain_tests(suite);
+    bounded_parser_dispatch_tests(suite);
     upload_result_and_retry_pump_tests(suite);
     failure_and_dedupe_rollback_tests(suite);
     source_failure_and_shutdown_tests(suite);

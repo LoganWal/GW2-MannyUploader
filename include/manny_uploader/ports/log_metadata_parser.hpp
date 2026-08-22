@@ -2,6 +2,7 @@
 
 #include "manny_uploader/domain/upload_job.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -54,6 +55,7 @@ class ILogMetadataParser {
 
     [[nodiscard]] virtual std::expected<void, MetadataParseDispatchError>
     enqueue(MetadataParseRequest request) = 0;
+    [[nodiscard]] virtual std::size_t available_capacity() const noexcept = 0;
     [[nodiscard]] virtual std::optional<MetadataParseResult> try_take_result() = 0;
     virtual void cancel_pending() noexcept = 0;
 };

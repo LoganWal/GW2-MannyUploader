@@ -17,6 +17,7 @@ namespace {
 constexpr std::size_t max_log_directory_bytes = 4096;
 constexpr std::size_t max_api_url_bytes = 2048;
 constexpr std::size_t max_guild_id_bytes = 19;
+constexpr std::size_t max_twitch_client_id_bytes = 128;
 
 void add_error(std::vector<SettingsValidationError>& errors, SettingsValidationErrorCode code,
                std::string field, std::string message) {
@@ -116,6 +117,20 @@ void validate_guild_id(std::string_view value, std::vector<SettingsValidationErr
     }
 }
 
+void validate_twitch_client_id(std::string_view value,
+                               std::vector<SettingsValidationError>& errors) {
+    if (value.empty()) {
+        return;
+    }
+    if (value.size() > max_twitch_client_id_bytes ||
+        !std::ranges::all_of(value, [](char character) {
+            return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9');
+        })) {
+        add_error(errors, SettingsValidationErrorCode::InvalidTwitchClientId, "twitch.client_id",
+                  "Twitch application client ID must contain only lowercase letters and digits");
+    }
+}
+
 void validate_template(std::string_view value, std::vector<SettingsValidationError>& errors) {
     constexpr std::string_view field_name = "twitch.message_template";
     const auto parsed = application::TwitchMessageTemplate::parse(value);
@@ -171,9 +186,12 @@ std::vector<SettingsValidationError> validate_settings(const Settings& settings)
     validate_range(settings.general.recent_log_limit, 1, 500, "general.recent_log_limit", errors);
     validate_range(settings.general.parser_queue_capacity, 1, 64, "general.parser_queue_capacity",
                    errors);
+    validate_range(settings.general.parallel_uploads_per_provider, 1, 32,
+                   "general.parallel_uploads_per_provider", errors);
     validate_range(settings.general.max_candidates, 1, 10'000, "general.max_candidates", errors);
     validate_donbot_url(settings.donbot.api_base_url, errors);
     validate_guild_id(settings.donbot.selected_guild_id, errors);
+    validate_twitch_client_id(settings.twitch.client_id, errors);
     validate_template(settings.twitch.message_template, errors);
 
     if (settings.twitch.enabled && !settings.dps_report.enabled) {

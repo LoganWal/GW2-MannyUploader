@@ -17,7 +17,8 @@ namespace {
                                                      bool disabled) {
     return ports::LogCandidateIssue{
         .path = root,
-        .message = disabled ? "Native log-directory notifications failed repeatedly; using polling"
+        .message = disabled ? "Native log-directory notifications failed repeatedly; using "
+                              "polling"
                             : "Native log-directory notification failed; polling this cycle",
     };
 }
@@ -25,17 +26,17 @@ namespace {
 } // namespace
 
 std::expected<ChangeNotifyingLogCandidateSource, ports::LogCandidateSourceError>
-ChangeNotifyingLogCandidateSource::create(const std::filesystem::path& root, bool recursive,
-                                          std::size_t max_candidates,
-                                          std::unique_ptr<IDirectoryChangeMonitor> monitor,
-                                          std::size_t max_consecutive_monitor_failures) {
+ChangeNotifyingLogCandidateSource::create(
+    const std::filesystem::path& root, bool recursive, std::size_t max_candidates,
+    std::unique_ptr<IDirectoryChangeMonitor> monitor, std::size_t max_consecutive_monitor_failures,
+    std::optional<std::filesystem::file_time_type> minimum_last_write_time) {
     if (max_consecutive_monitor_failures == 0) {
         return std::unexpected(
             invalid_configuration("Native notification failure limit must be greater than zero"));
     }
 
-    auto polling_source =
-        StandardPollingLogCandidateSource::create(root, recursive, max_candidates);
+    auto polling_source = StandardPollingLogCandidateSource::create(root, recursive, max_candidates,
+                                                                    minimum_last_write_time);
     if (!polling_source) {
         return std::unexpected(std::move(polling_source.error()));
     }
@@ -65,10 +66,11 @@ ChangeNotifyingLogCandidateSource::ChangeNotifyingLogCandidateSource(
       max_consecutive_monitor_failures_{max_consecutive_monitor_failures},
       monitor_enabled_{monitor_enabled} {}
 
-std::expected<void, ports::LogCandidateSourceError>
-ChangeNotifyingLogCandidateSource::reconfigure(const std::filesystem::path& root, bool recursive,
-                                               std::size_t max_candidates) {
-    auto replacement = StandardPollingLogCandidateSource::create(root, recursive, max_candidates);
+std::expected<void, ports::LogCandidateSourceError> ChangeNotifyingLogCandidateSource::reconfigure(
+    const std::filesystem::path& root, bool recursive, std::size_t max_candidates,
+    std::optional<std::filesystem::file_time_type> minimum_last_write_time) {
+    auto replacement = StandardPollingLogCandidateSource::create(root, recursive, max_candidates,
+                                                                 minimum_last_write_time);
     if (!replacement) {
         return std::unexpected(std::move(replacement.error()));
     }
@@ -138,6 +140,11 @@ bool ChangeNotifyingLogCandidateSource::recursive() const noexcept {
 
 std::size_t ChangeNotifyingLogCandidateSource::max_candidates() const noexcept {
     return polling_source_.max_candidates();
+}
+
+std::optional<std::filesystem::file_time_type>
+ChangeNotifyingLogCandidateSource::minimum_last_write_time() const noexcept {
+    return polling_source_.minimum_last_write_time();
 }
 
 bool ChangeNotifyingLogCandidateSource::using_native_notifications() const noexcept {

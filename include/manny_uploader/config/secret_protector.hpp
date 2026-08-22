@@ -43,4 +43,6 @@ class ISecretProtector {
 [[nodiscard]] std::expected<std::unique_ptr<ISecretProtector>, SecretProtectionError>
 make_dpapi_secret_protector();
 
+[[nodiscard]] bool is_wine_environment() noexcept;
+
 } // namespace manny_uploader::config

@@ -123,22 +123,22 @@ accepted the message even though the addon did not obtain a trustworthy receipt.
 permanent failed result with a generic diagnostic, never an automatic retry.
 
 The worker retains a bounded 256-entry ledger keyed by stable job ID plus permalink. A confirmed sent
-key returns its prior receipt without another client call. An ambiguous key refuses another automatic
-attempt. Old entries leave from the front only when the bound is reached. A request marked as an
-explicit user-initiated retry may bypass an ambiguous entry; an automatic request cannot. Confirmed
-sent entries always return their prior receipt, and the coordinator exposes retry only from `Failed`,
-so a confirmed post cannot be resent through the recent-log action. This ledger supplements the
-coordinator's provider-state invariants and is not persistent history. The complete manual-action
-boundary is in [`recent-log-actions.md`](recent-log-actions.md).
+key returns its prior receipt without another client call, and an ambiguous key refuses another
+automatic attempt. Old entries leave from the front only when the bound is reached. A request marked
+as an explicit user-initiated action bypasses either entry so `Rechat` can deliberately send again.
+The ledger is mutex-protected because multiple Twitch deliveries may be active concurrently. Durable
+job history prevents automatic dispatch after restart; the ledger remains a narrower process-local
+guard for in-session ambiguity. The complete manual-action boundary is in
+[`recent-log-actions.md`](recent-log-actions.md).
 
 ## Worker ownership and shutdown
 
-The encounter provider uses the shared `AsyncUploadWorker`. The test-message adapter uses an
-equivalent narrow worker because its request and result deliberately are not upload-job types. Each
-has one joined `std::jthread`, bounded FIFO input and output queues, output backpressure, exception
-containment, cooperative cancellation, and idempotent shutdown. The client and session-access
-dependencies are borrowed and must outlive them. Neither render callbacks nor the coordinator
-application thread performs HTTP or protected-credential work.
+The encounter provider uses the configurable shared `AsyncUploadWorker` pool. The test-message
+adapter uses an equivalent narrow single-thread worker because its request and result deliberately
+are not upload-job types. Both have bounded FIFO input and output queues, output backpressure,
+exception containment, cooperative cancellation, and idempotent joined shutdown. The client and
+session-access dependencies are borrowed and must outlive them. Neither render callbacks nor the
+coordinator application thread performs HTTP or protected-credential work.
 
 ## Deterministic coverage
 

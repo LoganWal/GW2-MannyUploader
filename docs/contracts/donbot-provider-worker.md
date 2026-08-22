@@ -22,8 +22,9 @@ The key remains a move-only `SecretValue` and is destroyed after the attempt.
 
 ## Result mapping and lifecycle
 
-DonBot success becomes a provider success, with the optional numeric upload ID used only in a concise
-status detail. Client retry, failure, and cancellation map directly to provider outcomes. Retry
+DonBot success becomes a provider success and carries the optional numeric upload and processed
+fight IDs as a typed receipt. The coordinator retains that receipt for persistent history and
+aggregate-link composition. Client retry, failure, and cancellation map directly to provider outcomes. Retry
 durations must be positive and no more than 24 hours; an absent or invalid duration becomes 30
 seconds. No DonBot result carries a dps.report response.
 

@@ -43,7 +43,9 @@ void normalize_snapshot(DirectorySnapshot& snapshot) {
 
 [[nodiscard]] std::expected<void, ports::LogCandidateSourceError>
 inspect_entry(const std::filesystem::directory_entry& entry, DirectorySnapshot& snapshot,
-              std::size_t max_candidates, const std::stop_token& stop_token) {
+              std::size_t max_candidates,
+              const std::optional<std::filesystem::file_time_type>& minimum_last_write_time,
+              const std::stop_token& stop_token) {
     if (stop_token.stop_requested()) {
         return std::unexpected(make_error(ports::LogCandidateSourceErrorCode::Cancelled,
                                           "Log directory polling cancelled"));
@@ -59,6 +61,17 @@ inspect_entry(const std::filesystem::directory_entry& entry, DirectorySnapshot& 
     }
     if (std::filesystem::is_symlink(status) || !std::filesystem::is_regular_file(status) ||
         !is_zevtc_candidate(entry.path())) {
+        return {};
+    }
+
+    const auto last_write_time = entry.last_write_time(error);
+    if (error) {
+        snapshot.complete = false;
+        snapshot.issues.push_back(make_issue(
+            entry.path(), "Unable to read candidate modification time: " + error.message()));
+        return {};
+    }
+    if (minimum_last_write_time.has_value() && last_write_time < minimum_last_write_time.value()) {
         return {};
     }
 
@@ -82,14 +95,6 @@ inspect_entry(const std::filesystem::directory_entry& entry, DirectorySnapshot& 
             make_issue(canonical_path, "Unable to read candidate size: " + error.message()));
         return {};
     }
-    const auto last_write_time = entry.last_write_time(error);
-    if (error) {
-        snapshot.complete = false;
-        snapshot.issues.push_back(make_issue(
-            canonical_path, "Unable to read candidate modification time: " + error.message()));
-        return {};
-    }
-
     snapshot.observations.push_back(ports::LogFileObservation{
         .canonical_path = std::move(canonical_path),
         .size = size,
@@ -101,10 +106,12 @@ inspect_entry(const std::filesystem::directory_entry& entry, DirectorySnapshot& 
 template <typename Iterator>
 [[nodiscard]] std::expected<void, ports::LogCandidateSourceError>
 scan_entries(Iterator iterator, DirectorySnapshot& snapshot, std::size_t max_candidates,
+             const std::optional<std::filesystem::file_time_type>& minimum_last_write_time,
              const std::stop_token& stop_token) {
     const Iterator end;
     while (iterator != end) {
-        if (auto inspected = inspect_entry(*iterator, snapshot, max_candidates, stop_token);
+        if (auto inspected = inspect_entry(*iterator, snapshot, max_candidates,
+                                           minimum_last_write_time, stop_token);
             !inspected) {
             return std::unexpected(inspected.error());
         }
@@ -165,8 +172,9 @@ std::size_t CandidateSnapshotTracker::retained_count() const noexcept {
 }
 
 std::expected<StandardPollingLogCandidateSource, ports::LogCandidateSourceError>
-StandardPollingLogCandidateSource::create(const std::filesystem::path& root, bool recursive,
-                                          std::size_t max_candidates) {
+StandardPollingLogCandidateSource::create(
+    const std::filesystem::path& root, bool recursive, std::size_t max_candidates,
+    std::optional<std::filesystem::file_time_type> minimum_last_write_time) {
     if (root.empty()) {
         return std::unexpected(make_error(ports::LogCandidateSourceErrorCode::InvalidConfiguration,
                                           "Log directory path must not be empty"));
@@ -183,18 +191,19 @@ StandardPollingLogCandidateSource::create(const std::filesystem::path& root, boo
                                           "Unable to resolve log directory: " + error.message()));
     }
     return StandardPollingLogCandidateSource{absolute_root.lexically_normal(), recursive,
-                                             max_candidates};
+                                             max_candidates, minimum_last_write_time};
 }
 
-StandardPollingLogCandidateSource::StandardPollingLogCandidateSource(std::filesystem::path root,
-                                                                     bool recursive,
-                                                                     std::size_t max_candidates)
-    : root_(std::move(root)), recursive_(recursive), max_candidates_(max_candidates) {}
+StandardPollingLogCandidateSource::StandardPollingLogCandidateSource(
+    std::filesystem::path root, bool recursive, std::size_t max_candidates,
+    std::optional<std::filesystem::file_time_type> minimum_last_write_time)
+    : root_(std::move(root)), recursive_(recursive), max_candidates_(max_candidates),
+      minimum_last_write_time_(minimum_last_write_time) {}
 
-std::expected<void, ports::LogCandidateSourceError>
-StandardPollingLogCandidateSource::reconfigure(const std::filesystem::path& root, bool recursive,
-                                               std::size_t max_candidates) {
-    auto replacement = create(root, recursive, max_candidates);
+std::expected<void, ports::LogCandidateSourceError> StandardPollingLogCandidateSource::reconfigure(
+    const std::filesystem::path& root, bool recursive, std::size_t max_candidates,
+    std::optional<std::filesystem::file_time_type> minimum_last_write_time) {
+    auto replacement = create(root, recursive, max_candidates, minimum_last_write_time);
     if (!replacement) {
         return std::unexpected(std::move(replacement.error()));
     }
@@ -202,6 +211,7 @@ StandardPollingLogCandidateSource::reconfigure(const std::filesystem::path& root
     root_ = std::move(replacement->root_);
     recursive_ = replacement->recursive_;
     max_candidates_ = replacement->max_candidates_;
+    minimum_last_write_time_ = replacement->minimum_last_write_time_;
     tracker_.clear();
     return {};
 }
@@ -225,6 +235,11 @@ bool StandardPollingLogCandidateSource::recursive() const noexcept {
 
 std::size_t StandardPollingLogCandidateSource::max_candidates() const noexcept {
     return max_candidates_;
+}
+
+std::optional<std::filesystem::file_time_type>
+StandardPollingLogCandidateSource::minimum_last_write_time() const noexcept {
+    return minimum_last_write_time_;
 }
 
 std::size_t StandardPollingLogCandidateSource::retained_count() const noexcept {
@@ -281,7 +296,8 @@ StandardPollingLogCandidateSource::scan(const std::stop_token& stop_token) const
             return std::unexpected(make_error(ports::LogCandidateSourceErrorCode::ScanFailed,
                                               "Unable to open log directory: " + error.message()));
         }
-        if (auto scanned = scan_entries(std::move(iterator), snapshot, max_candidates_, stop_token);
+        if (auto scanned = scan_entries(std::move(iterator), snapshot, max_candidates_,
+                                        minimum_last_write_time_, stop_token);
             !scanned) {
             return std::unexpected(scanned.error());
         }
@@ -291,7 +307,8 @@ StandardPollingLogCandidateSource::scan(const std::stop_token& stop_token) const
             return std::unexpected(make_error(ports::LogCandidateSourceErrorCode::ScanFailed,
                                               "Unable to open log directory: " + error.message()));
         }
-        if (auto scanned = scan_entries(std::move(iterator), snapshot, max_candidates_, stop_token);
+        if (auto scanned = scan_entries(std::move(iterator), snapshot, max_candidates_,
+                                        minimum_last_write_time_, stop_token);
             !scanned) {
             return std::unexpected(scanned.error());
         }

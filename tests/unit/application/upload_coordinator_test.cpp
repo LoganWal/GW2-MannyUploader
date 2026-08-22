@@ -640,6 +640,102 @@ void manual_retry_tests(TestSuite& suite) {
             ProviderState::Skipped);
 }
 
+[[nodiscard]] domain::UploadJobRecord completed_record(std::string name) {
+    std::array<domain::ProviderStatus, domain::provider_count> statuses{};
+    for (auto& status : statuses) {
+        status = domain::ProviderStatus{
+            .state = ProviderState::Succeeded,
+            .attempts = 1,
+            .detail = "completed",
+            .retry_at = std::nullopt,
+        };
+    }
+    return domain::UploadJobRecord{
+        .file = file(std::move(name)),
+        .detected_at = std::chrono::system_clock::time_point{std::chrono::seconds{42}},
+        .encounter_metadata = metadata(),
+        .dps_report_result = dps_result(),
+        .donbot_upload_receipt =
+            domain::DonBotUploadReceipt{
+                .upload_id = 81,
+                .fight_log_id = 91,
+            },
+        .twitch_delivery_receipt =
+            domain::TwitchDeliveryReceipt{
+                .status = domain::TwitchDeliveryStatus::Sent,
+                .message_id = "message-1",
+            },
+        .providers = std::move(statuses),
+    };
+}
+
+void persistent_restore_and_explicit_delivery_tests(TestSuite& suite) {
+    CoordinatorFixture fixture;
+    auto created = UploadCoordinator::create(fixture.clock, fixture.ports);
+    MANNY_CHECK(suite, created.has_value());
+    auto coordinator = std::move(*created);
+    const std::array restored{completed_record("restored.zevtc")};
+    MANNY_CHECK(suite, coordinator.restore_history(restored).has_value());
+    MANNY_CHECK(suite, fixture.dps.requests.empty());
+    MANNY_CHECK(suite, fixture.wingman.requests.empty());
+    MANNY_CHECK(suite, fixture.donbot.requests.empty());
+    MANNY_CHECK(suite, fixture.twitch.requests.empty());
+
+    const auto restored_id = coordinator.snapshots().front().id;
+    MANNY_CHECK(suite, coordinator.reupload(restored_id).has_value());
+    MANNY_CHECK(suite, fixture.dps.requests.size() == 1);
+    MANNY_CHECK(suite, fixture.wingman.requests.size() == 1);
+    MANNY_CHECK(suite, fixture.donbot.requests.size() == 1);
+    MANNY_CHECK(suite, fixture.twitch.requests.empty());
+    MANNY_CHECK(suite, fixture.dps.requests.front().user_initiated_retry);
+    MANNY_CHECK(suite, fixture.wingman.requests.front().user_initiated_retry);
+    MANNY_CHECK(suite, fixture.donbot.requests.front().user_initiated_retry);
+    const auto after_reupload = coordinator.snapshots().front();
+    MANNY_CHECK(suite, !after_reupload.dps_report_result.has_value());
+    MANNY_CHECK(suite, !after_reupload.donbot_upload_receipt.has_value());
+    MANNY_CHECK(suite, after_reupload.twitch_delivery_receipt.has_value());
+    MANNY_CHECK(suite, !coordinator.reupload(restored_id).has_value());
+
+    CoordinatorFixture twitch_fixture;
+    auto twitch_created = UploadCoordinator::create(twitch_fixture.clock, twitch_fixture.ports);
+    MANNY_CHECK(suite, twitch_created.has_value());
+    auto twitch_coordinator = std::move(*twitch_created);
+    MANNY_CHECK(suite, twitch_coordinator.restore_history(restored).has_value());
+    const auto twitch_id = twitch_coordinator.snapshots().front().id;
+    MANNY_CHECK(suite, twitch_coordinator.rechat(twitch_id).has_value());
+    MANNY_CHECK(suite, twitch_fixture.twitch.requests.size() == 1);
+    MANNY_CHECK(suite, twitch_fixture.twitch.requests.front().user_initiated_retry);
+    MANNY_CHECK(suite, twitch_fixture.twitch.requests.front().dps_report_result.has_value());
+    MANNY_CHECK(suite, !twitch_coordinator.snapshots().front().twitch_delivery_receipt.has_value());
+
+    CoordinatorFixture interrupted_fixture;
+    auto interrupted_created =
+        UploadCoordinator::create(interrupted_fixture.clock, interrupted_fixture.ports);
+    MANNY_CHECK(suite, interrupted_created.has_value());
+    auto interrupted = std::move(*interrupted_created);
+    auto interrupted_record = completed_record("interrupted.zevtc");
+    interrupted_record.providers[domain::provider_index(Provider::DpsReport)].state =
+        ProviderState::Waiting;
+    interrupted_record.providers[domain::provider_index(Provider::Wingman)].state =
+        ProviderState::Active;
+    interrupted_record.providers[domain::provider_index(Provider::DonBot)].state =
+        ProviderState::RetryScheduled;
+    interrupted_record.providers[domain::provider_index(Provider::DonBot)].retry_at =
+        std::chrono::steady_clock::time_point{std::chrono::seconds{30}};
+    MANNY_CHECK(suite, interrupted.restore_history(std::array{interrupted_record}).has_value());
+    const auto interrupted_snapshot = interrupted.snapshots().front();
+    for (const auto provider : {Provider::DpsReport, Provider::Wingman, Provider::DonBot}) {
+        const auto& status = interrupted_snapshot.providers[domain::provider_index(provider)];
+        MANNY_CHECK(suite, status.state == ProviderState::Failed);
+        MANNY_CHECK(suite, status.detail == "Interrupted by the previous game session");
+        MANNY_CHECK(suite, !status.retry_at.has_value());
+    }
+    MANNY_CHECK(suite, interrupted_fixture.dps.requests.empty());
+    MANNY_CHECK(suite, interrupted_fixture.wingman.requests.empty());
+    MANNY_CHECK(suite, interrupted_fixture.donbot.requests.empty());
+    MANNY_CHECK(suite, interrupted_fixture.twitch.requests.empty());
+}
+
 void validation_and_cancellation_tests(TestSuite& suite) {
     CoordinatorFixture fixture;
     std::array<ports::IUploadProvider*, 1> duplicate_seed{&fixture.dps};
@@ -702,6 +798,7 @@ void run_upload_coordinator_tests(TestSuite& suite) {
     failure_and_capacity_tests(suite);
     live_history_limit_reconfiguration_tests(suite);
     manual_retry_tests(suite);
+    persistent_restore_and_explicit_delivery_tests(suite);
     validation_and_cancellation_tests(suite);
 }
 

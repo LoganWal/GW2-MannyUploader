@@ -88,6 +88,10 @@ class FakeRuntime final : public IAddonRuntime {
         }
     }
 
+    [[nodiscard]] addon::QuickAccessStatus quick_access_status() const override {
+        return addon::QuickAccessStatus{.tooltip = "test", .tint = addon::QuickAccessTint::Idle};
+    }
+
     void shutdown() noexcept override {
         const std::scoped_lock lock{state_->mutex};
         ++state_->shutdowns;
@@ -171,7 +175,8 @@ class FakeHost final : public IAddonHost {
         events.emplace_back("deregister_input");
     }
 
-    [[nodiscard]] std::expected<void, AddonHostError> register_quick_access_shortcut() override {
+    [[nodiscard]] std::expected<void, AddonHostError>
+    register_quick_access_shortcut(const addon::QuickAccessStatus& status) override {
         if (fail_quick_access_registration) {
             return std::unexpected(AddonHostError{
                 .code = AddonHostErrorCode::RegistrationFailed,
@@ -179,6 +184,7 @@ class FakeHost final : public IAddonHost {
             });
         }
         ++quick_access_registrations;
+        quick_access_status = status;
         events.emplace_back("register_quick_access");
         return {};
     }
@@ -206,6 +212,7 @@ class FakeHost final : public IAddonHost {
     std::size_t input_deregistrations{};
     std::size_t quick_access_registrations{};
     std::size_t quick_access_deregistrations{};
+    addon::QuickAccessStatus quick_access_status;
     std::vector<std::string> events;
     std::vector<std::pair<AddonLogLevel, std::string>> logs;
 };
@@ -238,11 +245,18 @@ void successful_lifecycle_tests(TestSuite& suite) {
     MANNY_CHECK(suite, host.registrations[1].first == RenderCallbackKind::Options);
     MANNY_CHECK(suite, host.registered_input_bind == input_bind_callback);
     MANNY_CHECK(suite, host.quick_access_registrations == 1);
+    MANNY_CHECK(suite, host.quick_access_status.tooltip == "test");
+    MANNY_CHECK(suite, host.quick_access_status.tint == addon::QuickAccessTint::Idle);
     MANNY_CHECK(suite, host.events ==
                            std::vector<std::string>({"register_main", "register_options",
                                                      "register_input", "register_quick_access"}));
     MANNY_CHECK(suite,
                 factory.received_paths.addon_directory == host.configured_paths.addon_directory);
+    const auto quick_access = lifecycle.quick_access_status();
+    MANNY_CHECK(suite, quick_access.has_value());
+    MANNY_CHECK(suite, quick_access && quick_access->tooltip == "test");
+    MANNY_CHECK(suite, quick_access && quick_access->tint == addon::QuickAccessTint::Idle);
+    MANNY_CHECK(suite, lifecycle.active_callback_count() == 0);
 
     lifecycle.render_main();
     lifecycle.render_options();
@@ -274,6 +288,26 @@ void successful_lifecycle_tests(TestSuite& suite) {
     lifecycle.render_main();
     lifecycle.unload();
     MANNY_CHECK(suite, lifecycle.active_callback_count() == 0);
+}
+
+void quick_access_status_tests(TestSuite& suite) {
+    const auto idle = addon::make_quick_access_status(false, false, false, {}, false);
+    MANNY_CHECK(suite, idle.tooltip == "View MannyUploader list");
+    MANNY_CHECK(suite, idle.tint == addon::QuickAccessTint::Idle);
+
+    const auto uploads = addon::make_quick_access_status(true, true, true, "Raid Guild", false);
+    MANNY_CHECK(suite, uploads.tooltip ==
+                           "View MannyUploader list\nUploading to dps.report\nUploading to "
+                           "GW2Wingman\nUploading to DonBot - Raid Guild");
+    MANNY_CHECK(suite, uploads.tint == addon::QuickAccessTint::Upload);
+
+    const auto twitch = addon::make_quick_access_status(false, false, false, {}, true);
+    MANNY_CHECK(suite, twitch.tooltip == "View MannyUploader list\nReporting to Twitch chat");
+    MANNY_CHECK(suite, twitch.tint == addon::QuickAccessTint::Twitch);
+
+    const auto precedence = addon::make_quick_access_status(true, true, true, "123", true);
+    MANNY_CHECK(suite, precedence.tint == addon::QuickAccessTint::Twitch);
+    MANNY_CHECK(suite, precedence.tooltip.ends_with("\nReporting to Twitch chat"));
 }
 
 void validation_and_rollback_tests(TestSuite& suite) {
@@ -314,7 +348,18 @@ void validation_and_rollback_tests(TestSuite& suite) {
     shortcut_host.fail_quick_access_registration = true;
     AddonLifecycle shortcut_lifecycle;
     const auto shortcut_failure = shortcut_lifecycle.load(shortcut_host, factory, callbacks());
-    MANNY_CHECK(suite, !shortcut_failure.has_value());
+    MANNY_CHECK(suite, shortcut_failure.has_value());
+    MANNY_CHECK(suite, shortcut_lifecycle.state() == AddonLifecycleState::Running);
+    MANNY_CHECK(suite, shortcut_host.quick_access_deregistrations == 0);
+    MANNY_CHECK(suite, shortcut_host.input_deregistrations == 0);
+    MANNY_CHECK(suite, shortcut_host.events ==
+                           std::vector<std::string>(
+                               {"register_main", "register_options", "register_input"}));
+    MANNY_CHECK(suite, shortcut_host.logs.size() == 2);
+    MANNY_CHECK(suite, shortcut_host.logs.front().first == AddonLogLevel::Warning);
+    shortcut_lifecycle.render_main();
+    shortcut_lifecycle.process_input_bind(false);
+    shortcut_lifecycle.unload();
     MANNY_CHECK(suite, shortcut_host.quick_access_deregistrations == 0);
     MANNY_CHECK(suite, shortcut_host.input_deregistrations == 1);
     MANNY_CHECK(suite, shortcut_host.events[shortcut_host.events.size() - 3] == "deregister_input");
@@ -404,6 +449,7 @@ void unload_waits_for_callback_tests(TestSuite& suite) {
 } // namespace
 
 void run_addon_lifecycle_tests(TestSuite& suite) {
+    quick_access_status_tests(suite);
     successful_lifecycle_tests(suite);
     validation_and_rollback_tests(suite);
     exception_boundary_tests(suite);

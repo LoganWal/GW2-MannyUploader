@@ -116,6 +116,13 @@ class ExtractionGuard {
                       [](char left, char right) { return ascii_lower(left) == right; });
 }
 
+[[nodiscard]] bool is_extensionless_entry(std::string_view filename) noexcept {
+    const auto separator = filename.find_last_of("/\\");
+    const auto leaf =
+        separator == std::string_view::npos ? filename : filename.substr(separator + 1);
+    return !leaf.empty() && !leaf.contains('.');
+}
+
 [[nodiscard]] std::expected<std::string, ports::MetadataParseError>
 entry_filename(mz_zip_archive& archive, mz_uint index, const ZevtcArchiveLimits& limits) {
     const auto required = mz_zip_reader_get_filename(&archive, index, nullptr, 0);
@@ -166,6 +173,8 @@ select_evtc_entry(mz_zip_archive& archive, const ZevtcArchiveLimits& limits) {
     }
 
     std::optional<SelectedEntry> selected;
+    std::optional<SelectedEntry> extensionless_fallback;
+    std::size_t regular_entry_count{};
     for (mz_uint index = 0; index < entry_count; ++index) {
         mz_zip_archive_file_stat stat{};
         if (mz_zip_reader_file_stat(&archive, index, &stat) != MZ_TRUE) {
@@ -174,12 +183,16 @@ select_evtc_entry(mz_zip_archive& archive, const ZevtcArchiveLimits& limits) {
         if (stat.m_is_directory == MZ_TRUE) {
             continue;
         }
+        ++regular_entry_count;
 
         auto filename = entry_filename(archive, index, limits);
         if (!filename) {
             return std::unexpected(filename.error());
         }
         if (!has_evtc_extension(filename.value())) {
+            if (is_extensionless_entry(filename.value())) {
+                extensionless_fallback = SelectedEntry{.index = index, .stat = stat};
+            }
             continue;
         }
         if (selected.has_value()) {
@@ -189,9 +202,12 @@ select_evtc_entry(mz_zip_archive& archive, const ZevtcArchiveLimits& limits) {
         selected = SelectedEntry{.index = index, .stat = stat};
     }
 
+    if (!selected.has_value() && regular_entry_count == 1 && extensionless_fallback.has_value()) {
+        selected = extensionless_fallback;
+    }
     if (!selected.has_value()) {
         return std::unexpected(make_error(ports::MetadataParseErrorCode::InvalidArchive,
-                                          "ZIP does not contain an EVTC entry"));
+                                          "ZIP does not contain one EVTC-compatible entry"));
     }
     if (selected->stat.m_is_encrypted == MZ_TRUE || selected->stat.m_is_supported != MZ_TRUE) {
         return std::unexpected(make_error(ports::MetadataParseErrorCode::InvalidArchive,

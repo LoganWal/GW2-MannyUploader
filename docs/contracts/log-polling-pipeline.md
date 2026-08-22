@@ -21,25 +21,26 @@ remain owned by `UploadCoordinator`.
 
 ## Portable polling source
 
-The standard polling source has a non-empty root, a recursive-traversal option, and a non-zero maximum
-candidate count. A poll:
+The standard polling source has a non-empty root, a recursive-traversal option, a non-zero maximum
+candidate count, and an optional minimum last-write cutoff. A poll:
 
 1. checks cancellation;
 2. treats a missing root as an available outcome with `root_available=false`;
 3. rejects a configured root that exists but is not a directory;
 4. enumerates regular, non-symlink files;
 5. filters `.zevtc` with ASCII case-insensitive matching;
-6. resolves accepted paths with `std::filesystem::weakly_canonical`;
-7. reads size and last-write time without throwing; and
+6. reads last-write time and excludes files older than the active cutoff;
+7. resolves accepted paths with `std::filesystem::weakly_canonical` and reads size without throwing;
 8. sorts observations, seen paths, issues, and removals for deterministic consumers.
 
 Directory symlinks and file symlinks are not followed. This keeps candidates within the configured
 tree and avoids traversal cycles.
 
-The candidate limit is checked before a snapshot becomes visible. Exceeding it returns
-`ResourceLimit` and preserves the last successfully reconciled state.
+The candidate limit applies only after the cutoff filter. This permits a large historical archive
+while bounding the active New/Today window. Exceeding the eligible limit returns `ResourceLimit` and
+preserves the last successfully reconciled state.
 
-The application owner may replace the root, recursion option, and candidate limit in place. The
+The application owner may replace the root, recursion option, candidate limit, and cutoff in place. The
 replacement is fully validated before mutation; failure preserves the old configuration and retained
 snapshot. Success clears the retained snapshot and asks `ApplicationPump` to clear pending stability
 observations, because old-root removals and new-root observations must not be reconciled together.
@@ -58,8 +59,17 @@ The source retains only paths from the latest authoritative snapshot:
   transient access failure cannot reset file stability or manufacture a removal.
 - A later complete scan reconciles and emits real removals.
 
-An entry whose path is known but whose size or timestamp cannot be read is included in `seen_paths`
-but not in `observations`.
+An eligible entry whose canonical path or size cannot be read marks the scan incomplete. A timestamp
+failure cannot establish cutoff eligibility and is likewise reported without an observation.
+
+## Session log selection
+
+Production starts in `Show New` with the addon-load file-clock time as its cutoff. `Show Today` uses
+local calendar midnight and refreshes the cutoff if the local day changes. Both modes continue to
+include later files. Switching modes reconfigures the source and clears pending stability samples but
+preserves exact-identity deduplication, active jobs, and provider work. The recent-log view applies
+the same cutoff, so logs outside the selected session window are hidden without cancelling work that
+already started.
 
 ## Native Windows notification front end
 
@@ -89,12 +99,16 @@ An application tick receives the currently enabled provider selection and perfor
    `UploadJobId` through `LogIngestionCoordinator`.
 2. Poll the candidate source.
 3. Forget removed paths from the stability tracker.
-4. Pass every observation through stability and exact-identity deduplication.
-5. Submit each newly stable identity for asynchronous metadata parsing.
+4. While the parser has input capacity, pass observations through stability and exact-identity
+   deduplication.
+5. Submit each newly stable identity for asynchronous metadata parsing. Remaining observations are
+   left untouched and reconsidered on the next poll rather than converted into failed jobs.
 
 If job submission fails before the file is accepted, its exact dedupe key is released so a later
-observation can retry. A parser queue rejection is different: `LogIngestionCoordinator` retains a
-failed job, so the file remains accepted and deduplicated.
+observation can retry. The capacity check prevents ordinary parser saturation from reaching the
+coordinator. A parser rejection after that check is an unexpected dispatch failure;
+`LogIngestionCoordinator` retains a visible failed job, so the file remains accepted and
+deduplicated.
 
 The tick report contains counts, root/scan status, and source issues. Hard candidate-source,
 discovery, ingestion, and shutdown failures remain typed.

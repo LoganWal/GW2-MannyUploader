@@ -144,6 +144,37 @@ class SequencedHttpClient final : public ports::IHttpClient {
     return std::move(*created);
 }
 
+void runtime_configuration_tests(TestSuite& suite) {
+    SequencedHttpClient http;
+    auto client = providers::TwitchClient::create_unconfigured(http);
+    MANNY_CHECK(suite, !client.configured());
+    MANNY_CHECK(suite, client.client_id().empty());
+    const auto unconfigured = client.start_device_authorization();
+    MANNY_CHECK(suite, !unconfigured.has_value());
+    MANNY_CHECK(suite, unconfigured.error().detail.find("client ID") != std::string::npos);
+    MANNY_CHECK(suite, http.requests().empty());
+
+    const auto invalid = client.update_client_id("BAD-CLIENT-ID");
+    MANNY_CHECK(suite, !invalid.has_value());
+    MANNY_CHECK(suite, !client.configured());
+    MANNY_CHECK(suite, client.update_client_id(std::string{client_id}).has_value());
+    MANNY_CHECK(suite, client.configured());
+    MANNY_CHECK(suite, client.client_id() == client_id);
+
+    http.push(response(200, R"json({
+      "device_code":"DEVICE-CODE",
+      "expires_in":1800,
+      "interval":5,
+      "user_code":"ABCD-EFGH",
+      "verification_uri":"https://www.twitch.tv/activate"
+    })json"));
+    MANNY_CHECK(suite, client.start_device_authorization().has_value());
+    MANNY_CHECK(suite, http.requests().size() == 1);
+
+    MANNY_CHECK(suite, client.update_client_id({}).has_value());
+    MANNY_CHECK(suite, !client.configured());
+}
+
 void creation_and_device_start_tests(TestSuite& suite) {
     SequencedHttpClient http;
     const auto empty = providers::TwitchClient::create(http, "");
@@ -535,6 +566,7 @@ void classification_and_cancellation_tests(TestSuite& suite) {
 } // namespace
 
 void run_twitch_client_tests(TestSuite& suite) {
+    runtime_configuration_tests(suite);
     creation_and_device_start_tests(suite);
     device_poll_and_refresh_tests(suite);
     validation_and_revocation_tests(suite);

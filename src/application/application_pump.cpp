@@ -105,6 +105,9 @@ ApplicationPump::tick(const domain::ProviderSelection& enabled_providers,
         discovery_.forget(removed);
     }
     for (auto& observation : candidates->observations) {
+        if (metadata_parser_.available_capacity() == 0) {
+            break;
+        }
         auto stable = discovery_.observe(std::move(observation));
         if (!stable) {
             return std::unexpected(from_discovery_error(stable.error()));
@@ -155,6 +158,20 @@ void ApplicationPump::reset_pending_candidates() noexcept {
     if (!shutting_down_) {
         discovery_.clear_pending();
     }
+}
+
+std::expected<void, ApplicationPumpError>
+ApplicationPump::seed_processed_logs(std::span<const domain::LogFileIdentity> files) {
+    if (shutting_down_) {
+        return std::unexpected(make_error(ApplicationPumpErrorCode::ShuttingDown,
+                                          "Application pump is shutting down"));
+    }
+    for (const auto& file : files) {
+        if (auto remembered = discovery_.remember(file); !remembered) {
+            return std::unexpected(from_discovery_error(remembered.error()));
+        }
+    }
+    return {};
 }
 
 bool ApplicationPump::is_shutting_down() const noexcept {

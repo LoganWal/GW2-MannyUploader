@@ -91,8 +91,7 @@ local_day_started_at(std::chrono::system_clock::time_point now) noexcept {
     const auto timestamp = std::chrono::system_clock::to_time_t(now);
     std::tm local{};
     if (localtime_s(&local, &timestamp) != 0) {
-        return std::filesystem::file_time_type::clock::from_sys(
-            std::chrono::floor<std::chrono::days>(now));
+        return application::file_time_from_system(std::chrono::floor<std::chrono::days>(now));
     }
     local.tm_hour = 0;
     local.tm_min = 0;
@@ -100,11 +99,9 @@ local_day_started_at(std::chrono::system_clock::time_point now) noexcept {
     local.tm_isdst = -1;
     const auto midnight = std::mktime(&local);
     if (midnight == static_cast<std::time_t>(-1)) {
-        return std::filesystem::file_time_type::clock::from_sys(
-            std::chrono::floor<std::chrono::days>(now));
+        return application::file_time_from_system(std::chrono::floor<std::chrono::days>(now));
     }
-    return std::filesystem::file_time_type::clock::from_sys(
-        std::chrono::system_clock::from_time_t(midnight));
+    return application::file_time_from_system(std::chrono::system_clock::from_time_t(midnight));
 }
 
 class SystemClock final : public ports::IClock {
@@ -295,7 +292,7 @@ create_components(const AddonPaths& paths) {
         auto result = std::make_unique<RuntimeComponents>();
         result->clock = std::make_unique<SystemClock>();
         result->session_started_at =
-            std::filesystem::file_time_type::clock::from_sys(result->clock->system_now());
+            application::file_time_from_system(result->clock->system_now());
         result->wine_secret_compatibility_mode = config::is_wine_environment();
 
         auto http = http::make_curl_http_client();

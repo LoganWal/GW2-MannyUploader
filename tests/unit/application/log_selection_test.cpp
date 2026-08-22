@@ -7,6 +7,15 @@
 namespace manny_uploader::test {
 
 void run_log_selection_tests(TestSuite& suite) {
+    const auto system_anchor = std::chrono::system_clock::time_point{} + std::chrono::hours{50};
+    const auto file_anchor = std::filesystem::file_time_type{} + std::chrono::hours{7};
+    MANNY_CHECK(suite, application::file_time_from_system(system_anchor + std::chrono::hours{3},
+                                                          system_anchor, file_anchor) ==
+                           file_anchor + std::chrono::hours{3});
+    MANNY_CHECK(suite, application::file_time_from_system(system_anchor - std::chrono::minutes{15},
+                                                          system_anchor, file_anchor) ==
+                           file_anchor - std::chrono::minutes{15});
+
     const auto session_started_at = std::filesystem::file_time_type{} + std::chrono::hours{18};
     const auto local_day_started_at = std::filesystem::file_time_type{};
     const auto window = application::LogSelectionWindow{

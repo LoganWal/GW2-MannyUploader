@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 
@@ -14,6 +15,21 @@ struct LogSelectionWindow {
     std::filesystem::file_time_type session_started_at;
     std::filesystem::file_time_type local_day_started_at;
 };
+
+[[nodiscard]] constexpr std::filesystem::file_time_type
+file_time_from_system(std::chrono::system_clock::time_point value,
+                      std::chrono::system_clock::time_point system_anchor,
+                      std::filesystem::file_time_type file_anchor) noexcept {
+    return file_anchor + std::chrono::duration_cast<std::filesystem::file_time_type::duration>(
+                             value - system_anchor);
+}
+
+[[nodiscard]] inline std::filesystem::file_time_type
+file_time_from_system(std::chrono::system_clock::time_point value) noexcept {
+    const auto system_anchor = std::chrono::system_clock::now();
+    const auto file_anchor = std::filesystem::file_time_type::clock::now();
+    return file_time_from_system(value, system_anchor, file_anchor);
+}
 
 [[nodiscard]] constexpr std::filesystem::file_time_type
 log_selection_cutoff(LogSelectionMode mode, const LogSelectionWindow& window) noexcept {

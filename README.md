@@ -251,6 +251,16 @@ Check source formatting with:
 cmake -DMANNY_SOURCE_DIRECTORY=. -P cmake/CheckSourceFormatting.cmake
 ```
 
+On the maintainer Linux workstation, run the complete local CI preflight before pushing:
+
+```sh
+./tools/preflight-msvc-wine.sh
+```
+
+It checks formatting and the Linux suite, then builds and tests Debug and Release with genuine MSVC
+under Wine, including the release package, packaged DLL smoke test, and linker symbols. The local
+Microsoft toolchain is licensed separately and is never stored in this repository.
+
 Windows CI builds and tests Release with MSVC, verifies the CPack ZIP/checksum, runs ten hot-load
 cycles against the packaged DLL, and publishes verified linker symbols separately. See the
 [native Windows validation matrix](docs/release/native-windows-validation.md) and

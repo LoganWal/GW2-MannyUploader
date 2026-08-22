@@ -46,6 +46,16 @@ if(source_file_count EQUAL 0)
     message(FATAL_ERROR "No C or C++ source files were found")
 endif()
 
+foreach(source_file IN LISTS source_files)
+    file(READ "${source_file}" source_text)
+    if(source_text MATCHES "::(from_sys|to_sys)[ \t\r\n]*\\(")
+        message(
+            FATAL_ERROR
+            "Non-portable file-clock conversion found in ${source_file}; use the portable project helper"
+        )
+    endif()
+endforeach()
+
 execute_process(
     COMMAND "${clang_format}" --dry-run --Werror ${source_files}
     RESULT_VARIABLE format_result

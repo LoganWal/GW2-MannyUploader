@@ -57,7 +57,15 @@ endfunction()
 file(REMOVE_RECURSE "${MANNY_TEST_ROOT}")
 file(MAKE_DIRECTORY "${MANNY_TEST_ROOT}")
 
-create_symbol(valid "Microsoft C/C++ MSF 7.00" 70000 valid_symbol)
+string(ASCII 26 pdb_substitute_character)
+if(WIN32)
+    # file(WRITE) expands LF to CRLF on Windows; including CR explicitly would produce CRCRLF.
+    set(valid_symbol_magic "Microsoft C/C++ MSF 7.00\n${pdb_substitute_character}DS")
+else()
+    set(valid_symbol_magic "Microsoft C/C++ MSF 7.00\r\n${pdb_substitute_character}DS")
+endif()
+
+create_symbol(valid "${valid_symbol_magic}" 70000 valid_symbol)
 set(valid_checksum "${MANNY_TEST_ROOT}/valid/manny_uploader.pdb.sha256")
 run_verification("${valid_symbol}" valid_result valid_diagnostic)
 if(NOT valid_result EQUAL 0)
@@ -69,7 +77,7 @@ if(NOT checksum_document STREQUAL "${expected_checksum}  manny_uploader.pdb\n")
     message(FATAL_ERROR "Windows symbol checksum sidecar has unexpected content")
 endif()
 
-create_symbol(relative-valid "Microsoft C/C++ MSF 7.00" 70000 relative_valid_symbol)
+create_symbol(relative-valid "${valid_symbol_magic}" 70000 relative_valid_symbol)
 set(relative_valid_checksum "${relative_valid_symbol}.sha256")
 get_filename_component(verify_script_directory "${MANNY_VERIFY_SCRIPT}" DIRECTORY)
 cmake_path(
@@ -111,7 +119,14 @@ expect_failure("${too_small_symbol}" too-small "implausible size")
 create_symbol(bad-magic "Not a Microsoft PDB file" 70000 bad_magic_symbol)
 expect_failure("${bad_magic_symbol}" bad-magic "not a Microsoft Program Database")
 
-create_symbol(wrong-name "Microsoft C/C++ MSF 7.00" 70000 wrong_name_symbol)
+create_symbol(incomplete-magic "Microsoft C/C++ MSF 7.00" 70000 incomplete_magic_symbol)
+expect_failure(
+    "${incomplete_magic_symbol}"
+    incomplete-magic
+    "not a Microsoft Program Database"
+)
+
+create_symbol(wrong-name "${valid_symbol_magic}" 70000 wrong_name_symbol)
 set(unexpected_name "${MANNY_TEST_ROOT}/wrong-name/unexpected.pdb")
 file(RENAME "${wrong_name_symbol}" "${unexpected_name}")
 expect_failure("${unexpected_name}" wrong-name "unexpected name")

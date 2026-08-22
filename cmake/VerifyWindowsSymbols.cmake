@@ -26,8 +26,12 @@ if(symbol_size LESS 65536 OR symbol_size GREATER 536870912)
     message(FATAL_ERROR "Windows linker PDB has an implausible size")
 endif()
 
-file(READ "${symbol_file}" symbol_magic OFFSET 0 LIMIT 24)
-if(NOT symbol_magic STREQUAL "Microsoft C/C++ MSF 7.00")
+file(READ "${symbol_file}" symbol_magic_hex OFFSET 0 LIMIT 29 HEX)
+set(
+    expected_symbol_magic_hex
+    "4d6963726f736f667420432f432b2b204d534620372e30300d0a1a4453"
+)
+if(NOT "${symbol_magic_hex}" STREQUAL "${expected_symbol_magic_hex}")
     message(FATAL_ERROR "Windows symbol artifact is not a Microsoft Program Database")
 endif()
 

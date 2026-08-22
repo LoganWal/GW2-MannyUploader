@@ -9,6 +9,10 @@ project(
     LANGUAGES C CXX
 )
 
+# Set the MSVC runtime before creating any targets, including bundled dependencies.
+# Nexus addons are self-contained and must not mix the dynamic CRT with /MT or /MTd.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 option(MANNY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 set(MANNY_TWITCH_CLIENT_ID "" CACHE STRING "Public Twitch application client ID")
 if(MANNY_TWITCH_CLIENT_ID AND NOT MANNY_TWITCH_CLIENT_ID MATCHES "^[a-z0-9]+$")
@@ -21,7 +25,6 @@ include(CTest)
 include(Dependencies)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_library(manny_uploader_core STATIC)
 target_sources(

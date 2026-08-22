@@ -149,6 +149,7 @@ UploadCoordinator::start_pending_job(domain::UploadJobId id, domain::EncounterMe
         return std::unexpected(from_domain_error(metadata_result.error()));
     }
     dispatch_initial_providers(*job);
+    trim_settled_history();
     return {};
 }
 
@@ -197,6 +198,51 @@ std::expected<void, CoordinatorError> UploadCoordinator::handle_result(UploadRes
     }
     if (provider == domain::Provider::DpsReport) {
         settle_dps_report_dependency(*job, outcome);
+    }
+    trim_settled_history();
+    return {};
+}
+
+std::expected<void, CoordinatorError>
+UploadCoordinator::retry_failed_provider(domain::UploadJobId id, domain::Provider provider) {
+    if (shutting_down_) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::ShuttingDown, "Coordinator is shutting down"));
+    }
+    if (!is_known_provider(provider)) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::UnknownProvider, "Retry uses an unknown provider"));
+    }
+
+    auto* job = find_job(id);
+    if (job == nullptr) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::UnknownJob, "Retry references an unknown job"));
+    }
+    if (!job->encounter_metadata()) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::UnexpectedResult,
+                       "A metadata failure must be retried by detecting the log again"));
+    }
+    const bool rearmed_twitch_dependency =
+        provider == domain::Provider::DpsReport &&
+        job->provider_status(domain::Provider::Twitch).state == domain::ProviderState::Skipped;
+    if (auto prepared = job->prepare_manual_retry(provider); !prepared) {
+        return std::unexpected(from_domain_error(prepared.error()));
+    }
+
+    dispatch(*job, provider, true);
+    const auto& status = job->provider_status(provider);
+    if (status.state == domain::ProviderState::Failed) {
+        if (rearmed_twitch_dependency && job->provider_status(domain::Provider::Twitch).state ==
+                                             domain::ProviderState::Waiting) {
+            [[maybe_unused]] const auto rolled_back =
+                job->transition(domain::Provider::Twitch, domain::ProviderState::Skipped,
+                                "Skipped because the dps.report retry could not be queued");
+        }
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::UnexpectedResult,
+                       status.detail.empty() ? "Unable to queue the retry" : status.detail));
     }
     return {};
 }
@@ -395,6 +441,21 @@ std::size_t UploadCoordinator::dispatch_due_retries() {
     return dispatched;
 }
 
+std::expected<void, CoordinatorError>
+UploadCoordinator::update_history_limit(std::size_t history_limit) {
+    if (history_limit == 0) {
+        return std::unexpected(make_error(CoordinatorErrorCode::InvalidHistoryLimit,
+                                          "History limit must be greater than zero"));
+    }
+    if (shutting_down_) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::ShuttingDown, "Coordinator is shutting down"));
+    }
+    history_limit_ = history_limit;
+    trim_settled_history();
+    return {};
+}
+
 void UploadCoordinator::cancel_all() noexcept {
     if (shutting_down_) {
         return;
@@ -448,6 +509,10 @@ bool UploadCoordinator::is_shutting_down() const noexcept {
     return shutting_down_;
 }
 
+std::size_t UploadCoordinator::history_limit() const noexcept {
+    return history_limit_;
+}
+
 domain::UploadJob* UploadCoordinator::find_job(domain::UploadJobId id) noexcept {
     const auto found =
         std::ranges::find_if(jobs_, [id](const auto& job) { return job.id() == id; });
@@ -473,18 +538,25 @@ std::expected<void, CoordinatorError> UploadCoordinator::validate_selected_provi
 }
 
 std::expected<void, CoordinatorError> UploadCoordinator::make_capacity() {
-    if (jobs_.size() < history_limit_) {
-        return {};
+    while (jobs_.size() >= history_limit_) {
+        const auto settled = std::ranges::find_if(jobs_, is_settled);
+        if (settled == jobs_.end()) {
+            return std::unexpected(make_error(CoordinatorErrorCode::CapacityReached,
+                                              "All retained upload jobs are still active"));
+        }
+        jobs_.erase(settled);
     }
-
-    const auto settled = std::ranges::find_if(jobs_, is_settled);
-    if (settled == jobs_.end()) {
-        return std::unexpected(make_error(CoordinatorErrorCode::CapacityReached,
-                                          "All retained upload jobs are still active"));
-    }
-
-    jobs_.erase(settled);
     return {};
+}
+
+void UploadCoordinator::trim_settled_history() noexcept {
+    while (jobs_.size() > history_limit_) {
+        const auto settled = std::ranges::find_if(jobs_, is_settled);
+        if (settled == jobs_.end()) {
+            return;
+        }
+        jobs_.erase(settled);
+    }
 }
 
 std::expected<void, CoordinatorError>
@@ -522,10 +594,12 @@ UploadCoordinator::settle_pending_job(domain::UploadJobId id, domain::ProviderSt
             }
         }
     }
+    trim_settled_history();
     return {};
 }
 
-void UploadCoordinator::dispatch(domain::UploadJob& job, domain::Provider provider) {
+void UploadCoordinator::dispatch(domain::UploadJob& job, domain::Provider provider,
+                                 bool user_initiated_retry) {
     auto* provider_port = providers_[domain::provider_index(provider)];
     if (provider_port == nullptr) {
         [[maybe_unused]] const auto failed = job.transition(
@@ -553,6 +627,7 @@ void UploadCoordinator::dispatch(domain::UploadJob& job, domain::Provider provid
         .donbot_context = std::nullopt,
         .twitch_context = std::nullopt,
         .attempt = job.provider_status(provider).attempts,
+        .user_initiated_retry = user_initiated_retry,
     };
     if (auto queued = provider_port->enqueue(std::move(request)); !queued) {
         [[maybe_unused]] const auto failed = job.transition(provider, domain::ProviderState::Failed,

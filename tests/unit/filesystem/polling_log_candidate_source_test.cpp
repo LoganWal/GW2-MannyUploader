@@ -198,6 +198,48 @@ void non_recursive_and_root_validation_tests(TestSuite& suite) {
     MANNY_CHECK(suite, invalid.error().code == LogCandidateSourceErrorCode::ScanFailed);
 }
 
+void live_reconfiguration_tests(TestSuite& suite) {
+    TempTree first;
+    first.create_root();
+    first.write("top.zevtc", "first");
+    first.write("nested/deep.zevtc", "nested");
+    TempTree second;
+    second.create_root();
+    second.write("replacement.zevtc", "second");
+    second.write("nested/ignored.zevtc", "nested");
+
+    auto created = StandardPollingLogCandidateSource::create(first.root(), true, 8);
+    MANNY_CHECK(suite, created.has_value());
+    auto source = std::move(*created);
+    const auto initial = source.poll({});
+    MANNY_CHECK(suite, initial.has_value() && initial->observations.size() == 2);
+    MANNY_CHECK(suite, source.retained_count() == 2);
+
+    const auto old_root = source.root();
+    const auto invalid_path = source.reconfigure({}, false, 1);
+    MANNY_CHECK(suite, !invalid_path.has_value());
+    MANNY_CHECK(suite, source.root() == old_root);
+    MANNY_CHECK(suite, source.recursive());
+    MANNY_CHECK(suite, source.max_candidates() == 8);
+    MANNY_CHECK(suite, source.retained_count() == 2);
+
+    const auto invalid_limit = source.reconfigure(second.root(), false, 0);
+    MANNY_CHECK(suite, !invalid_limit.has_value());
+    MANNY_CHECK(suite, source.root() == old_root);
+
+    MANNY_CHECK(suite, source.reconfigure(second.root(), false, 1).has_value());
+    MANNY_CHECK(suite, source.root() == std::filesystem::absolute(second.root()));
+    MANNY_CHECK(suite, !source.recursive());
+    MANNY_CHECK(suite, source.max_candidates() == 1);
+    MANNY_CHECK(suite, source.retained_count() == 0);
+
+    const auto reconfigured = source.poll({});
+    MANNY_CHECK(suite, reconfigured.has_value());
+    MANNY_CHECK(suite, reconfigured->observations.size() == 1);
+    MANNY_CHECK(suite, reconfigured->observations.front().canonical_path ==
+                           second.canonical("replacement.zevtc"));
+}
+
 void resource_limit_and_cancellation_tests(TestSuite& suite) {
     TempTree tree;
     tree.create_root();
@@ -298,6 +340,7 @@ void run_polling_log_candidate_source_tests(TestSuite& suite) {
     configuration_tests(suite);
     missing_creation_and_recursive_tests(suite);
     non_recursive_and_root_validation_tests(suite);
+    live_reconfiguration_tests(suite);
     resource_limit_and_cancellation_tests(suite);
     incomplete_snapshot_reconciliation_tests(suite);
 }

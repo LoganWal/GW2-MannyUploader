@@ -34,6 +34,7 @@ int main() {
     manny_uploader::test::run_wingman_provider_worker_tests(suite);
     manny_uploader::test::run_log_ingestion_coordinator_tests(suite);
     manny_uploader::test::run_nexus_options_controller_tests(suite);
+    manny_uploader::test::run_recent_log_actions_controller_tests(suite);
     manny_uploader::test::run_nexus_options_model_tests(suite);
     manny_uploader::test::run_evtc_metadata_decoder_tests(suite);
     manny_uploader::test::run_zevtc_archive_tests(suite);

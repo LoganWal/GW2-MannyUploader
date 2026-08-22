@@ -187,7 +187,8 @@ config(std::string message_template = "{result}: {url}", bool post_success = tru
 
 [[nodiscard]] ports::UploadRequest request(std::uint64_t id = 1, bool success = true,
                                            std::uint32_t attempt = 1,
-                                           std::string permalink = "https://dps.report/one") {
+                                           std::string permalink = "https://dps.report/one",
+                                           bool user_initiated_retry = false) {
     return ports::UploadRequest{
         .job_id = domain::UploadJobId{id},
         .provider = domain::Provider::Twitch,
@@ -202,6 +203,7 @@ config(std::string message_template = "{result}: {url}", bool post_success = tru
         .donbot_context = std::nullopt,
         .twitch_context = std::nullopt,
         .attempt = attempt,
+        .user_initiated_retry = user_initiated_retry,
     };
 }
 
@@ -437,7 +439,7 @@ void retry_and_ambiguity_tests(TestSuite& suite) {
     for (std::size_t index = 0; index < std::size(ambiguous_cases); ++index) {
         FakeTwitchClient client;
         client.outcomes.emplace_back(std::unexpected(ambiguous_cases[index]));
-        client.outcomes.emplace_back(sent("must-not-send"));
+        client.outcomes.emplace_back(sent("user-retried"));
         FakeSessionAccess sessions;
         auto worker = providers::TwitchProviderWorker::create(client, sessions, config());
         MANNY_CHECK(suite, worker.has_value());
@@ -450,6 +452,15 @@ void retry_and_ambiguity_tests(TestSuite& suite) {
         MANNY_CHECK(suite, second && second->outcome == ports::UploadOutcome::Failed);
         MANNY_CHECK(suite, client.messages.size() == 1);
         MANNY_CHECK(suite, sessions.acquire_count == 1);
+        MANNY_CHECK(suite,
+                    (*worker)
+                        ->enqueue(request(index + 30, true, 3, "https://dps.report/one", true))
+                        .has_value());
+        const auto explicit_retry = (*worker)->wait_for_result(2s);
+        MANNY_CHECK(suite,
+                    explicit_retry && explicit_retry->outcome == ports::UploadOutcome::Succeeded);
+        MANNY_CHECK(suite, client.messages.size() == 2);
+        MANNY_CHECK(suite, sessions.acquire_count == 2);
     }
 }
 

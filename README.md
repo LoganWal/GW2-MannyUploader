@@ -3,8 +3,8 @@
 GW2 Manny Uploader is a clean-slate, streamlined arcdps log uploader for the
 [Raidcore Nexus](https://raidcore.gg/Nexus) addon framework.
 
-The project is currently in its architecture and application-foundation phase. The repository builds
-a minimal plugin module and a testable core library with an upload-job state machine, provider ports,
+The project is currently in active implementation and hardening. The repository builds a Nexus DLL
+and a testable core library with an upload-job state machine, provider ports,
 immutable snapshots, a single-owner upload coordinator, and deterministic `.zevtc` stability/dedupe
 policy. Stable files enter an asynchronous, job-ID-correlated metadata-parser boundary before any
 provider dispatch. A bounded worker extracts exactly one EVTC entry from each ZIP with cancellation,
@@ -54,7 +54,9 @@ Twitch chat delivery compiles the version-1 six-field template, validates the fu
 500-code-point message, captures result policy per queued job, and returns typed sent/drop receipts.
 Its provider worker obtains only a broadcaster-owned delivery lease, performs at most one controlled
 recovery after `401`, retries only failures known not to have posted, and suppresses duplicates after
-confirmed or ambiguous delivery. The same delivery policy now backs an isolated options test-message
+confirmed or ambiguous delivery. An explicit retry from the recent-log UI is separately marked and
+may resend an ambiguous or rejected failed delivery; automatic work still cannot bypass that guard.
+The same delivery policy now backs an isolated options test-message
 worker, which posts fixed request-ID-suffixed text to the connected broadcaster's own chat without
 inventing an upload job or dps.report result and never retries automatically after ambiguity.
 Deterministic fake-transport and worker suites perform no public upload. A bounded Nexus-options
@@ -66,17 +68,23 @@ supplies tested status labels and control enablement without depending on ImGui.
 
 A portable polling source now handles missing or newly created log directories, recursive Unicode
 paths, bounded candidate scans, and authoritative removals. A bounded application pump connects those
-observations to stability, deduplication, parser-result drainage, and upload-job creation.
+observations to stability, deduplication, parser-result drainage, and upload-job creation. Saved
+general options are applied live on the application-owner thread: poll source, stability threshold,
+parser queue, and recent-history bounds change without replacing the worker graph or interrupting
+active parses/uploads. Source or stability changes discard only pending observations; accepted-log
+deduplication remains intact.
 
 The Windows DLL now exports the official Nexus API-v6 `GetAddonDef`, installs Nexus's ImGui 1.80
 context and allocators, and composes the complete application behind one background owner thread.
 Render callbacks consume immutable UI-ready snapshots and submit bounded commands only. The main
-window shows recent logs and per-provider state; Nexus options expose ordinary settings, DonBot
-verification/guild selection, and same-broadcaster Twitch connection, policy, and test-message
-controls. A callback gate contains exceptions, reverses partial registration, waits for admitted
-renders, joins every runtime worker, and supports deterministic hot-unload. A Windows smoke host
-loads the real DLL, renders both callbacks with a compatible ImGui context, unloads it, and then calls
-`FreeLibrary`.
+window shows detection time, recent logs, per-provider state/retry controls, and validated open-report
+and open-folder actions; Nexus options expose ordinary settings, DonBot verification/guild selection,
+and same-broadcaster Twitch connection, policy, and test-message controls. A callback gate contains
+exceptions, reverses partial registration, waits for admitted callbacks, joins every runtime worker,
+and supports deterministic hot-unload. The main window can be toggled from a quick-access upload icon
+or the Nexus-managed `Alt+Shift+M` default keybind; users can rebind it through Nexus. A Windows smoke
+host loads the real DLL, validates rendering, bind and shortcut registration, reverse teardown, and
+completes ten consecutive unload and `FreeLibrary` cycles.
 
 ## Planned integrations
 

@@ -218,6 +218,9 @@ TwitchProviderWorker::previous_delivery(const ports::UploadRequest& request) con
         return std::nullopt;
     }
     if (found->state == LedgerState::Ambiguous) {
+        if (request.user_initiated_retry) {
+            return std::nullopt;
+        }
         return make_result(
             request.job_id, ports::UploadOutcome::Failed,
             "Twitch delivery was previously ambiguous; automatic retry was suppressed");

@@ -307,6 +307,75 @@ void removal_resets_stability_tests(TestSuite& suite) {
     MANNY_CHECK(suite, stable->submitted_jobs == 1);
 }
 
+void live_stability_reconfiguration_tests(TestSuite& suite) {
+    PumpFixture fixture;
+    auto upload_created = UploadCoordinator::create(fixture.clock, fixture.provider_ports);
+    MANNY_CHECK(suite, upload_created.has_value());
+    auto upload = std::move(*upload_created);
+    LogIngestionCoordinator ingestion{upload, fixture.parser};
+    auto pump_created = ApplicationPump::create(fixture.source, fixture.parser, ingestion,
+                                                ApplicationPumpConfig{
+                                                    .required_matching_observations = 2,
+                                                    .dedupe_capacity = 8,
+                                                });
+    MANNY_CHECK(suite, pump_created.has_value());
+    auto pump = std::move(*pump_created);
+
+    fixture.source.push(batch({observation("logs/reconfigured.zevtc")}));
+    MANNY_CHECK(suite, pump.tick(dps_only()).has_value());
+    MANNY_CHECK(suite, pump.tracked_candidate_count() == 1);
+
+    const auto invalid = pump.update_required_matching_observations(1);
+    MANNY_CHECK(suite, !invalid.has_value());
+    MANNY_CHECK(suite, invalid.error().code == ApplicationPumpErrorCode::Discovery);
+    MANNY_CHECK(suite, pump.required_matching_observations() == 2);
+    MANNY_CHECK(suite, pump.tracked_candidate_count() == 1);
+
+    MANNY_CHECK(suite, pump.update_required_matching_observations(3).has_value());
+    MANNY_CHECK(suite, pump.required_matching_observations() == 3);
+    MANNY_CHECK(suite, pump.tracked_candidate_count() == 0);
+    for (std::size_t index = 0; index < 3; ++index) {
+        fixture.source.push(batch({observation("logs/reconfigured.zevtc")}));
+    }
+    const auto first = pump.tick(dps_only());
+    const auto second = pump.tick(dps_only());
+    const auto third = pump.tick(dps_only());
+    MANNY_CHECK(suite, first.has_value());
+    MANNY_CHECK(suite, second.has_value());
+    MANNY_CHECK(suite, third.has_value());
+    if (first && second && third) {
+        MANNY_CHECK(suite, first->submitted_jobs == 0);
+        MANNY_CHECK(suite, second->submitted_jobs == 0);
+        MANNY_CHECK(suite, third->submitted_jobs == 1);
+    }
+    MANNY_CHECK(suite, pump.dedupe_size() == 1);
+    MANNY_CHECK(suite, fixture.parser.requests.size() == 1);
+
+    fixture.source.push(batch({observation("logs/pending.zevtc")}));
+    MANNY_CHECK(suite, pump.tick(dps_only()).has_value());
+    MANNY_CHECK(suite, pump.tracked_candidate_count() == 1);
+    pump.reset_pending_candidates();
+    MANNY_CHECK(suite, pump.tracked_candidate_count() == 0);
+    MANNY_CHECK(suite, pump.dedupe_size() == 1);
+
+    for (std::size_t index = 0; index < 3; ++index) {
+        fixture.source.push(batch({observation("logs/reconfigured.zevtc")}));
+    }
+    MANNY_CHECK(suite, pump.tick(dps_only()).has_value());
+    MANNY_CHECK(suite, pump.tick(dps_only()).has_value());
+    const auto deduplicated = pump.tick(dps_only());
+    MANNY_CHECK(suite, deduplicated.has_value());
+    if (deduplicated) {
+        MANNY_CHECK(suite, deduplicated->submitted_jobs == 0);
+    }
+    MANNY_CHECK(suite, fixture.parser.requests.size() == 1);
+
+    pump.cancel_all();
+    const auto stopped = pump.update_required_matching_observations(2);
+    MANNY_CHECK(suite, !stopped.has_value());
+    MANNY_CHECK(suite, stopped.error().code == ApplicationPumpErrorCode::ShuttingDown);
+}
+
 void bounded_result_drain_tests(TestSuite& suite) {
     PumpFixture fixture;
     auto upload_created = UploadCoordinator::create(fixture.clock, fixture.provider_ports);
@@ -446,6 +515,7 @@ void run_application_pump_tests(TestSuite& suite) {
     creation_tests(suite);
     stable_submission_and_result_tests(suite);
     removal_resets_stability_tests(suite);
+    live_stability_reconfiguration_tests(suite);
     bounded_result_drain_tests(suite);
     upload_result_and_retry_pump_tests(suite);
     failure_and_dedupe_rollback_tests(suite);

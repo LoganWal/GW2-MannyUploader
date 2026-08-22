@@ -208,6 +208,33 @@ std::expected<void, JobError> UploadJob::record_twitch_delivery(TwitchDeliveryRe
     return {};
 }
 
+std::expected<void, JobError> UploadJob::prepare_manual_retry(Provider provider) {
+    if (!is_known_provider(provider)) {
+        return std::unexpected(
+            make_error(JobErrorCode::UnknownProvider, "Unknown upload provider"));
+    }
+    if (providers_[provider_index(provider)].state != ProviderState::Failed) {
+        return std::unexpected(make_error(JobErrorCode::ManualRetryRequiresFailure,
+                                          "Only a failed provider can be retried manually"));
+    }
+
+    if (auto waiting = transition(provider, ProviderState::Waiting); !waiting) {
+        return waiting;
+    }
+    if (provider == Provider::Twitch) {
+        twitch_delivery_receipt_.reset();
+    }
+    if (provider == Provider::DpsReport && !dps_report_result_) {
+        auto& twitch = providers_[provider_index(Provider::Twitch)];
+        if (twitch.state == ProviderState::Skipped) {
+            twitch.state = ProviderState::Waiting;
+            twitch.detail.clear();
+            twitch.retry_at.reset();
+        }
+    }
+    return {};
+}
+
 std::string_view provider_name(Provider provider) noexcept {
     switch (provider) {
     case Provider::DpsReport:

@@ -202,7 +202,7 @@ void set_callback_failure(TransferContext& context, ports::HttpErrorCode code,
                                  "The HTTP request was cancelled");
             return CURL_READFUNC_ABORT;
         }
-        if (size != 0 && count > std::numeric_limits<std::size_t>::max() / size) {
+        if (size != 0 && count > (std::numeric_limits<std::size_t>::max)() / size) {
             set_callback_failure(context, ports::HttpErrorCode::Internal,
                                  "The HTTP transport received an invalid upload buffer");
             return CURL_READFUNC_ABORT;
@@ -266,7 +266,7 @@ receive_body(char* data, // NOLINT(readability-non-const-parameter): libcurl cal
              std::size_t size, std::size_t count, void* user_data) noexcept {
     auto& context = *static_cast<TransferContext*>(user_data);
     try {
-        if (size != 0 && count > std::numeric_limits<std::size_t>::max() / size) {
+        if (size != 0 && count > (std::numeric_limits<std::size_t>::max)() / size) {
             set_callback_failure(context, ports::HttpErrorCode::ResponseTooLarge,
                                  "The HTTP response body exceeded its limit");
             return 0;
@@ -293,7 +293,7 @@ receive_body(char* data, // NOLINT(readability-non-const-parameter): libcurl cal
                                          void* user_data) noexcept {
     auto& context = *static_cast<TransferContext*>(user_data);
     try {
-        if (size != 0 && count > std::numeric_limits<std::size_t>::max() / size) {
+        if (size != 0 && count > (std::numeric_limits<std::size_t>::max)() / size) {
             set_callback_failure(context, ports::HttpErrorCode::ResponseTooLarge,
                                  "The HTTP response headers exceeded their limit");
             return 0;

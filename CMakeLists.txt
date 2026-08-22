@@ -33,6 +33,7 @@ target_sources(
         src/application/donbot_configuration_controller.cpp
         src/application/log_ingestion_coordinator.cpp
         src/application/nexus_options_controller.cpp
+        src/application/recent_log_actions_controller.cpp
         src/application/twitch_authentication_controller.cpp
         src/application/twitch_message_template.cpp
         src/application/twitch_session.cpp
@@ -82,6 +83,7 @@ target_sources(
             include/manny_uploader/application/donbot_configuration_controller.hpp
             include/manny_uploader/application/log_ingestion_coordinator.hpp
             include/manny_uploader/application/nexus_options_controller.hpp
+            include/manny_uploader/application/recent_log_actions_controller.hpp
             include/manny_uploader/application/twitch_authentication_controller.hpp
             include/manny_uploader/application/twitch_message_template.hpp
             include/manny_uploader/application/twitch_session.hpp
@@ -102,6 +104,7 @@ target_sources(
             include/manny_uploader/http/multipart_form_data.hpp
             include/manny_uploader/ports/clock.hpp
             include/manny_uploader/ports/donbot_verifier.hpp
+            include/manny_uploader/ports/external_action_launcher.hpp
             include/manny_uploader/ports/http_client.hpp
             include/manny_uploader/ports/log_candidate_source.hpp
             include/manny_uploader/ports/log_metadata_parser.hpp
@@ -132,6 +135,9 @@ target_sources(
 )
 target_compile_features(manny_uploader_core PUBLIC cxx_std_23)
 target_link_libraries(manny_uploader_core PRIVATE glaze::glaze manny_miniz)
+if(WIN32)
+    target_compile_definitions(manny_uploader_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 set_target_properties(manny_uploader_core PROPERTIES CXX_EXTENSIONS OFF)
 manny_apply_compiler_warnings(manny_uploader_core)
 
@@ -143,6 +149,7 @@ if(WIN32)
             src/addon/nexus_entry.cpp
             src/addon/production_runtime.cpp
             src/addon/production_runtime.hpp
+            src/addon/quick_access_icon.hpp
     )
 else()
     target_sources(manny_uploader PRIVATE src/addon.cpp)
@@ -163,7 +170,7 @@ manny_apply_compiler_warnings(manny_uploader)
 
 if(WIN32)
     target_link_libraries(manny_uploader_core PRIVATE crypt32 CURL::libcurl)
-    target_link_libraries(manny_uploader PRIVATE manny_nexus_api manny_imgui)
+    target_link_libraries(manny_uploader PRIVATE manny_nexus_api manny_imgui shell32)
     target_compile_definitions(manny_uploader PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     if(MANNY_TWITCH_CLIENT_ID)
         target_compile_definitions(

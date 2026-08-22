@@ -450,6 +450,196 @@ void failure_and_capacity_tests(TestSuite& suite) {
     MANNY_CHECK(suite, coordinator.snapshots().front().id == replacement.value());
 }
 
+void live_history_limit_reconfiguration_tests(TestSuite& suite) {
+    CoordinatorFixture fixture;
+    auto created = UploadCoordinator::create(fixture.clock, fixture.ports, 3);
+    MANNY_CHECK(suite, created.has_value());
+    auto coordinator = std::move(*created);
+    MANNY_CHECK(suite, coordinator.history_limit() == 3);
+
+    std::array<UploadJobId, 3> jobs{};
+    for (std::size_t index = 0; index < jobs.size(); ++index) {
+        const auto added = coordinator.add_job(file("history-" + std::to_string(index) + ".zevtc"),
+                                               metadata(), providers(true, false, false, false));
+        MANNY_CHECK(suite, added.has_value());
+        jobs[index] = *added;
+        MANNY_CHECK(suite, coordinator
+                               .handle_result(UploadResult{
+                                   .job_id = *added,
+                                   .provider = Provider::DpsReport,
+                                   .outcome = UploadOutcome::Failed,
+                                   .detail = "settled",
+                                   .retry_after = std::nullopt,
+                                   .dps_report_result = std::nullopt,
+                               })
+                               .has_value());
+    }
+
+    const auto invalid = coordinator.update_history_limit(0);
+    MANNY_CHECK(suite, !invalid.has_value());
+    MANNY_CHECK(suite, invalid.error().code == CoordinatorErrorCode::InvalidHistoryLimit);
+    MANNY_CHECK(suite, coordinator.history_limit() == 3);
+
+    MANNY_CHECK(suite, coordinator.update_history_limit(1).has_value());
+    MANNY_CHECK(suite, coordinator.history_limit() == 1);
+    const auto trimmed = coordinator.snapshots();
+    MANNY_CHECK(suite, trimmed.size() == 1);
+    MANNY_CHECK(suite, trimmed.front().id == jobs.back());
+
+    MANNY_CHECK(suite, coordinator.update_history_limit(2).has_value());
+    const auto active_one = coordinator.add_job(file("active-one.zevtc"), metadata(),
+                                                providers(true, false, false, false));
+    MANNY_CHECK(suite, active_one.has_value());
+    MANNY_CHECK(suite, coordinator.update_history_limit(1).has_value());
+    MANNY_CHECK(suite, coordinator.snapshots().size() == 1);
+    MANNY_CHECK(suite, coordinator.snapshots().front().id == *active_one);
+
+    MANNY_CHECK(suite, coordinator.update_history_limit(2).has_value());
+    const auto active_two = coordinator.add_job(file("active-two.zevtc"), metadata(),
+                                                providers(true, false, false, false));
+    MANNY_CHECK(suite, active_two.has_value());
+    MANNY_CHECK(suite, coordinator.update_history_limit(1).has_value());
+    MANNY_CHECK(suite, coordinator.snapshots().size() == 2);
+    MANNY_CHECK(suite, !coordinator
+                            .add_job(file("over-active-limit.zevtc"), metadata(),
+                                     providers(true, false, false, false))
+                            .has_value());
+    MANNY_CHECK(suite, coordinator
+                           .handle_result(UploadResult{
+                               .job_id = *active_one,
+                               .provider = Provider::DpsReport,
+                               .outcome = UploadOutcome::Failed,
+                               .detail = "settled after resize",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = std::nullopt,
+                           })
+                           .has_value());
+    const auto after_settlement = coordinator.snapshots();
+    MANNY_CHECK(suite, after_settlement.size() == 1);
+    MANNY_CHECK(suite, after_settlement.front().id == *active_two);
+
+    coordinator.cancel_all();
+    const auto stopped = coordinator.update_history_limit(2);
+    MANNY_CHECK(suite, !stopped.has_value());
+    MANNY_CHECK(suite, stopped.error().code == CoordinatorErrorCode::ShuttingDown);
+}
+
+void manual_retry_tests(TestSuite& suite) {
+    CoordinatorFixture fixture;
+    auto created = UploadCoordinator::create(fixture.clock, fixture.ports);
+    MANNY_CHECK(suite, created.has_value());
+    auto coordinator = std::move(*created);
+    const auto job = coordinator.add_job(file("manual-retry.zevtc"), metadata(),
+                                         providers(true, true, false, true));
+    MANNY_CHECK(suite, job.has_value());
+
+    MANNY_CHECK(suite, coordinator
+                           .handle_result(UploadResult{
+                               .job_id = *job,
+                               .provider = Provider::Wingman,
+                               .outcome = UploadOutcome::Failed,
+                               .detail = "failed",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = std::nullopt,
+                           })
+                           .has_value());
+    MANNY_CHECK(suite, coordinator.retry_failed_provider(*job, Provider::Wingman).has_value());
+    MANNY_CHECK(suite, fixture.wingman.requests.size() == 2);
+    MANNY_CHECK(suite, fixture.wingman.requests.back().attempt == 2);
+    MANNY_CHECK(suite, fixture.wingman.requests.back().user_initiated_retry);
+    const auto active_retry = coordinator.retry_failed_provider(*job, Provider::Wingman);
+    MANNY_CHECK(suite, !active_retry.has_value());
+    MANNY_CHECK(suite, active_retry.error().code == CoordinatorErrorCode::DomainRuleViolation);
+
+    MANNY_CHECK(suite, coordinator
+                           .handle_result(UploadResult{
+                               .job_id = *job,
+                               .provider = Provider::DpsReport,
+                               .outcome = UploadOutcome::Failed,
+                               .detail = "failed",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = std::nullopt,
+                           })
+                           .has_value());
+    MANNY_CHECK(suite, coordinator.retry_failed_provider(*job, Provider::DpsReport).has_value());
+    auto snapshots = coordinator.snapshots();
+    MANNY_CHECK(suite,
+                snapshots.front().providers[domain::provider_index(Provider::Twitch)].state ==
+                    ProviderState::Waiting);
+    MANNY_CHECK(suite, fixture.dps.requests.back().user_initiated_retry);
+    MANNY_CHECK(suite, coordinator
+                           .handle_result(UploadResult{
+                               .job_id = *job,
+                               .provider = Provider::DpsReport,
+                               .outcome = UploadOutcome::Succeeded,
+                               .detail = "uploaded",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = dps_result(),
+                           })
+                           .has_value());
+    MANNY_CHECK(suite, fixture.twitch.requests.size() == 1);
+    MANNY_CHECK(suite, !fixture.twitch.requests.back().user_initiated_retry);
+
+    MANNY_CHECK(suite, coordinator
+                           .handle_result(UploadResult{
+                               .job_id = *job,
+                               .provider = Provider::Twitch,
+                               .outcome = UploadOutcome::Failed,
+                               .detail = "held",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = std::nullopt,
+                               .twitch_delivery_receipt =
+                                   domain::TwitchDeliveryReceipt{
+                                       .status = domain::TwitchDeliveryStatus::AutoMod,
+                                       .message_id = std::nullopt,
+                                   },
+                           })
+                           .has_value());
+    MANNY_CHECK(suite, coordinator.retry_failed_provider(*job, Provider::Twitch).has_value());
+    MANNY_CHECK(suite, fixture.twitch.requests.size() == 2);
+    MANNY_CHECK(suite, fixture.twitch.requests.back().user_initiated_retry);
+    MANNY_CHECK(suite, !coordinator.snapshots().front().twitch_delivery_receipt.has_value());
+
+    const auto pending = coordinator.add_pending_job(file("parse-failure.zevtc"),
+                                                     providers(true, false, false, false));
+    MANNY_CHECK(suite, pending.has_value());
+    MANNY_CHECK(suite, coordinator.fail_pending_job(*pending, "invalid archive").has_value());
+    const auto parse_retry = coordinator.retry_failed_provider(*pending, Provider::DpsReport);
+    MANNY_CHECK(suite, !parse_retry.has_value());
+    MANNY_CHECK(suite, parse_retry.error().code == CoordinatorErrorCode::UnexpectedResult);
+
+    CoordinatorFixture rejected_fixture;
+    auto rejected_created =
+        UploadCoordinator::create(rejected_fixture.clock, rejected_fixture.ports);
+    MANNY_CHECK(suite, rejected_created.has_value());
+    auto rejected = std::move(*rejected_created);
+    const auto rejected_job = rejected.add_job(file("rejected-retry.zevtc"), metadata(),
+                                               providers(true, false, false, true));
+    MANNY_CHECK(suite, rejected_job.has_value());
+    MANNY_CHECK(suite, rejected
+                           .handle_result(UploadResult{
+                               .job_id = *rejected_job,
+                               .provider = Provider::DpsReport,
+                               .outcome = UploadOutcome::Failed,
+                               .detail = "failed",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = std::nullopt,
+                           })
+                           .has_value());
+    rejected_fixture.dps.reject_next("queue full");
+    const auto rejected_retry = rejected.retry_failed_provider(*rejected_job, Provider::DpsReport);
+    MANNY_CHECK(suite, !rejected_retry.has_value());
+    const auto rejected_snapshot = rejected.snapshots();
+    MANNY_CHECK(
+        suite,
+        rejected_snapshot.front().providers[domain::provider_index(Provider::DpsReport)].state ==
+            ProviderState::Failed);
+    MANNY_CHECK(
+        suite,
+        rejected_snapshot.front().providers[domain::provider_index(Provider::Twitch)].state ==
+            ProviderState::Skipped);
+}
+
 void validation_and_cancellation_tests(TestSuite& suite) {
     CoordinatorFixture fixture;
     std::array<ports::IUploadProvider*, 1> duplicate_seed{&fixture.dps};
@@ -510,6 +700,8 @@ void run_upload_coordinator_tests(TestSuite& suite) {
     retry_tests(suite);
     provider_result_drain_tests(suite);
     failure_and_capacity_tests(suite);
+    live_history_limit_reconfiguration_tests(suite);
+    manual_retry_tests(suite);
     validation_and_cancellation_tests(suite);
 }
 

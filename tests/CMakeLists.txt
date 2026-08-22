@@ -10,6 +10,7 @@ add_executable(
     unit/application/twitch_message_template_test.cpp
     unit/application/log_ingestion_coordinator_test.cpp
     unit/application/nexus_options_controller_test.cpp
+    unit/application/recent_log_actions_controller_test.cpp
     unit/application/twitch_session_test.cpp
     unit/application/twitch_session_owner_test.cpp
     unit/application/upload_coordinator_test.cpp

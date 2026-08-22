@@ -195,6 +195,48 @@ void metadata_tests(TestSuite& suite) {
     MANNY_CHECK(suite, duplicate.error().code == JobErrorCode::MetadataAlreadySet);
 }
 
+void manual_retry_tests(TestSuite& suite) {
+    auto created = UploadJob::create(UploadJobId{12}, example_file(), UploadJob::DetectedAt{},
+                                     providers(true, false, false, true));
+    MANNY_CHECK(suite, created.has_value());
+    auto job = std::move(*created);
+
+    const auto too_early = job.prepare_manual_retry(Provider::DpsReport);
+    MANNY_CHECK(suite, !too_early.has_value());
+    MANNY_CHECK(suite, too_early.error().code == JobErrorCode::ManualRetryRequiresFailure);
+
+    MANNY_CHECK(suite, job.transition(Provider::DpsReport, ProviderState::Active).has_value());
+    MANNY_CHECK(suite,
+                job.transition(Provider::DpsReport, ProviderState::Failed, "failed").has_value());
+    MANNY_CHECK(suite, job.transition(Provider::Twitch, ProviderState::Skipped,
+                                      "Skipped because dps.report failed")
+                           .has_value());
+    MANNY_CHECK(suite, job.prepare_manual_retry(Provider::DpsReport).has_value());
+    MANNY_CHECK(suite, job.provider_status(Provider::DpsReport).state == ProviderState::Waiting);
+    MANNY_CHECK(suite, job.provider_status(Provider::Twitch).state == ProviderState::Waiting);
+
+    MANNY_CHECK(suite, job.transition(Provider::DpsReport, ProviderState::Active).has_value());
+    MANNY_CHECK(suite, job.complete_dps_report(DpsReportResult{
+                                                   .permalink = "https://dps.report/retry",
+                                                   .encounter_name = "Retry",
+                                                   .boss_id = 1,
+                                                   .mode = "NM",
+                                                   .success = true,
+                                               })
+                           .has_value());
+    MANNY_CHECK(suite, job.transition(Provider::Twitch, ProviderState::Active).has_value());
+    MANNY_CHECK(suite,
+                job.record_twitch_delivery(domain::TwitchDeliveryReceipt{
+                                               .status = domain::TwitchDeliveryStatus::AutoMod,
+                                               .message_id = std::nullopt,
+                                           })
+                    .has_value());
+    MANNY_CHECK(suite, job.transition(Provider::Twitch, ProviderState::Failed, "held").has_value());
+    MANNY_CHECK(suite, job.prepare_manual_retry(Provider::Twitch).has_value());
+    MANNY_CHECK(suite, !job.twitch_delivery_receipt().has_value());
+    MANNY_CHECK(suite, job.provider_status(Provider::Twitch).state == ProviderState::Waiting);
+}
+
 } // namespace
 
 void run_upload_job_tests(TestSuite& suite) {
@@ -202,6 +244,7 @@ void run_upload_job_tests(TestSuite& suite) {
     transition_tests(suite);
     dps_report_and_twitch_tests(suite);
     metadata_tests(suite);
+    manual_retry_tests(suite);
 
     MANNY_CHECK(suite, domain::provider_name(Provider::DpsReport) == "dps.report");
     MANNY_CHECK(suite, domain::provider_name(Provider::Wingman) == "GW2Wingman");

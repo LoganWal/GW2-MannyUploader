@@ -31,6 +31,10 @@ struct SaveOrdinaryOptionsCommand {
     NexusOrdinaryOptions options;
 };
 
+struct SetWindowVisibleCommand {
+    bool visible;
+};
+
 struct VerifyDonBotCommand {
     std::string api_base_url;
     support::SecretValue api_key;
@@ -59,10 +63,10 @@ struct SendTwitchTestMessageCommand {};
 struct DismissNexusOptionsErrorCommand {};
 
 using NexusOptionsCommand =
-    std::variant<SaveOrdinaryOptionsCommand, VerifyDonBotCommand, SelectDonBotGuildCommand,
-                 SetDonBotEnabledCommand, DisconnectDonBotCommand, ConnectTwitchCommand,
-                 SetTwitchEnabledCommand, DisconnectTwitchCommand, SendTwitchTestMessageCommand,
-                 DismissNexusOptionsErrorCommand>;
+    std::variant<SaveOrdinaryOptionsCommand, SetWindowVisibleCommand, VerifyDonBotCommand,
+                 SelectDonBotGuildCommand, SetDonBotEnabledCommand, DisconnectDonBotCommand,
+                 ConnectTwitchCommand, SetTwitchEnabledCommand, DisconnectTwitchCommand,
+                 SendTwitchTestMessageCommand, DismissNexusOptionsErrorCommand>;
 
 enum class TwitchTestMessageState : std::uint8_t {
     Idle,

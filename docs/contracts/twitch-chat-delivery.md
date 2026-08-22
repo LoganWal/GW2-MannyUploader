@@ -124,9 +124,12 @@ permanent failed result with a generic diagnostic, never an automatic retry.
 
 The worker retains a bounded 256-entry ledger keyed by stable job ID plus permalink. A confirmed sent
 key returns its prior receipt without another client call. An ambiguous key refuses another automatic
-attempt. Old entries leave from the front only when the bound is reached. This ledger supplements the
-coordinator's provider-state invariants; it is not persistent history and does not prohibit a future
-explicitly designed user-confirmed manual resend flow.
+attempt. Old entries leave from the front only when the bound is reached. A request marked as an
+explicit user-initiated retry may bypass an ambiguous entry; an automatic request cannot. Confirmed
+sent entries always return their prior receipt, and the coordinator exposes retry only from `Failed`,
+so a confirmed post cannot be resent through the recent-log action. This ledger supplements the
+coordinator's provider-state invariants and is not persistent history. The complete manual-action
+boundary is in [`recent-log-actions.md`](recent-log-actions.md).
 
 ## Worker ownership and shutdown
 

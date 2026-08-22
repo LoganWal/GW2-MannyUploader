@@ -28,22 +28,26 @@ using addon::AddonRuntimeError;
 using addon::IAddonHost;
 using addon::IAddonRuntime;
 using addon::IAddonRuntimeFactory;
+using addon::InputBindCallback;
 using addon::RenderCallback;
 using addon::RenderCallbackKind;
 
 void main_callback() {}
 void options_callback() {}
+void input_bind_callback(const char*, bool) {}
 
 struct RuntimeState {
     std::mutex mutex;
     std::condition_variable condition;
     std::size_t main_renders{};
     std::size_t options_renders{};
+    std::size_t window_toggles{};
     std::size_t shutdowns{};
     bool block_main{};
     bool main_entered{};
     bool release_main{};
     bool throw_main{};
+    bool throw_toggle{};
 };
 
 class FakeRuntime final : public IAddonRuntime {
@@ -65,6 +69,14 @@ class FakeRuntime final : public IAddonRuntime {
     void render_options() override {
         const std::scoped_lock lock{state_->mutex};
         ++state_->options_renders;
+    }
+
+    void toggle_window() override {
+        const std::scoped_lock lock{state_->mutex};
+        ++state_->window_toggles;
+        if (state_->throw_toggle) {
+            throw std::runtime_error{"toggle failed"};
+        }
     }
 
     void shutdown() noexcept override {
@@ -121,11 +133,50 @@ class FakeHost final : public IAddonHost {
             });
         }
         registrations.emplace_back(kind, callback);
+        events.emplace_back(kind == RenderCallbackKind::Main ? "register_main"
+                                                             : "register_options");
         return {};
     }
 
     void deregister_render(RenderCallback callback) noexcept override {
         deregistrations.push_back(callback);
+        events.emplace_back(callback == options_callback ? "deregister_options"
+                                                         : "deregister_main");
+    }
+
+    [[nodiscard]] std::expected<void, AddonHostError>
+    register_input_bind(InputBindCallback callback) override {
+        if (fail_input_registration) {
+            return std::unexpected(AddonHostError{
+                .code = AddonHostErrorCode::RegistrationFailed,
+                .message = "input registration failed",
+            });
+        }
+        registered_input_bind = callback;
+        events.emplace_back("register_input");
+        return {};
+    }
+
+    void deregister_input_bind() noexcept override {
+        ++input_deregistrations;
+        events.emplace_back("deregister_input");
+    }
+
+    [[nodiscard]] std::expected<void, AddonHostError> register_quick_access_shortcut() override {
+        if (fail_quick_access_registration) {
+            return std::unexpected(AddonHostError{
+                .code = AddonHostErrorCode::RegistrationFailed,
+                .message = "quick access registration failed",
+            });
+        }
+        ++quick_access_registrations;
+        events.emplace_back("register_quick_access");
+        return {};
+    }
+
+    void deregister_quick_access_shortcut() noexcept override {
+        ++quick_access_deregistrations;
+        events.emplace_back("deregister_quick_access");
     }
 
     void log(AddonLogLevel level, std::string_view message) noexcept override {
@@ -138,13 +189,24 @@ class FakeHost final : public IAddonHost {
     };
     bool fail_paths{};
     bool fail_options_registration{};
+    bool fail_input_registration{};
+    bool fail_quick_access_registration{};
     std::vector<std::pair<RenderCallbackKind, RenderCallback>> registrations;
     std::vector<RenderCallback> deregistrations;
+    InputBindCallback registered_input_bind{};
+    std::size_t input_deregistrations{};
+    std::size_t quick_access_registrations{};
+    std::size_t quick_access_deregistrations{};
+    std::vector<std::string> events;
     std::vector<std::pair<AddonLogLevel, std::string>> logs;
 };
 
 [[nodiscard]] AddonCallbacks callbacks() {
-    return AddonCallbacks{.main = main_callback, .options = options_callback};
+    return AddonCallbacks{
+        .main = main_callback,
+        .options = options_callback,
+        .input_bind = input_bind_callback,
+    };
 }
 
 void successful_lifecycle_tests(TestSuite& suite) {
@@ -158,15 +220,23 @@ void successful_lifecycle_tests(TestSuite& suite) {
     MANNY_CHECK(suite, host.registrations.size() == 2);
     MANNY_CHECK(suite, host.registrations[0].first == RenderCallbackKind::Main);
     MANNY_CHECK(suite, host.registrations[1].first == RenderCallbackKind::Options);
+    MANNY_CHECK(suite, host.registered_input_bind == input_bind_callback);
+    MANNY_CHECK(suite, host.quick_access_registrations == 1);
+    MANNY_CHECK(suite, host.events ==
+                           std::vector<std::string>({"register_main", "register_options",
+                                                     "register_input", "register_quick_access"}));
     MANNY_CHECK(suite,
                 factory.received_paths.addon_directory == host.configured_paths.addon_directory);
 
     lifecycle.render_main();
     lifecycle.render_options();
+    lifecycle.process_input_bind(true);
+    lifecycle.process_input_bind(false);
     {
         const std::scoped_lock lock{factory.state->mutex};
         MANNY_CHECK(suite, factory.state->main_renders == 1);
         MANNY_CHECK(suite, factory.state->options_renders == 1);
+        MANNY_CHECK(suite, factory.state->window_toggles == 1);
     }
 
     lifecycle.unload();
@@ -174,6 +244,12 @@ void successful_lifecycle_tests(TestSuite& suite) {
     MANNY_CHECK(suite, host.deregistrations.size() == 2);
     MANNY_CHECK(suite, host.deregistrations[0] == options_callback);
     MANNY_CHECK(suite, host.deregistrations[1] == main_callback);
+    MANNY_CHECK(suite, host.input_deregistrations == 1);
+    MANNY_CHECK(suite, host.quick_access_deregistrations == 1);
+    MANNY_CHECK(suite, host.events[host.events.size() - 4] == "deregister_quick_access");
+    MANNY_CHECK(suite, host.events[host.events.size() - 3] == "deregister_input");
+    MANNY_CHECK(suite, host.events[host.events.size() - 2] == "deregister_options");
+    MANNY_CHECK(suite, host.events.back() == "deregister_main");
     {
         const std::scoped_lock lock{factory.state->mutex};
         MANNY_CHECK(suite, factory.state->shutdowns == 1);
@@ -189,7 +265,9 @@ void validation_and_rollback_tests(TestSuite& suite) {
     FakeRuntimeFactory factory;
     AddonLifecycle lifecycle;
 
-    const auto invalid = lifecycle.load(host, factory, {.main = main_callback, .options = nullptr});
+    const auto invalid = lifecycle.load(
+        host, factory,
+        {.main = main_callback, .options = nullptr, .input_bind = input_bind_callback});
     MANNY_CHECK(suite, !invalid.has_value());
     MANNY_CHECK(suite, invalid.error().code == AddonLifecycleErrorCode::InvalidCallback);
     MANNY_CHECK(suite, lifecycle.state() == AddonLifecycleState::Unloaded);
@@ -205,6 +283,28 @@ void validation_and_rollback_tests(TestSuite& suite) {
         const std::scoped_lock lock{factory.state->mutex};
         MANNY_CHECK(suite, factory.state->shutdowns == 1);
     }
+
+    FakeHost input_host;
+    input_host.fail_input_registration = true;
+    AddonLifecycle input_lifecycle;
+    const auto input_failure = input_lifecycle.load(input_host, factory, callbacks());
+    MANNY_CHECK(suite, !input_failure.has_value());
+    MANNY_CHECK(suite, input_host.deregistrations.size() == 2);
+    MANNY_CHECK(suite, input_host.input_deregistrations == 0);
+    MANNY_CHECK(suite, input_host.events[input_host.events.size() - 2] == "deregister_options");
+    MANNY_CHECK(suite, input_host.events.back() == "deregister_main");
+
+    FakeHost shortcut_host;
+    shortcut_host.fail_quick_access_registration = true;
+    AddonLifecycle shortcut_lifecycle;
+    const auto shortcut_failure = shortcut_lifecycle.load(shortcut_host, factory, callbacks());
+    MANNY_CHECK(suite, !shortcut_failure.has_value());
+    MANNY_CHECK(suite, shortcut_host.quick_access_deregistrations == 0);
+    MANNY_CHECK(suite, shortcut_host.input_deregistrations == 1);
+    MANNY_CHECK(suite, shortcut_host.events[shortcut_host.events.size() - 3] == "deregister_input");
+    MANNY_CHECK(suite,
+                shortcut_host.events[shortcut_host.events.size() - 2] == "deregister_options");
+    MANNY_CHECK(suite, shortcut_host.events.back() == "deregister_main");
 
     host.fail_options_registration = false;
     factory.fail = true;
@@ -229,6 +329,20 @@ void exception_boundary_tests(TestSuite& suite) {
     MANNY_CHECK(suite, lifecycle.load(host, factory, callbacks()).has_value());
 
     lifecycle.render_main();
+    MANNY_CHECK(suite, lifecycle.active_callback_count() == 0);
+    MANNY_CHECK(suite, host.logs.size() == 2);
+    MANNY_CHECK(suite, host.logs.back().first == AddonLogLevel::Critical);
+    lifecycle.unload();
+}
+
+void input_bind_exception_boundary_tests(TestSuite& suite) {
+    FakeHost host;
+    FakeRuntimeFactory factory;
+    factory.state->throw_toggle = true;
+    AddonLifecycle lifecycle;
+    MANNY_CHECK(suite, lifecycle.load(host, factory, callbacks()).has_value());
+
+    lifecycle.process_input_bind(false);
     MANNY_CHECK(suite, lifecycle.active_callback_count() == 0);
     MANNY_CHECK(suite, host.logs.size() == 2);
     MANNY_CHECK(suite, host.logs.back().first == AddonLogLevel::Critical);
@@ -277,6 +391,7 @@ void run_addon_lifecycle_tests(TestSuite& suite) {
     successful_lifecycle_tests(suite);
     validation_and_rollback_tests(suite);
     exception_boundary_tests(suite);
+    input_bind_exception_boundary_tests(suite);
     unload_waits_for_callback_tests(suite);
 }
 

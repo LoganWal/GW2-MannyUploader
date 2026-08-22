@@ -70,12 +70,17 @@ class UploadCoordinator {
     cancel_pending_job(domain::UploadJobId id, const std::string& detail);
 
     [[nodiscard]] std::expected<void, CoordinatorError> handle_result(UploadResult result);
+    [[nodiscard]] std::expected<void, CoordinatorError>
+    retry_failed_provider(domain::UploadJobId id, domain::Provider provider);
     [[nodiscard]] std::expected<std::size_t, CoordinatorError>
     drain_provider_results(std::size_t maximum_results);
     [[nodiscard]] std::size_t dispatch_due_retries();
+    [[nodiscard]] std::expected<void, CoordinatorError>
+    update_history_limit(std::size_t history_limit);
     void cancel_all() noexcept;
 
     [[nodiscard]] std::vector<UploadJobSnapshot> snapshots() const;
+    [[nodiscard]] std::size_t history_limit() const noexcept;
     [[nodiscard]] bool is_shutting_down() const noexcept;
 
   private:
@@ -88,6 +93,7 @@ class UploadCoordinator {
     [[nodiscard]] std::expected<void, CoordinatorError>
     validate_selected_providers(const domain::ProviderSelection& enabled_providers) const;
     [[nodiscard]] std::expected<void, CoordinatorError> make_capacity();
+    void trim_settled_history() noexcept;
     [[nodiscard]] std::expected<void, CoordinatorError>
     settle_pending_job(domain::UploadJobId id, domain::ProviderState state,
                        const std::string& detail);
@@ -96,7 +102,8 @@ class UploadCoordinator {
     [[nodiscard]] std::expected<void, CoordinatorError> apply_result(domain::UploadJob& job,
                                                                      UploadResult result);
     void dispatch_initial_providers(domain::UploadJob& job);
-    void dispatch(domain::UploadJob& job, domain::Provider provider);
+    void dispatch(domain::UploadJob& job, domain::Provider provider,
+                  bool user_initiated_retry = false);
     void settle_dps_report_dependency(domain::UploadJob& job, UploadOutcome outcome);
     static void settle_twitch_dependency(domain::UploadJob& job, domain::ProviderState state,
                                          std::string detail);

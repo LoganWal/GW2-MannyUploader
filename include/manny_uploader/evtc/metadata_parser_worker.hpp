@@ -19,6 +19,7 @@ namespace manny_uploader::evtc {
 enum class MetadataParserWorkerErrorCode : std::uint8_t {
     InvalidCapacity,
     ThreadStartFailed,
+    Stopping,
 };
 
 struct MetadataParserWorkerError {
@@ -45,8 +46,12 @@ class MetadataParserWorker final : public ports::ILogMetadataParser {
     [[nodiscard]] std::optional<ports::MetadataParseResult>
     wait_for_result(std::chrono::milliseconds timeout);
 
+    [[nodiscard]] std::expected<void, MetadataParserWorkerError>
+    update_queue_capacity(std::size_t queue_capacity);
+
     [[nodiscard]] std::size_t pending_count() const noexcept;
     [[nodiscard]] std::size_t result_count() const noexcept;
+    [[nodiscard]] std::size_t queue_capacity() const noexcept;
     [[nodiscard]] bool is_stopping() const noexcept;
 
   private:

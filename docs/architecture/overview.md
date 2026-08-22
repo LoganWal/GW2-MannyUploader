@@ -82,7 +82,9 @@ The application coordinator is the sole mutable job owner. It:
 - correlates every provider result by job ID and provider ID;
 - schedules retries against an injected monotonic clock;
 - evicts only settled jobs when the bounded history is full;
-- publishes deep-copy snapshots for consumers such as the UI; and
+- publishes deep-copy snapshots for consumers such as the UI;
+- re-arms only explicitly selected failed providers for user-initiated retry, including dependent
+  dps.report/Twitch recovery; and
 - cancels provider queues and unsettled job states exactly once during shutdown.
 
 Provider implementations receive value-type upload requests through `IUploadProvider`; they never
@@ -163,7 +165,9 @@ the application owner thread, never from a render callback. Missing roots are a 
 arcdps directory created after startup is discovered later. Complete snapshots emit removals;
 incomplete traversal or metadata reads retain prior paths and emit diagnostics without manufacturing
 removals. Symlinks are not followed, candidate counts are bounded, and a stop token is checked during
-enumeration.
+enumeration. Its root, recursion policy, and candidate bound may be replaced atomically by that same
+owner. A successful replacement clears only source-retained and pending stability observations; the
+accepted-log dedupe history is preserved.
 
 `ApplicationPump` owns the discovery pipeline and performs bounded ticks. It drains completed
 metadata results first, then polls, forgets confirmed removals, observes candidates, and submits newly
@@ -399,6 +403,13 @@ the DonBot and Twitch configuration workflows. General, dps.report, Wingman, and
 changes use an ordinary-options payload that cannot mutate workflow-owned DonBot or Twitch enablement.
 Dedicated commands enforce verified DonBot endpoint/guild state and a connected broadcaster-owned
 Twitch session before those destinations can be enabled.
+After the durable ordinary-settings revision is published, the owner applies all general settings to
+the long-lived components in place. Poll-source and stability changes clear only pending candidate
+observations, parser-queue downsizing preserves queued and completed parses, and history downsizing
+removes only settled jobs. Active parses, uploads, retry schedules, and accepted-log dedupe entries
+retain their captured inputs.
+Window visibility has its own narrow command, shared by the options checkbox, close button, Nexus
+input bind, and quick-access shortcut, so a toggle cannot overwrite a stale provider-options draft.
 
 An additional command queues one explicit Twitch test message only while connected and while no test
 is in flight. The application controller correlates its result and publishes secret-free sending,
@@ -412,10 +423,28 @@ derived in a standard-library-only view model so behavior is tested without Nexu
 boundary, queue policy, and shutdown responsibilities are frozen in
 [`docs/contracts/nexus-options.md`](../contracts/nexus-options.md).
 
+## Recent-log actions boundary
+
+Main-table buttons use a separate `RecentLogActionsController`. ImGui submits only a stable job ID and
+typed action into a bounded FIFO. The application owner resolves that ID against the coordinator's
+current immutable history before it opens a report, opens the derived containing folder, or requests
+a failed-provider retry. The render callback therefore never accepts a raw external target and never
+performs shell or provider work.
+
+The controller admits only exact, bounded `https://dps.report/` links and non-empty directories.
+`IExternalActionLauncher` keeps Win32 outside the application layer; the production adapter invokes
+`ShellExecuteW` directly without a shell command line. Manual retries are distinguished in the value
+request sent to a provider. This lets an explicit Twitch retry bypass a prior ambiguous-delivery
+ledger entry while all automatic attempts remain suppressed. Complete policy and tests are frozen in
+[`docs/contracts/recent-log-actions.md`](../contracts/recent-log-actions.md).
+
 The production Windows adapter composes settings, protected-storage capability, Schannel HTTP,
 provider clients/workers, authentication workflows, EVTC polling/parsing, and coordinators before it
-opens the Nexus callback gate. One background application-owner thread drains commands, updates
-provider configuration, polls the log directory, advances jobs, and publishes UI-ready deep copies.
+registers the render callbacks, configurable window bind, and quick-access shortcut and opens the
+Nexus callback gate. The icon texture is decoded synchronously from embedded PNG bytes, avoiding an
+asynchronous callback that could outlive the DLL. One background application-owner thread drains
+commands, updates provider configuration, polls the log directory, advances jobs, and publishes
+UI-ready deep copies.
 The ImGui callbacks never perform filesystem traversal, persistence, HTTP, parsing, OAuth polling, or
 worker shutdown.
 The concrete ownership and scheduling rules are frozen in
@@ -425,8 +454,9 @@ The concrete ownership and scheduling rules are frozen in
 
 Cancellation originates at addon unload and flows through `std::stop_token`. Shutdown order is:
 
-1. Close callback admission and deregister Nexus render resources.
-2. Wait for already-admitted render callbacks to return.
+1. Close callback admission, remove quick access, deregister the input bind, and deregister Nexus
+   render resources in reverse registration order.
+2. Wait for already-admitted render or input callbacks to return.
 3. Stop accepting UI/configuration commands and file candidates.
 4. Cancel queued/in-flight metadata parsing and provider work.
 5. Shut down authentication/session/configuration owners.
@@ -454,8 +484,12 @@ exercise the shared worker's queue, backpressure, retry, exception, and shutdown
 and DonBot additionally cover credential ordering. Twitch adds binary-session corruption fixtures,
 primitive-worker backpressure, fake-clock controller tests for polling, validation, rotation,
 persistence, disconnect, and shutdown, plus adversarial session-owner tests for stale leases,
-recovery/controller exclusion, identity mismatch, and shutdown during recovery. Nexus checks remain
-a small integration layer, not a substitute
+recovery/controller exclusion, identity mismatch, and shutdown during recovery. Recent-log action
+tests use a fake launcher and provider ports to cover trusted targets, retry transitions, queue
+backpressure, and shutdown without opening external programs. The real-DLL Nexus smoke host validates
+render, keybind, embedded-texture, quick-access, and reverse-teardown contracts while performing ten
+consecutive load/render/unload/`FreeLibrary` cycles. Nexus checks remain a small integration
+layer, not a substitute
 for automated behavior coverage.
 
 Every behavior change includes its test in the same change. External services are never contacted by

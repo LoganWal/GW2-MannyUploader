@@ -62,11 +62,16 @@ class ApplicationPump {
 
     void cancel_all() noexcept;
 
+    [[nodiscard]] std::expected<void, ApplicationPumpError>
+    update_required_matching_observations(std::size_t required_matching_observations);
+    void reset_pending_candidates() noexcept;
+
     [[nodiscard]] bool is_shutting_down() const noexcept;
     [[nodiscard]] std::size_t tracked_candidate_count() const noexcept;
     [[nodiscard]] std::size_t dedupe_size() const noexcept;
     [[nodiscard]] std::size_t max_metadata_results_per_tick() const noexcept;
     [[nodiscard]] std::size_t max_upload_results_per_tick() const noexcept;
+    [[nodiscard]] std::size_t required_matching_observations() const noexcept;
 
   private:
     ApplicationPump(ports::ILogCandidateSource& candidate_source,

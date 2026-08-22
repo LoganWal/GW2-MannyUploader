@@ -64,6 +64,7 @@ void run_wingman_client_tests(TestSuite& suite);
 void run_wingman_provider_worker_tests(TestSuite& suite);
 void run_log_ingestion_coordinator_tests(TestSuite& suite);
 void run_nexus_options_controller_tests(TestSuite& suite);
+void run_recent_log_actions_controller_tests(TestSuite& suite);
 void run_nexus_options_model_tests(TestSuite& suite);
 void run_evtc_metadata_decoder_tests(TestSuite& suite);
 void run_zevtc_archive_tests(TestSuite& suite);

@@ -191,6 +191,21 @@ StandardPollingLogCandidateSource::StandardPollingLogCandidateSource(std::filesy
                                                                      std::size_t max_candidates)
     : root_(std::move(root)), recursive_(recursive), max_candidates_(max_candidates) {}
 
+std::expected<void, ports::LogCandidateSourceError>
+StandardPollingLogCandidateSource::reconfigure(const std::filesystem::path& root, bool recursive,
+                                               std::size_t max_candidates) {
+    auto replacement = create(root, recursive, max_candidates);
+    if (!replacement) {
+        return std::unexpected(std::move(replacement.error()));
+    }
+
+    root_ = std::move(replacement->root_);
+    recursive_ = replacement->recursive_;
+    max_candidates_ = replacement->max_candidates_;
+    tracker_.clear();
+    return {};
+}
+
 std::expected<ports::LogCandidateBatch, ports::LogCandidateSourceError>
 StandardPollingLogCandidateSource::poll(const std::stop_token& stop_token) {
     auto snapshot = scan(stop_token);

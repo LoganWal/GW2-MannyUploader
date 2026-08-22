@@ -28,9 +28,10 @@ std::expected<void, AddonLifecycleError> AddonLifecycle::load(IAddonHost& host,
                                                               IAddonRuntimeFactory& runtime_factory,
                                                               AddonCallbacks callbacks) {
     if (callbacks.main == nullptr || callbacks.options == nullptr ||
-        callbacks.main == callbacks.options) {
+        callbacks.input_bind == nullptr || callbacks.main == callbacks.options) {
         return std::unexpected(make_error(AddonLifecycleErrorCode::InvalidCallback,
-                                          "Addon render callbacks must be distinct and non-null"));
+                                          "Addon callbacks must be valid and render callbacks must "
+                                          "be distinct"));
     }
 
     {
@@ -47,17 +48,17 @@ std::expected<void, AddonLifecycleError> AddonLifecycle::load(IAddonHost& host,
     try {
         auto resolved_paths = host.paths();
         if (!resolved_paths) {
-            rollback_load(false, false);
+            rollback_load();
             return std::unexpected(from_host_error(resolved_paths.error()));
         }
 
         auto created_runtime = runtime_factory.create(*resolved_paths);
         if (!created_runtime) {
-            rollback_load(false, false);
+            rollback_load();
             return std::unexpected(from_runtime_error(created_runtime.error()));
         }
         if (*created_runtime == nullptr) {
-            rollback_load(false, false);
+            rollback_load();
             return std::unexpected(make_error(AddonLifecycleErrorCode::RuntimeFailure,
                                               "Runtime factory returned no runtime"));
         }
@@ -69,7 +70,7 @@ std::expected<void, AddonLifecycleError> AddonLifecycle::load(IAddonHost& host,
 
         auto registered_main = host.register_render(RenderCallbackKind::Main, callbacks.main);
         if (!registered_main) {
-            rollback_load(false, false);
+            rollback_load();
             return std::unexpected(from_host_error(registered_main.error()));
         }
         {
@@ -80,40 +81,75 @@ std::expected<void, AddonLifecycleError> AddonLifecycle::load(IAddonHost& host,
         auto registered_options =
             host.register_render(RenderCallbackKind::Options, callbacks.options);
         if (!registered_options) {
-            rollback_load(true, false);
+            rollback_load();
             return std::unexpected(from_host_error(registered_options.error()));
         }
 
         {
             const std::scoped_lock lock{mutex_};
             options_registered_ = true;
+        }
+
+        auto registered_input_bind = host.register_input_bind(callbacks.input_bind);
+        if (!registered_input_bind) {
+            rollback_load();
+            return std::unexpected(from_host_error(registered_input_bind.error()));
+        }
+        {
+            const std::scoped_lock lock{mutex_};
+            input_bind_registered_ = true;
+        }
+
+        auto registered_quick_access = host.register_quick_access_shortcut();
+        if (!registered_quick_access) {
+            rollback_load();
+            return std::unexpected(from_host_error(registered_quick_access.error()));
+        }
+
+        {
+            const std::scoped_lock lock{mutex_};
+            quick_access_registered_ = true;
             state_ = AddonLifecycleState::Running;
         }
         host.log(AddonLogLevel::Info, "GW2 Manny Uploader loaded");
         return {};
     } catch (const std::exception&) {
-        rollback_load(main_registered_, options_registered_);
+        rollback_load();
         return std::unexpected(make_error(AddonLifecycleErrorCode::UnexpectedException,
                                           "Unexpected exception while loading the addon"));
     } catch (...) {
-        rollback_load(main_registered_, options_registered_);
+        rollback_load();
         return std::unexpected(make_error(AddonLifecycleErrorCode::UnexpectedException,
                                           "Unknown exception while loading the addon"));
     }
 }
 
-void AddonLifecycle::rollback_load(bool main_registered, bool options_registered) noexcept {
+void AddonLifecycle::rollback_load() noexcept {
     IAddonHost* host = nullptr;
     AddonCallbacks callbacks{};
+    bool main_registered = false;
+    bool options_registered = false;
+    bool input_bind_registered = false;
+    bool quick_access_registered = false;
     std::unique_ptr<IAddonRuntime> runtime;
     {
         const std::scoped_lock lock{mutex_};
         state_ = AddonLifecycleState::Unloading;
         host = host_;
         callbacks = callbacks_;
+        main_registered = main_registered_;
+        options_registered = options_registered_;
+        input_bind_registered = input_bind_registered_;
+        quick_access_registered = quick_access_registered_;
     }
 
     if (host != nullptr) {
+        if (quick_access_registered) {
+            host->deregister_quick_access_shortcut();
+        }
+        if (input_bind_registered) {
+            host->deregister_input_bind();
+        }
         if (options_registered && callbacks.options != nullptr) {
             host->deregister_render(callbacks.options);
         }
@@ -136,6 +172,8 @@ void AddonLifecycle::rollback_load(bool main_registered, bool options_registered
         callbacks_ = {};
         main_registered_ = false;
         options_registered_ = false;
+        input_bind_registered_ = false;
+        quick_access_registered_ = false;
         state_ = AddonLifecycleState::Unloaded;
     }
 }
@@ -145,6 +183,8 @@ void AddonLifecycle::unload() noexcept {
     AddonCallbacks callbacks{};
     bool main_registered = false;
     bool options_registered = false;
+    bool input_bind_registered = false;
+    bool quick_access_registered = false;
     {
         const std::scoped_lock lock{mutex_};
         if (state_ == AddonLifecycleState::Unloaded || state_ == AddonLifecycleState::Unloading) {
@@ -155,9 +195,17 @@ void AddonLifecycle::unload() noexcept {
         callbacks = callbacks_;
         main_registered = main_registered_;
         options_registered = options_registered_;
+        input_bind_registered = input_bind_registered_;
+        quick_access_registered = quick_access_registered_;
     }
 
     if (host != nullptr) {
+        if (quick_access_registered) {
+            host->deregister_quick_access_shortcut();
+        }
+        if (input_bind_registered) {
+            host->deregister_input_bind();
+        }
         if (options_registered && callbacks.options != nullptr) {
             host->deregister_render(callbacks.options);
         }
@@ -185,19 +233,27 @@ void AddonLifecycle::unload() noexcept {
         callbacks_ = {};
         main_registered_ = false;
         options_registered_ = false;
+        input_bind_registered_ = false;
+        quick_access_registered_ = false;
         state_ = AddonLifecycleState::Unloaded;
     }
 }
 
 void AddonLifecycle::render_main() noexcept {
-    render(RenderCallbackKind::Main);
+    invoke(RuntimeCallbackKind::MainRender);
 }
 
 void AddonLifecycle::render_options() noexcept {
-    render(RenderCallbackKind::Options);
+    invoke(RuntimeCallbackKind::OptionsRender);
 }
 
-void AddonLifecycle::render(RenderCallbackKind kind) noexcept {
+void AddonLifecycle::process_input_bind(bool is_release) noexcept {
+    if (!is_release) {
+        invoke(RuntimeCallbackKind::ToggleWindow);
+    }
+}
+
+void AddonLifecycle::invoke(RuntimeCallbackKind kind) noexcept {
     IAddonRuntime* runtime = nullptr;
     IAddonHost* host = nullptr;
     {
@@ -211,20 +267,22 @@ void AddonLifecycle::render(RenderCallbackKind kind) noexcept {
     }
 
     try {
-        if (kind == RenderCallbackKind::Main) {
+        if (kind == RuntimeCallbackKind::MainRender) {
             runtime->render_main();
-        } else {
+        } else if (kind == RuntimeCallbackKind::OptionsRender) {
             runtime->render_options();
+        } else {
+            runtime->toggle_window();
         }
     } catch (const std::exception&) {
         if (host != nullptr) {
             host->log(AddonLogLevel::Critical,
-                      "An exception was contained at a Nexus render callback boundary");
+                      "An exception was contained at a Nexus callback boundary");
         }
     } catch (...) {
         if (host != nullptr) {
             host->log(AddonLogLevel::Critical,
-                      "An unknown exception was contained at a Nexus render callback boundary");
+                      "An unknown exception was contained at a Nexus callback boundary");
         }
     }
     finish_callback();

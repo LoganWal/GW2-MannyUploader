@@ -36,6 +36,9 @@ class StandardPollingLogCandidateSource final : public ports::ILogCandidateSourc
     create(const std::filesystem::path& root, bool recursive = true,
            std::size_t max_candidates = 4096);
 
+    [[nodiscard]] std::expected<void, ports::LogCandidateSourceError>
+    reconfigure(const std::filesystem::path& root, bool recursive, std::size_t max_candidates);
+
     [[nodiscard]] std::expected<ports::LogCandidateBatch, ports::LogCandidateSourceError>
     poll(const std::stop_token& stop_token) override;
 

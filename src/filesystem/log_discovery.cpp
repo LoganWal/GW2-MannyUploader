@@ -121,8 +121,22 @@ void FileStabilityTracker::clear() noexcept {
     pending_.clear();
 }
 
+std::expected<void, LogDiscoveryError> FileStabilityTracker::update_required_matching_observations(
+    std::size_t required_matching_observations) {
+    auto replacement = create(required_matching_observations);
+    if (!replacement) {
+        return std::unexpected(replacement.error());
+    }
+    *this = std::move(*replacement);
+    return {};
+}
+
 std::size_t FileStabilityTracker::tracked_count() const noexcept {
     return pending_.size();
+}
+
+std::size_t FileStabilityTracker::required_matching_observations() const noexcept {
+    return required_matching_observations_;
 }
 
 std::expected<LogDeduplicator, LogDiscoveryError> LogDeduplicator::create(std::size_t capacity) {
@@ -233,12 +247,25 @@ void LogDiscoveryPipeline::clear() noexcept {
     deduplicator_.clear();
 }
 
+void LogDiscoveryPipeline::clear_pending() noexcept {
+    stability_.clear();
+}
+
+std::expected<void, LogDiscoveryError> LogDiscoveryPipeline::update_required_matching_observations(
+    std::size_t required_matching_observations) {
+    return stability_.update_required_matching_observations(required_matching_observations);
+}
+
 std::size_t LogDiscoveryPipeline::tracked_count() const noexcept {
     return stability_.tracked_count();
 }
 
 std::size_t LogDiscoveryPipeline::dedupe_size() const noexcept {
     return deduplicator_.size();
+}
+
+std::size_t LogDiscoveryPipeline::required_matching_observations() const noexcept {
+    return stability_.required_matching_observations();
 }
 
 } // namespace manny_uploader::filesystem

@@ -30,6 +30,7 @@ struct UploadRequest {
     std::optional<DonBotUploadContext> donbot_context;
     std::optional<TwitchUploadContext> twitch_context{};
     std::uint32_t attempt{};
+    bool user_initiated_retry{};
 };
 
 struct DispatchError {

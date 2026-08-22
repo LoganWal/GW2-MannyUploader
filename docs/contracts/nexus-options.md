@@ -31,6 +31,13 @@ queues or polls that worker.
 Ordinary editing is represented by `SaveOrdinaryOptionsCommand`. Its payload contains general,
 dps.report, GW2Wingman, and Twitch message-policy fields only. Applying it preserves the current
 DonBot endpoint, guild selection, and enabled state, and preserves the Twitch enabled state.
+Once that command has durably saved and published a new settings revision, the production application
+owner applies general polling, stability, parser-capacity, and recent-history values to the existing
+components. No render callback performs this reconfiguration, and active parse/upload inputs are not
+rewritten.
+A dedicated `SetWindowVisibleCommand` updates only the persisted window visibility bit. The options
+checkbox, window close button, Nexus input bind, and quick-access shortcut all use that narrow path so
+they cannot replay a stale ordinary-options draft over unrelated settings.
 
 Workflow-owned values use dedicated commands:
 
@@ -108,6 +115,7 @@ workflows and joins their workers before unload returns.
 Portable deterministic tests must prove:
 
 - submission alone causes no settings, protected-storage, verifier, or authenticator activity;
+- window visibility commands preserve every unrelated setting;
 - FIFO command drainage and per-tick limits;
 - queue overflow and malformed input rejection;
 - DonBot verify/select/enable/disconnect rules and persistence ordering;

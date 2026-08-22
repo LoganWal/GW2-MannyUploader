@@ -204,6 +204,49 @@ void bounded_queue_tests(TestSuite& suite) {
     MANNY_CHECK(suite, worker->result_count() == 0);
 }
 
+void live_capacity_reconfiguration_tests(TestSuite& suite) {
+    BlockingReader reader;
+    auto created = MetadataParserWorker::create(reader, 1);
+    MANNY_CHECK(suite, created.has_value());
+    auto worker = std::move(*created);
+    MANNY_CHECK(suite, worker->queue_capacity() == 1);
+
+    MANNY_CHECK(suite, worker->enqueue(request(51, "active.zevtc")).has_value());
+    MANNY_CHECK(suite, reader.wait_until_started(2s));
+    MANNY_CHECK(suite, worker->enqueue(request(52, "pending-one.zevtc")).has_value());
+    MANNY_CHECK(suite, worker->update_queue_capacity(2).has_value());
+    MANNY_CHECK(suite, worker->queue_capacity() == 2);
+    MANNY_CHECK(suite, worker->enqueue(request(53, "pending-two.zevtc")).has_value());
+
+    const auto invalid = worker->update_queue_capacity(0);
+    MANNY_CHECK(suite, !invalid.has_value());
+    MANNY_CHECK(suite, invalid.error().code == MetadataParserWorkerErrorCode::InvalidCapacity);
+    MANNY_CHECK(suite, worker->queue_capacity() == 2);
+
+    MANNY_CHECK(suite, worker->update_queue_capacity(1).has_value());
+    MANNY_CHECK(suite, worker->queue_capacity() == 1);
+    MANNY_CHECK(suite, worker->pending_count() == 2);
+    MANNY_CHECK(suite, !worker->enqueue(request(54, "rejected.zevtc")).has_value());
+
+    reader.release();
+    const auto first = worker->wait_for_result(2s);
+    const auto second = worker->wait_for_result(2s);
+    const auto third = worker->wait_for_result(2s);
+    MANNY_CHECK(suite, first.has_value());
+    MANNY_CHECK(suite, second.has_value());
+    MANNY_CHECK(suite, third.has_value());
+    if (first && second && third) {
+        MANNY_CHECK(suite, first->job_id == domain::UploadJobId{51});
+        MANNY_CHECK(suite, second->job_id == domain::UploadJobId{52});
+        MANNY_CHECK(suite, third->job_id == domain::UploadJobId{53});
+    }
+
+    worker->cancel_pending();
+    const auto stopped = worker->update_queue_capacity(2);
+    MANNY_CHECK(suite, !stopped.has_value());
+    MANNY_CHECK(suite, stopped.error().code == MetadataParserWorkerErrorCode::Stopping);
+}
+
 void cancellation_and_shutdown_tests(TestSuite& suite) {
     BlockingReader reader;
     auto created = MetadataParserWorker::create(reader, 2);
@@ -231,6 +274,7 @@ void run_metadata_parser_worker_tests(TestSuite& suite) {
     creation_and_success_tests(suite);
     failure_boundary_tests(suite);
     bounded_queue_tests(suite);
+    live_capacity_reconfiguration_tests(suite);
     cancellation_and_shutdown_tests(suite);
 }
 

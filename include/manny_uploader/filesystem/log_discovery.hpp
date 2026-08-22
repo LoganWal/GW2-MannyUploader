@@ -53,7 +53,11 @@ class FileStabilityTracker {
     void forget(const std::filesystem::path& canonical_path);
     void clear() noexcept;
 
+    [[nodiscard]] std::expected<void, LogDiscoveryError>
+    update_required_matching_observations(std::size_t required_matching_observations);
+
     [[nodiscard]] std::size_t tracked_count() const noexcept;
+    [[nodiscard]] std::size_t required_matching_observations() const noexcept;
 
   private:
     struct PendingObservation {
@@ -100,9 +104,13 @@ class LogDiscoveryPipeline {
     [[nodiscard]] std::expected<void, LogDiscoveryError>
     release(const domain::LogFileIdentity& file);
     void clear() noexcept;
+    void clear_pending() noexcept;
+    [[nodiscard]] std::expected<void, LogDiscoveryError>
+    update_required_matching_observations(std::size_t required_matching_observations);
 
     [[nodiscard]] std::size_t tracked_count() const noexcept;
     [[nodiscard]] std::size_t dedupe_size() const noexcept;
+    [[nodiscard]] std::size_t required_matching_observations() const noexcept;
 
   private:
     LogDiscoveryPipeline(FileStabilityTracker stability, LogDeduplicator deduplicator);

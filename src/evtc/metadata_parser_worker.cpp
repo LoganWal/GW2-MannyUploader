@@ -113,6 +113,26 @@ MetadataParserWorker::wait_for_result(std::chrono::milliseconds timeout) {
     return result;
 }
 
+std::expected<void, MetadataParserWorkerError>
+MetadataParserWorker::update_queue_capacity(std::size_t queue_capacity) {
+    if (queue_capacity == 0) {
+        return std::unexpected(
+            make_worker_error(MetadataParserWorkerErrorCode::InvalidCapacity,
+                              "Metadata parser queue capacity must be non-zero"));
+    }
+
+    {
+        const std::scoped_lock lock{mutex_};
+        if (stopping_) {
+            return std::unexpected(make_worker_error(MetadataParserWorkerErrorCode::Stopping,
+                                                     "Metadata parser is stopping"));
+        }
+        queue_capacity_ = queue_capacity;
+    }
+    condition_.notify_all();
+    return {};
+}
+
 std::size_t MetadataParserWorker::pending_count() const noexcept {
     const std::scoped_lock lock{mutex_};
     return requests_.size();
@@ -121,6 +141,11 @@ std::size_t MetadataParserWorker::pending_count() const noexcept {
 std::size_t MetadataParserWorker::result_count() const noexcept {
     const std::scoped_lock lock{mutex_};
     return results_.size();
+}
+
+std::size_t MetadataParserWorker::queue_capacity() const noexcept {
+    const std::scoped_lock lock{mutex_};
+    return queue_capacity_;
 }
 
 bool MetadataParserWorker::is_stopping() const noexcept {

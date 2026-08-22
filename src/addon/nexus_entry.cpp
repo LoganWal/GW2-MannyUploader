@@ -2,6 +2,7 @@
 #include "manny_uploader/project_info.hpp"
 
 #include "production_runtime.hpp"
+#include "quick_access_icon.hpp"
 
 #include <Nexus.h>
 #include <imgui.h>
@@ -32,6 +33,11 @@ inline constexpr char addon_description[] =
 inline constexpr char addon_update_link[] = "https://github.com/LoganWal/GW2-MannyUploader";
 inline constexpr char addon_storage_name[] = "GW2MannyUploader";
 inline constexpr char log_channel[] = "GW2 Manny Uploader";
+inline constexpr std::string_view input_bind_identifier = "KB_GW2_MANNY_UPLOADER_TOGGLE";
+inline constexpr std::string_view default_input_bind = "ALT+SHIFT+M";
+inline constexpr std::string_view quick_access_identifier = "QA_GW2_MANNY_UPLOADER";
+inline constexpr std::string_view quick_access_texture_identifier = "TEX_GW2_MANNY_UPLOADER";
+inline constexpr std::string_view quick_access_tooltip = "Toggle GW2 Manny Uploader";
 
 class NexusHost final : public IAddonHost {
   public:
@@ -39,7 +45,11 @@ class NexusHost final : public IAddonHost {
         if (api == nullptr || api->ImguiContext == nullptr || api->ImguiMalloc == nullptr ||
             api->ImguiFree == nullptr || api->GUI_Register == nullptr ||
             api->GUI_Deregister == nullptr || api->Log == nullptr ||
-            api->Paths_GetGameDirectory == nullptr || api->Paths_GetAddonDirectory == nullptr) {
+            api->Paths_GetGameDirectory == nullptr || api->Paths_GetAddonDirectory == nullptr ||
+            api->InputBinds_RegisterWithString == nullptr ||
+            api->InputBinds_Deregister == nullptr ||
+            api->Textures_GetOrCreateFromMemory == nullptr || api->QuickAccess_Add == nullptr ||
+            api->QuickAccess_Remove == nullptr) {
             return std::unexpected(AddonHostError{
                 .code = AddonHostErrorCode::InvalidApi,
                 .message = "Nexus supplied an incomplete addon API",
@@ -102,6 +112,54 @@ class NexusHost final : public IAddonHost {
         }
     }
 
+    [[nodiscard]] std::expected<void, AddonHostError>
+    register_input_bind(InputBindCallback callback) override {
+        if (api_ == nullptr || callback == nullptr) {
+            return std::unexpected(AddonHostError{
+                .code = AddonHostErrorCode::RegistrationFailed,
+                .message = "Cannot register the Nexus window keybind",
+            });
+        }
+        api_->InputBinds_RegisterWithString(input_bind_identifier.data(), callback,
+                                            default_input_bind.data());
+        return {};
+    }
+
+    void deregister_input_bind() noexcept override {
+        if (api_ != nullptr) {
+            api_->InputBinds_Deregister(input_bind_identifier.data());
+        }
+    }
+
+    [[nodiscard]] std::expected<void, AddonHostError> register_quick_access_shortcut() override {
+        if (api_ == nullptr) {
+            return std::unexpected(AddonHostError{
+                .code = AddonHostErrorCode::RegistrationFailed,
+                .message = "Cannot register the Nexus quick-access shortcut",
+            });
+        }
+        Texture_t* texture = api_->Textures_GetOrCreateFromMemory(
+            quick_access_texture_identifier.data(), quick_access_icon_png.data(),
+            static_cast<std::uint64_t>(quick_access_icon_png.size()));
+        if (texture == nullptr) {
+            return std::unexpected(AddonHostError{
+                .code = AddonHostErrorCode::RegistrationFailed,
+                .message = "Nexus could not create the quick-access icon texture",
+            });
+        }
+        api_->QuickAccess_Add(quick_access_identifier.data(),
+                              quick_access_texture_identifier.data(),
+                              quick_access_texture_identifier.data(), input_bind_identifier.data(),
+                              quick_access_tooltip.data());
+        return {};
+    }
+
+    void deregister_quick_access_shortcut() noexcept override {
+        if (api_ != nullptr) {
+            api_->QuickAccess_Remove(quick_access_identifier.data());
+        }
+    }
+
     void log(AddonLogLevel level, std::string_view message) noexcept override {
         if (api_ == nullptr) {
             return;
@@ -152,6 +210,10 @@ void render_options_callback() {
     addon_lifecycle.render_options();
 }
 
+void input_bind_callback([[maybe_unused]] const char* identifier, bool is_release) {
+    addon_lifecycle.process_input_bind(is_release);
+}
+
 void load(AddonAPI_t* api) noexcept {
     try {
         auto attached = nexus_host.attach(api);
@@ -159,9 +221,12 @@ void load(AddonAPI_t* api) noexcept {
             return;
         }
 
-        auto loaded = addon_lifecycle.load(
-            nexus_host, runtime_factory,
-            AddonCallbacks{.main = render_main_callback, .options = render_options_callback});
+        auto loaded = addon_lifecycle.load(nexus_host, runtime_factory,
+                                           AddonCallbacks{
+                                               .main = render_main_callback,
+                                               .options = render_options_callback,
+                                               .input_bind = input_bind_callback,
+                                           });
         if (!loaded) {
             nexus_host.log(AddonLogLevel::Critical, loaded.error().message);
             nexus_host.detach();

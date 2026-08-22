@@ -19,6 +19,8 @@ Current contracts:
   secret-free snapshots, durable write-through updates, errors, and shutdown.
 - [`nexus-options.md`](nexus-options.md): render-safe snapshots, bounded configuration commands,
   workflow-owned DonBot/Twitch controls, view-model state, redaction, and shutdown.
+- [`recent-log-actions.md`](recent-log-actions.md): render-safe open-report/open-folder commands,
+  explicit failed-provider retries, trusted-target validation, backpressure, and shutdown.
 - [`http-transport.md`](http-transport.md): provider-independent requests, streaming bodies,
   timeouts, cancellation, redirects, response limits, TLS policy, and secret redaction.
 - [`dps-report.md`](dps-report.md): multipart log upload, protected user tokens, response validation,

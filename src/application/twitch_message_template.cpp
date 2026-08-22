@@ -35,7 +35,7 @@ field_from_name(std::string_view name) noexcept {
         std::pair{std::string_view{"result"}, Field::Result},
         std::pair{std::string_view{"boss_id"}, Field::BossId},
     };
-    const auto* const found = std::ranges::find(fields, name, &decltype(fields)::value_type::first);
+    const auto found = std::ranges::find(fields, name, &decltype(fields)::value_type::first);
     if (found == fields.end()) {
         return std::nullopt;
     }

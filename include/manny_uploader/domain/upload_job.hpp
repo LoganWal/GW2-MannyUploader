@@ -96,6 +96,7 @@ enum class JobErrorCode : std::uint8_t {
     MetadataAlreadySet,
     InvalidTwitchDelivery,
     TwitchDeliveryAlreadyRecorded,
+    ManualRetryRequiresFailure,
 };
 
 struct JobError {
@@ -131,6 +132,7 @@ class UploadJob {
                                                                     std::string detail = {});
     [[nodiscard]] std::expected<void, JobError>
     record_twitch_delivery(TwitchDeliveryReceipt receipt);
+    [[nodiscard]] std::expected<void, JobError> prepare_manual_retry(Provider provider);
 
   private:
     UploadJob(UploadJobId id, LogFileIdentity file, DetectedAt detected_at,

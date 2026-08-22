@@ -138,6 +138,25 @@ void ApplicationPump::cancel_all() noexcept {
     ingestion_coordinator_.cancel_all();
 }
 
+std::expected<void, ApplicationPumpError>
+ApplicationPump::update_required_matching_observations(std::size_t required_matching_observations) {
+    if (shutting_down_) {
+        return std::unexpected(make_error(ApplicationPumpErrorCode::ShuttingDown,
+                                          "Application pump is shutting down"));
+    }
+    auto updated = discovery_.update_required_matching_observations(required_matching_observations);
+    if (!updated) {
+        return std::unexpected(from_discovery_error(std::move(updated.error())));
+    }
+    return {};
+}
+
+void ApplicationPump::reset_pending_candidates() noexcept {
+    if (!shutting_down_) {
+        discovery_.clear_pending();
+    }
+}
+
 bool ApplicationPump::is_shutting_down() const noexcept {
     return shutting_down_;
 }
@@ -156,6 +175,10 @@ std::size_t ApplicationPump::max_metadata_results_per_tick() const noexcept {
 
 std::size_t ApplicationPump::max_upload_results_per_tick() const noexcept {
     return max_upload_results_per_tick_;
+}
+
+std::size_t ApplicationPump::required_matching_observations() const noexcept {
+    return discovery_.required_matching_observations();
 }
 
 } // namespace manny_uploader::application

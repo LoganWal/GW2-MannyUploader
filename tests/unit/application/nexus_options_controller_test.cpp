@@ -502,6 +502,18 @@ void workflow_owned_settings_tests(TestSuite& suite) {
     MANNY_CHECK(suite, saved.donbot.enabled);
     MANNY_CHECK(suite, saved.donbot.selected_guild_id == "123");
     MANNY_CHECK(suite, saved.twitch.enabled);
+
+    fixture.events.clear();
+    MANNY_CHECK(suite,
+                fixture.options->submit(application::SetWindowVisibleCommand{.visible = false})
+                    .has_value());
+    MANNY_CHECK(suite, fixture.options->tick().has_value());
+    const auto hidden = fixture.configuration->snapshot().settings;
+    MANNY_CHECK(suite, !hidden.general.window_visible);
+    MANNY_CHECK(suite, hidden.general.recent_log_limit == 75);
+    MANNY_CHECK(suite, hidden.donbot.enabled);
+    MANNY_CHECK(suite, hidden.twitch.enabled);
+    MANNY_CHECK(suite, fixture.events == std::vector<std::string>({"settings.save"}));
 }
 
 void concurrent_submission_tests(TestSuite& suite) {

@@ -129,6 +129,8 @@ struct NexusOptionsController::State {
     [[nodiscard]] std::expected<void, NexusOptionsError> save_settings(config::Settings settings);
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(SaveOrdinaryOptionsCommand& command);
+    [[nodiscard]] std::expected<void, NexusOptionsError>
+    execute(const SetWindowVisibleCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError> execute(VerifyDonBotCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError> execute(SelectDonBotGuildCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
@@ -185,6 +187,13 @@ NexusOptionsController::State::save_settings(config::Settings settings) {
 std::expected<void, NexusOptionsError>
 NexusOptionsController::State::execute(SaveOrdinaryOptionsCommand& command) {
     auto settings = apply_ordinary_options(configuration.snapshot().settings, command.options);
+    return save_settings(std::move(settings));
+}
+
+std::expected<void, NexusOptionsError>
+NexusOptionsController::State::execute(const SetWindowVisibleCommand& command) {
+    auto settings = configuration.snapshot().settings;
+    settings.general.window_visible = command.visible;
     return save_settings(std::move(settings));
 }
 

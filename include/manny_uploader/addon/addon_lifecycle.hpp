@@ -25,6 +25,7 @@ enum class RenderCallbackKind : std::uint8_t {
 };
 
 using RenderCallback = void (*)();
+using InputBindCallback = void (*)(const char* identifier, bool is_release);
 
 struct AddonPaths {
     std::filesystem::path game_directory;
@@ -50,6 +51,11 @@ class IAddonHost {
     [[nodiscard]] virtual std::expected<void, AddonHostError>
     register_render(RenderCallbackKind kind, RenderCallback callback) = 0;
     virtual void deregister_render(RenderCallback callback) noexcept = 0;
+    [[nodiscard]] virtual std::expected<void, AddonHostError>
+    register_input_bind(InputBindCallback callback) = 0;
+    virtual void deregister_input_bind() noexcept = 0;
+    [[nodiscard]] virtual std::expected<void, AddonHostError> register_quick_access_shortcut() = 0;
+    virtual void deregister_quick_access_shortcut() noexcept = 0;
     virtual void log(AddonLogLevel level, std::string_view message) noexcept = 0;
 };
 
@@ -69,6 +75,7 @@ class IAddonRuntime {
 
     virtual void render_main() = 0;
     virtual void render_options() = 0;
+    virtual void toggle_window() = 0;
     virtual void shutdown() noexcept = 0;
 };
 
@@ -83,6 +90,7 @@ class IAddonRuntimeFactory {
 struct AddonCallbacks {
     RenderCallback main;
     RenderCallback options;
+    InputBindCallback input_bind;
 };
 
 enum class AddonLifecycleState : std::uint8_t {
@@ -119,14 +127,21 @@ class AddonLifecycle {
 
     void render_main() noexcept;
     void render_options() noexcept;
+    void process_input_bind(bool is_release) noexcept;
 
     [[nodiscard]] AddonLifecycleState state() const noexcept;
     [[nodiscard]] std::size_t active_callback_count() const noexcept;
 
   private:
-    void render(RenderCallbackKind kind) noexcept;
+    enum class RuntimeCallbackKind : std::uint8_t {
+        MainRender,
+        OptionsRender,
+        ToggleWindow,
+    };
+
+    void invoke(RuntimeCallbackKind kind) noexcept;
     void finish_callback() noexcept;
-    void rollback_load(bool main_registered, bool options_registered) noexcept;
+    void rollback_load() noexcept;
 
     mutable std::mutex mutex_;
     std::condition_variable callbacks_drained_;
@@ -137,6 +152,8 @@ class AddonLifecycle {
     std::size_t active_callbacks_{};
     bool main_registered_{};
     bool options_registered_{};
+    bool input_bind_registered_{};
+    bool quick_access_registered_{};
 };
 
 } // namespace manny_uploader::addon

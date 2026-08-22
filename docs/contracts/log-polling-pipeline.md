@@ -39,6 +39,13 @@ tree and avoids traversal cycles.
 The candidate limit is checked before a snapshot becomes visible. Exceeding it returns
 `ResourceLimit` and preserves the last successfully reconciled state.
 
+The application owner may replace the root, recursion option, and candidate limit in place. The
+replacement is fully validated before mutation; failure preserves the old configuration and retained
+snapshot. Success clears the retained snapshot and asks `ApplicationPump` to clear pending stability
+observations, because old-root removals and new-root observations must not be reconciled together.
+The pump deliberately preserves exact-identity deduplication, active metadata requests, and upload
+jobs.
+
 ## Missing directories, incomplete scans, and removals
 
 The source retains only paths from the latest authoritative snapshot:
@@ -71,6 +78,10 @@ failed job, so the file remains accepted and deduplicated.
 
 The tick report contains counts, root/scan status, and source issues. Hard candidate-source,
 discovery, ingestion, and shutdown failures remain typed.
+
+The owner may also replace the stability threshold while the pump is live. A valid replacement clears
+pending stability observations without clearing dedupe. A threshold below two is rejected without
+changing either the current threshold or pending state.
 
 ## Shutdown
 

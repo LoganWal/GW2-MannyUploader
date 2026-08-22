@@ -346,8 +346,8 @@ void drop_reason_tests(TestSuite& suite) {
 
 void recovery_tests(TestSuite& suite) {
     FakeTwitchClient client;
-    client.outcomes.emplace_back(std::unexpected(
-        client_error(providers::TwitchDisposition::Reconnect, "reconnect", std::nullopt, 401)));
+    client.outcomes.emplace_back(std::unexpected(client_error(
+        providers::TwitchDisposition::Reconnect, "reconnect", std::nullopt, std::uint16_t{401})));
     client.outcomes.emplace_back(sent("after-refresh"));
     FakeSessionAccess sessions;
     sessions.acquire_outcomes.emplace_back(FakeSessionAccess::make_session("old", 9));
@@ -364,10 +364,10 @@ void recovery_tests(TestSuite& suite) {
     MANNY_CHECK(suite, client.access_tokens == std::vector<std::string>({"old", "new"}));
 
     FakeTwitchClient twice_client;
-    twice_client.outcomes.emplace_back(std::unexpected(
-        client_error(providers::TwitchDisposition::Reconnect, "first", std::nullopt, 401)));
-    twice_client.outcomes.emplace_back(std::unexpected(
-        client_error(providers::TwitchDisposition::Reconnect, "second", std::nullopt, 401)));
+    twice_client.outcomes.emplace_back(std::unexpected(client_error(
+        providers::TwitchDisposition::Reconnect, "first", std::nullopt, std::uint16_t{401})));
+    twice_client.outcomes.emplace_back(std::unexpected(client_error(
+        providers::TwitchDisposition::Reconnect, "second", std::nullopt, std::uint16_t{401})));
     FakeSessionAccess twice_sessions;
     auto twice = providers::TwitchProviderWorker::create(twice_client, twice_sessions, config());
     MANNY_CHECK(suite, twice.has_value());
@@ -378,8 +378,8 @@ void recovery_tests(TestSuite& suite) {
     MANNY_CHECK(suite, twice_client.messages.size() == 2);
 
     FakeTwitchClient recovery_failure_client;
-    recovery_failure_client.outcomes.emplace_back(std::unexpected(
-        client_error(providers::TwitchDisposition::Reconnect, "reconnect", std::nullopt, 401)));
+    recovery_failure_client.outcomes.emplace_back(std::unexpected(client_error(
+        providers::TwitchDisposition::Reconnect, "reconnect", std::nullopt, std::uint16_t{401})));
     FakeSessionAccess recovery_failure_sessions;
     recovery_failure_sessions.recover_outcomes.emplace_back(
         std::unexpected(ports::TwitchDeliverySessionError{
@@ -406,7 +406,7 @@ void retry_and_ambiguity_tests(TestSuite& suite) {
         {.http_error = ports::HttpErrorCode::NameResolutionFailed, .status = std::nullopt},
         {.http_error = ports::HttpErrorCode::ConnectionFailed, .status = std::nullopt},
         {.http_error = ports::HttpErrorCode::TlsFailed, .status = std::nullopt},
-        {.http_error = std::nullopt, .status = 429},
+        {.http_error = std::nullopt, .status = std::uint16_t{429}},
     };
     for (std::size_t index = 0; index < std::size(safe_cases); ++index) {
         FakeTwitchClient client;
@@ -433,8 +433,10 @@ void retry_and_ambiguity_tests(TestSuite& suite) {
                      ports::HttpErrorCode::SendFailed),
         client_error(providers::TwitchDisposition::Retry, "receive failed",
                      ports::HttpErrorCode::ReceiveFailed),
-        client_error(providers::TwitchDisposition::Retry, "server failed", std::nullopt, 500),
-        client_error(providers::TwitchDisposition::Failed, "bad success", std::nullopt, 200),
+        client_error(providers::TwitchDisposition::Retry, "server failed", std::nullopt,
+                     std::uint16_t{500}),
+        client_error(providers::TwitchDisposition::Failed, "bad success", std::nullopt,
+                     std::uint16_t{200}),
     };
     for (std::size_t index = 0; index < std::size(ambiguous_cases); ++index) {
         FakeTwitchClient client;

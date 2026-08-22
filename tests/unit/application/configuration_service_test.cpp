@@ -196,7 +196,7 @@ void creation_tests(TestSuite& suite) {
 
 void unavailable_storage_tests(TestSuite& suite) {
     const auto unsupported = secret_error(ports::SecretStoreErrorCode::UnsupportedEnvironment,
-                                          "Secure persistence is unavailable under Wine", 50);
+                                          "Secure persistence is unavailable under Wine", 50U);
     auto service = ConfigurationService::create_without_secret_storage(
         std::make_unique<RecordingSettingsStore>(), unsupported);
     MANNY_CHECK(suite, service.has_value());
@@ -211,7 +211,7 @@ void unavailable_storage_tests(TestSuite& suite) {
                            ports::SecretStoreErrorCode::UnsupportedEnvironment);
     MANNY_CHECK(suite, snapshot.persistent_secret_storage.diagnostic ==
                            "Secure persistence is unavailable under Wine");
-    MANNY_CHECK(suite, snapshot.persistent_secret_storage.system_error == 50);
+    MANNY_CHECK(suite, snapshot.persistent_secret_storage.system_error == std::uint32_t{50});
 
     const auto marker = support::SecretValue::from_text("must-not-enter-unavailable-error");
     const auto loaded = service->load_secret(SecretId::DpsReportUserToken);
@@ -338,7 +338,7 @@ void secret_routing_tests(TestSuite& suite) {
                 store_failed.error().secret_error == ports::SecretStoreErrorCode::ProtectionFailed);
     MANNY_CHECK(suite,
                 erase_failed.error().secret_error == ports::SecretStoreErrorCode::DeleteFailed);
-    MANNY_CHECK(suite, store_failed.error().system_error == 5);
+    MANNY_CHECK(suite, store_failed.error().system_error == std::uint32_t{5});
     MANNY_CHECK(suite, store_failed.error().message.find(marker) == std::string::npos);
 }
 

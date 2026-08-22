@@ -250,7 +250,7 @@ void upload_success_tests(TestSuite& suite, const domain::LogFileIdentity& file,
             client.upload(file, providers::donbot_default_api_base, "123456789012345678", key);
 
         MANNY_CHECK(suite, uploaded.has_value());
-        MANNY_CHECK(suite, uploaded && uploaded->upload_id == 42);
+        MANNY_CHECK(suite, uploaded && uploaded->upload_id == std::uint64_t{42});
         MANNY_CHECK(suite, http.requests().size() == 2);
         if (http.requests().size() != 2) {
             continue;
@@ -377,7 +377,7 @@ void protocol_response_tests(TestSuite& suite, const domain::LogFileIdentity& fi
     const auto rejected = forbidden_client.verify(providers::donbot_default_api_base, key);
     MANNY_CHECK(suite, !rejected.has_value());
     MANNY_CHECK(suite, rejected.error().disposition == providers::DonBotDisposition::Failed);
-    MANNY_CHECK(suite, rejected.error().http_status == 403);
+    MANNY_CHECK(suite, rejected.error().http_status == std::uint16_t{403});
 
     SequencedHttpClient unavailable;
     unavailable.push(response(502));

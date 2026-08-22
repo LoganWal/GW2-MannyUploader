@@ -9,8 +9,8 @@
 #include <expected>
 #include <mutex>
 #include <optional>
-#include <stop_token>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -259,8 +259,8 @@ void drop_retry_and_ambiguity_tests(TestSuite& suite) {
 
 void recovery_and_session_tests(TestSuite& suite) {
     FakeTwitchClient client;
-    client.outcomes.emplace_back(std::unexpected(
-        client_error(providers::TwitchDisposition::Reconnect, "expired", std::nullopt, 401)));
+    client.outcomes.emplace_back(std::unexpected(client_error(
+        providers::TwitchDisposition::Reconnect, "expired", std::nullopt, std::uint16_t{401})));
     client.outcomes.emplace_back(sent("after-recovery"));
     FakeSessionAccess sessions;
     sessions.acquire_outcomes.emplace_back(FakeSessionAccess::make_session("old", 9));
@@ -276,10 +276,10 @@ void recovery_and_session_tests(TestSuite& suite) {
     MANNY_CHECK(suite, client.access_tokens == std::vector<std::string>({"old", "new"}));
 
     FakeTwitchClient twice_client;
-    twice_client.outcomes.emplace_back(std::unexpected(
-        client_error(providers::TwitchDisposition::Reconnect, "first", std::nullopt, 401)));
-    twice_client.outcomes.emplace_back(std::unexpected(
-        client_error(providers::TwitchDisposition::Reconnect, "second", std::nullopt, 401)));
+    twice_client.outcomes.emplace_back(std::unexpected(client_error(
+        providers::TwitchDisposition::Reconnect, "first", std::nullopt, std::uint16_t{401})));
+    twice_client.outcomes.emplace_back(std::unexpected(client_error(
+        providers::TwitchDisposition::Reconnect, "second", std::nullopt, std::uint16_t{401})));
     FakeSessionAccess twice_sessions;
     auto twice = providers::TwitchTestMessageWorker::create(twice_client, twice_sessions);
     MANNY_CHECK(suite, twice.has_value());

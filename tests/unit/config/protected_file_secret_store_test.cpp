@@ -1,5 +1,6 @@
 #include "manny_uploader/config/protected_file_secret_store.hpp"
 #include "manny_uploader/support/atomic_file.hpp"
+#include "support/environment.hpp"
 #include "support/test_suite.hpp"
 
 #include <algorithm>
@@ -47,7 +48,7 @@ class XorSecretProtector final : public config::ISecretProtector {
             return std::unexpected(config::SecretProtectionError{
                 .code = config::SecretProtectionErrorCode::ProtectionFailed,
                 .message = "Test protector rejected the credential",
-                .system_error = 1234,
+                .system_error = std::uint32_t{1234},
             });
         }
         if (state_->oversized_output) {
@@ -71,7 +72,7 @@ class XorSecretProtector final : public config::ISecretProtector {
             return std::unexpected(config::SecretProtectionError{
                 .code = config::SecretProtectionErrorCode::UnprotectionFailed,
                 .message = "Test protector could not decrypt the credential",
-                .system_error = 5678,
+                .system_error = std::uint32_t{5678},
             });
         }
         if (ciphertext.empty() || ciphertext.front() != std::byte{0x5a}) {
@@ -284,7 +285,7 @@ void validation_and_failure_tests(TestSuite& suite) {
     const auto protect_failure = fixture.store.store(SecretId::DpsReportUserToken, valid);
     MANNY_CHECK(suite, !protect_failure.has_value());
     MANNY_CHECK(suite, protect_failure.error().code == SecretStoreErrorCode::ProtectionFailed);
-    MANNY_CHECK(suite, protect_failure.error().system_error == 1234);
+    MANNY_CHECK(suite, protect_failure.error().system_error == std::uint32_t{1234});
     MANNY_CHECK(suite, !message_contains(protect_failure.error(), "do-not-leak-this-marker"));
 
     fixture.protector_state->fail_protect = false;
@@ -293,7 +294,7 @@ void validation_and_failure_tests(TestSuite& suite) {
     const auto unprotect_failure = fixture.store.load(SecretId::DpsReportUserToken);
     MANNY_CHECK(suite, !unprotect_failure.has_value());
     MANNY_CHECK(suite, unprotect_failure.error().code == SecretStoreErrorCode::UnprotectionFailed);
-    MANNY_CHECK(suite, unprotect_failure.error().system_error == 5678);
+    MANNY_CHECK(suite, unprotect_failure.error().system_error == std::uint32_t{5678});
     MANNY_CHECK(suite, !message_contains(unprotect_failure.error(), "do-not-leak-this-marker"));
 
     fixture.protector_state->fail_unprotect = false;
@@ -376,9 +377,8 @@ void invalid_directory_test(TestSuite& suite) {
 }
 
 void dpapi_platform_test(TestSuite& suite) {
-    const auto* require_native_value = std::getenv("MANNY_REQUIRE_NATIVE_DPAPI");
-    const bool require_native =
-        require_native_value != nullptr && std::string_view{require_native_value} == "1";
+    const auto require_native_value = environment::value("MANNY_REQUIRE_NATIVE_DPAPI");
+    const bool require_native = require_native_value == "1";
     auto protector = config::make_dpapi_secret_protector();
 #ifdef _WIN32
     if (!protector) {

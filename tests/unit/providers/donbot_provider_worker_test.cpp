@@ -253,7 +253,7 @@ void creation_and_outcome_tests(TestSuite& suite) {
     MANNY_CHECK(suite, dormant.has_value());
     MANNY_CHECK(suite, !(*dormant)->enqueue(request(10)).has_value());
 
-    client.push(providers::DonBotUploadSuccess{.upload_id = 91});
+    client.push(providers::DonBotUploadSuccess{.upload_id = std::uint64_t{91}});
     client.push(
         std::unexpected(upload_error(providers::DonBotDisposition::Retry, "retry detail", 12s)));
     client.push(

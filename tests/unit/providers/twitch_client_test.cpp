@@ -464,7 +464,7 @@ void classification_and_cancellation_tests(TestSuite& suite) {
         MANNY_CHECK(suite, !result.has_value());
         MANNY_CHECK(suite, result.error().disposition == providers::TwitchDisposition::Retry);
         MANNY_CHECK(suite, result.error().retry_after == 12s);
-        MANNY_CHECK(suite, result.error().http_status == 429);
+        MANNY_CHECK(suite, result.error().http_status == std::uint16_t{429});
     }
     {
         SequencedHttpClient http;

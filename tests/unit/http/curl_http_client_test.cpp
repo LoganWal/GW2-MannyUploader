@@ -1,5 +1,6 @@
 #include "manny_uploader/http/curl_http_client.hpp"
 
+#include "support/environment.hpp"
 #include "support/test_suite.hpp"
 
 #include <atomic>
@@ -482,8 +483,7 @@ void body_contract_and_cancellation_tests(TestSuite& suite) {
 }
 
 void optional_live_tls_probe(TestSuite& suite) {
-    const auto* enabled = std::getenv("MANNY_HTTP_LIVE_PROBE");
-    if (enabled == nullptr || std::string_view{enabled} != "1") {
+    if (environment::value("MANNY_HTTP_LIVE_PROBE") != "1") {
         return;
     }
 
@@ -495,7 +495,7 @@ void optional_live_tls_probe(TestSuite& suite) {
     auto result = (*client)->execute(request_for("https://example.com/"));
     MANNY_CHECK(suite, result.has_value());
     if (result) {
-        MANNY_CHECK(suite, result->status_code == 200);
+        MANNY_CHECK(suite, result->status_code == std::uint16_t{200});
     }
 }
 

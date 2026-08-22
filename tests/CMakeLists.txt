@@ -70,6 +70,19 @@ set_tests_properties(
     PROPERTIES LABELS "deterministic;packaging"
 )
 
+add_test(
+    NAME windows_symbols_verification_contract
+    COMMAND
+        "${CMAKE_COMMAND}"
+        "-DMANNY_VERIFY_SCRIPT=${PROJECT_SOURCE_DIR}/cmake/VerifyWindowsSymbols.cmake"
+        "-DMANNY_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/windows-symbols-verification-contract"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_symbols_verification_test.cmake"
+)
+set_tests_properties(
+    windows_symbols_verification_contract
+    PROPERTIES LABELS "deterministic;packaging;symbols"
+)
+
 if(WIN32)
     add_executable(manny_nexus_addon_smoke_test integration/nexus_addon_smoke_test.cpp)
     target_link_libraries(manny_nexus_addon_smoke_test PRIVATE manny_nexus_api manny_imgui)

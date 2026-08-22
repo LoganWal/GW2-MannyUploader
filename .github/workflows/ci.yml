@@ -16,6 +16,21 @@ permissions:
   contents: read
 
 jobs:
+  source-format:
+    name: Source formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Check C and C++ formatting
+        run: >-
+          cmake
+          -DMANNY_SOURCE_DIRECTORY=.
+          -DMANNY_CLANG_FORMAT_EXECUTABLE=clang-format-18
+          -P cmake/CheckSourceFormatting.cmake
+
   build-and-test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -43,7 +58,7 @@ jobs:
 
   windows-release-package:
     name: Windows x64 release package
-    needs: build-and-test
+    needs: [source-format, build-and-test]
     runs-on: windows-latest
 
     steps:
@@ -91,6 +106,13 @@ jobs:
           & "out/build/windows-release/tests/Release/manny_nexus_addon_smoke_test.exe"
           "out/build/windows-release/package-verified/manny_uploader.dll"
 
+      - name: Verify release symbols
+        run: >-
+          cmake
+          -DMANNY_SYMBOL_FILE=out/build/windows-release/symbols/Release/manny_uploader.pdb
+          -DMANNY_SYMBOL_CHECKSUM_FILE=out/build/windows-release/symbols/Release/manny_uploader.pdb.sha256
+          -P cmake/VerifyWindowsSymbols.cmake
+
       - name: Upload verified package
         uses: actions/upload-artifact@v7
         with:
@@ -101,3 +123,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Upload verified debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: GW2-Manny-Uploader-windows-x64-symbols
+          path: |
+            out/build/windows-release/symbols/Release/manny_uploader.pdb
+            out/build/windows-release/symbols/Release/manny_uploader.pdb.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6

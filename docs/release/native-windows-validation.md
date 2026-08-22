@@ -18,7 +18,12 @@ redirect refusal, cancellation, and error redaction.
 
 The job then creates the versioned CPack ZIP and checksum, verifies and extracts the archive, and
 runs the ten-cycle Nexus smoke host against the packaged DLL. A passing build-tree DLL is not a
-substitute for this packaged-copy check.
+substitute for this packaged-copy check. The optimized build also emits a full linker PDB outside the
+install tree. CI verifies its Microsoft Program Database signature, plausible size, fixed name, and
+SHA-256 sidecar before uploading it as a separate artifact.
+
+An independent Ubuntu job checks every project-owned C and C++ source with the repository's pinned
+format policy. Fetched dependencies and generated build files are outside that source set.
 
 ## Opt-in Schannel probe
 
@@ -38,8 +43,11 @@ Before installing the candidate in Guild Wars 2:
 - [ ] Download the verified CPack ZIP and its `.sha256` sidecar from the same workflow run.
 - [ ] Confirm the sidecar matches the downloaded ZIP.
 - [ ] Confirm the ZIP contains only `manny_uploader.dll` at its root.
+- [ ] Confirm the separately uploaded symbols artifact contains only `manny_uploader.pdb` and its
+      matching `.sha256` sidecar; do not install either file into the Nexus addons directory.
 - [ ] Confirm the build used the registered public Twitch client ID when Twitch is in release scope.
-- [ ] Keep the exact workflow URL, commit, version, ZIP, checksum, and test output together.
+- [ ] Keep the exact workflow URL, commit, version, ZIP, package checksum, PDB checksum, and test
+      output together.
 
 ## In-game Nexus matrix
 

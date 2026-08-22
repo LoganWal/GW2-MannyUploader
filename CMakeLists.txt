@@ -187,6 +187,26 @@ if(MINGW)
     target_link_options(manny_uploader PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
+if(MSVC)
+    # Keep private release symbols out of the install ZIP while retaining a separately publishable
+    # linker PDB. /DEBUG changes the linker's optimization defaults, so preserve REF/ICF explicitly.
+    target_compile_options(manny_uploader_core PRIVATE "$<$<CONFIG:Release>:/Z7>")
+    target_compile_options(manny_uploader PRIVATE "$<$<CONFIG:Release>:/Z7>")
+    target_link_options(
+        manny_uploader
+        PRIVATE
+            "$<$<CONFIG:Release>:/DEBUG:FULL>"
+            "$<$<CONFIG:Release>:/OPT:REF>"
+            "$<$<CONFIG:Release>:/OPT:ICF>"
+    )
+    set_target_properties(
+        manny_uploader
+        PROPERTIES
+            PDB_NAME "manny_uploader"
+            PDB_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/symbols/$<CONFIG>"
+    )
+endif()
+
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()

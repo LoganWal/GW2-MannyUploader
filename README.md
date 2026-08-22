@@ -147,6 +147,12 @@ cmake --build --preset release
 ctest --preset release
 ```
 
+Check every tracked project C/C++ source with the repository formatting policy:
+
+```sh
+cmake -DMANNY_SOURCE_DIRECTORY=. -P cmake/CheckSourceFormatting.cmake
+```
+
 The Windows plugin artifact is written beneath the selected build directory's `bin` directory as
 `manny_uploader.dll`. Development-only non-Windows builds retain a bootstrap module so the portable
 core remains easy to compile and test without Windows or Nexus.
@@ -157,6 +163,9 @@ accompanied by a SHA-256 sidecar. CI builds and tests Release with MSVC, validat
 checksum, size, and PE signature, extracts it, then runs the real ten-cycle Nexus smoke host against
 the packaged DLL before uploading both files. The public `MANNY_TWITCH_CLIENT_ID` repository variable
 is injected when configured; Twitch remains visibly disabled in artifacts built before registration.
+MSVC Release builds also emit a full linker PDB with `/Z7` source information while preserving
+`/OPT:REF` and `/OPT:ICF`. CI validates and checksums that PDB and publishes it in a separate symbols
+artifact; it is deliberately excluded from the install ZIP.
 The automated native gate, opt-in Schannel probe, evidence requirements, and in-game checklist are in
 [`docs/release/native-windows-validation.md`](docs/release/native-windows-validation.md).
 

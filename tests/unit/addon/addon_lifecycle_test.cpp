@@ -1,6 +1,7 @@
 #include "manny_uploader/addon/addon_lifecycle.hpp"
 #include "support/test_suite.hpp"
 
+#include <atomic>
 #include <condition_variable>
 #include <expected>
 #include <filesystem>
@@ -32,8 +33,16 @@ using addon::InputBindCallback;
 using addon::RenderCallback;
 using addon::RenderCallbackKind;
 
-void main_callback() {}
-void options_callback() {}
+// Distinct observable behavior prevents Release link-time folding from merging these callbacks.
+std::atomic<unsigned int> render_callback_marker{};
+
+void main_callback() {
+    render_callback_marker.fetch_add(1U, std::memory_order_relaxed);
+}
+
+void options_callback() {
+    render_callback_marker.fetch_add(2U, std::memory_order_relaxed);
+}
 void input_bind_callback(const char*, bool) {}
 
 struct RuntimeState {
@@ -214,10 +223,17 @@ void successful_lifecycle_tests(TestSuite& suite) {
     FakeRuntimeFactory factory;
     AddonLifecycle lifecycle;
 
-    const auto loaded = lifecycle.load(host, factory, callbacks());
+    const auto lifecycle_callbacks = callbacks();
+    MANNY_CHECK(suite, lifecycle_callbacks.main != lifecycle_callbacks.options);
+
+    const auto loaded = lifecycle.load(host, factory, lifecycle_callbacks);
     MANNY_CHECK(suite, loaded.has_value());
     MANNY_CHECK(suite, lifecycle.state() == AddonLifecycleState::Running);
     MANNY_CHECK(suite, host.registrations.size() == 2);
+    if (!loaded.has_value() || host.registrations.size() < 2) {
+        lifecycle.unload();
+        return;
+    }
     MANNY_CHECK(suite, host.registrations[0].first == RenderCallbackKind::Main);
     MANNY_CHECK(suite, host.registrations[1].first == RenderCallbackKind::Options);
     MANNY_CHECK(suite, host.registered_input_bind == input_bind_callback);

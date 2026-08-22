@@ -48,6 +48,10 @@ set_target_properties(manny_uploader_tests PROPERTIES CXX_EXTENSIONS OFF)
 manny_apply_compiler_warnings(manny_uploader_tests)
 
 if(WIN32)
+    target_sources(
+        manny_uploader_tests
+        PRIVATE integration/windows_directory_change_monitor_test.cpp
+    )
     target_link_libraries(manny_uploader_tests PRIVATE ws2_32)
 endif()
 

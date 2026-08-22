@@ -49,6 +49,9 @@ void run_application_pump_tests(TestSuite& suite);
 void run_log_discovery_tests(TestSuite& suite);
 void run_polling_log_candidate_source_tests(TestSuite& suite);
 void run_change_notifying_log_candidate_source_tests(TestSuite& suite);
+#if defined(_WIN32)
+void run_windows_directory_change_monitor_tests(TestSuite& suite);
+#endif
 void run_http_client_tests(TestSuite& suite);
 void run_http_body_source_tests(TestSuite& suite);
 void run_curl_http_client_tests(TestSuite& suite);

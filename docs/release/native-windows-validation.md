@@ -16,6 +16,10 @@ round trip, ciphertext/plaintext separation, and tamper rejection. The same suit
 production libcurl adapter through deterministic loopback requests, including streaming, limits,
 redirect refusal, cancellation, and error redaction.
 
+The Windows suite also exercises the production directory-change monitor against a real temporary
+directory. It verifies initial arming, idle polling, create and append notifications, missing-root
+recovery, live reconfiguration, and cancellation with a bounded wait for operating-system delivery.
+
 The job then creates the versioned CPack ZIP and checksum, verifies and extracts the archive, and
 runs the ten-cycle Nexus smoke host against the packaged DLL. A passing build-tree DLL is not a
 substitute for this packaged-copy check. The optimized build also emits a full linker PDB outside the

@@ -106,6 +106,13 @@ jobs:
           & "out/build/windows-release/tests/Release/manny_nexus_addon_smoke_test.exe"
           "out/build/windows-release/package-verified/manny_uploader.dll"
 
+      - name: Stage release symbols
+        run: >-
+          cmake
+          -DMANNY_SYMBOL_SEARCH_DIRECTORY=out/build/windows-release
+          -DMANNY_SYMBOL_FILE=out/build/windows-release/symbols/Release/manny_uploader.pdb
+          -P cmake/StageWindowsSymbols.cmake
+
       - name: Verify release symbols
         run: >-
           cmake

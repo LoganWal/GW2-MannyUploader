@@ -144,8 +144,10 @@ endif()
 set_target_properties(manny_uploader_core PROPERTIES CXX_EXTENSIONS OFF)
 manny_apply_compiler_warnings(manny_uploader_core)
 
-add_library(manny_uploader MODULE)
 if(WIN32)
+    # CMake defines linker-PDB output properties for SHARED libraries, while Nexus still loads the
+    # resulting DLL dynamically as a plugin. Non-Windows development builds remain MODULE targets.
+    add_library(manny_uploader SHARED)
     target_sources(
         manny_uploader
         PRIVATE
@@ -155,6 +157,7 @@ if(WIN32)
             src/addon/quick_access_icon.hpp
     )
 else()
+    add_library(manny_uploader MODULE)
     target_sources(manny_uploader PRIVATE src/addon.cpp)
 endif()
 target_link_libraries(manny_uploader PRIVATE manny_uploader_core)
@@ -190,11 +193,6 @@ endif()
 if(MSVC)
     # Keep private release symbols out of the install ZIP while retaining a separately publishable
     # linker PDB. /DEBUG changes the linker's optimization defaults, so preserve REF/ICF explicitly.
-    # The addon is a MODULE target, for which CMake does not define the PDB_* target properties, so
-    # direct the MSVC linker to the artifact path explicitly.
-    set(manny_release_symbol_directory "${CMAKE_BINARY_DIR}/symbols/Release")
-    set(manny_release_symbol_file "${manny_release_symbol_directory}/manny_uploader.pdb")
-    file(MAKE_DIRECTORY "${manny_release_symbol_directory}")
     target_compile_options(manny_uploader_core PRIVATE "$<$<CONFIG:Release>:/Z7>")
     target_compile_options(manny_uploader PRIVATE "$<$<CONFIG:Release>:/Z7>")
     target_link_options(
@@ -203,7 +201,12 @@ if(MSVC)
             "$<$<CONFIG:Release>:/DEBUG:FULL>"
             "$<$<CONFIG:Release>:/OPT:REF>"
             "$<$<CONFIG:Release>:/OPT:ICF>"
-            "$<$<CONFIG:Release>:/PDB:${manny_release_symbol_file}>"
+    )
+    set_target_properties(
+        manny_uploader
+        PROPERTIES
+            PDB_NAME_RELEASE "manny_uploader"
+            PDB_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/symbols/Release"
     )
 endif()
 

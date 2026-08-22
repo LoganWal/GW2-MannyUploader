@@ -19,8 +19,9 @@ redirect refusal, cancellation, and error redaction.
 The job then creates the versioned CPack ZIP and checksum, verifies and extracts the archive, and
 runs the ten-cycle Nexus smoke host against the packaged DLL. A passing build-tree DLL is not a
 substitute for this packaged-copy check. The optimized build also emits a full linker PDB outside the
-install tree. CI verifies its Microsoft Program Database signature, plausible size, fixed name, and
-SHA-256 sidecar before uploading it as a separate artifact.
+install tree. CI rejects missing or ambiguous linker-PDB output, stages exactly one candidate at the
+canonical artifact path, then verifies its Microsoft Program Database signature, plausible size,
+fixed name, and SHA-256 sidecar before uploading it as a separate artifact.
 
 An independent Ubuntu job checks every project-owned C and C++ source with the repository's pinned
 format policy. Fetched dependencies and generated build files are outside that source set.

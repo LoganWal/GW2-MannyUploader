@@ -164,8 +164,9 @@ checksum, size, and PE signature, extracts it, then runs the real ten-cycle Nexu
 the packaged DLL before uploading both files. The public `MANNY_TWITCH_CLIENT_ID` repository variable
 is injected when configured; Twitch remains visibly disabled in artifacts built before registration.
 MSVC Release builds also emit a full linker PDB with `/Z7` source information while preserving
-`/OPT:REF` and `/OPT:ICF`. CI validates and checksums that PDB and publishes it in a separate symbols
-artifact; it is deliberately excluded from the install ZIP.
+`/OPT:REF` and `/OPT:ICF`. CI requires exactly one linker PDB in the build tree, stages it at the
+canonical artifact path, validates and checksums it, and publishes it in a separate symbols artifact;
+it is deliberately excluded from the install ZIP.
 The automated native gate, opt-in Schannel probe, evidence requirements, and in-game checklist are in
 [`docs/release/native-windows-validation.md`](docs/release/native-windows-validation.md).
 

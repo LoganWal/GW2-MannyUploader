@@ -83,6 +83,19 @@ set_tests_properties(
     PROPERTIES LABELS "deterministic;packaging;symbols"
 )
 
+add_test(
+    NAME windows_symbols_staging_contract
+    COMMAND
+        "${CMAKE_COMMAND}"
+        "-DMANNY_STAGE_SCRIPT=${PROJECT_SOURCE_DIR}/cmake/StageWindowsSymbols.cmake"
+        "-DMANNY_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/windows-symbols-staging-contract"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_symbols_staging_test.cmake"
+)
+set_tests_properties(
+    windows_symbols_staging_contract
+    PROPERTIES LABELS "deterministic;packaging;symbols"
+)
+
 if(WIN32)
     add_executable(manny_nexus_addon_smoke_test integration/nexus_addon_smoke_test.cpp)
     target_link_libraries(manny_nexus_addon_smoke_test PRIVATE manny_nexus_api manny_imgui)

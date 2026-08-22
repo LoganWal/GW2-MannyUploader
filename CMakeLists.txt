@@ -190,6 +190,11 @@ endif()
 if(MSVC)
     # Keep private release symbols out of the install ZIP while retaining a separately publishable
     # linker PDB. /DEBUG changes the linker's optimization defaults, so preserve REF/ICF explicitly.
+    # The addon is a MODULE target, for which CMake does not define the PDB_* target properties, so
+    # direct the MSVC linker to the artifact path explicitly.
+    set(manny_release_symbol_directory "${CMAKE_BINARY_DIR}/symbols/Release")
+    set(manny_release_symbol_file "${manny_release_symbol_directory}/manny_uploader.pdb")
+    file(MAKE_DIRECTORY "${manny_release_symbol_directory}")
     target_compile_options(manny_uploader_core PRIVATE "$<$<CONFIG:Release>:/Z7>")
     target_compile_options(manny_uploader PRIVATE "$<$<CONFIG:Release>:/Z7>")
     target_link_options(
@@ -198,12 +203,7 @@ if(MSVC)
             "$<$<CONFIG:Release>:/DEBUG:FULL>"
             "$<$<CONFIG:Release>:/OPT:REF>"
             "$<$<CONFIG:Release>:/OPT:ICF>"
-    )
-    set_target_properties(
-        manny_uploader
-        PROPERTIES
-            PDB_NAME "manny_uploader"
-            PDB_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/symbols/$<CONFIG>"
+            "$<$<CONFIG:Release>:/PDB:${manny_release_symbol_file}>"
     )
 endif()
 

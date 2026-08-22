@@ -216,6 +216,7 @@ struct RuntimeComponents {
 };
 
 struct ProviderCell {
+    domain::ProviderState state{domain::ProviderState::Disabled};
     std::string status;
     std::string detail;
     bool retry_available{};
@@ -239,6 +240,7 @@ struct RuntimeSnapshot {
     application::NexusOptionsSnapshot options_snapshot;
     application::RecentLogActionsSnapshot recent_log_actions;
     ui::NexusOptionsModel options_model;
+    domain::ProviderSelection enabled_providers;
     std::vector<RecentLogRow> recent_logs;
     std::string dps_report_clipboard_text;
     std::string donbot_aggregate_url;
@@ -666,6 +668,7 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
     }
     for (std::size_t index = 0; index < row.providers.size(); ++index) {
         row.providers[index] = ProviderCell{
+            .state = job.providers[index].state,
             .status = provider_state_text(job.providers[index].state),
             .detail = job.providers[index].detail,
             .retry_available = job.providers[index].state == domain::ProviderState::Failed &&
@@ -685,6 +688,8 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
         .options_snapshot = options_snapshot,
         .recent_log_actions = components.recent_log_actions->snapshot(),
         .options_model = ui::build_nexus_options_model(options_snapshot),
+        .enabled_providers =
+            config::enabled_provider_selection(options_snapshot.configuration.settings),
         .recent_logs = {},
         .dps_report_clipboard_text = {},
         .donbot_aggregate_url = {},
@@ -789,6 +794,20 @@ class ProductionRuntime final : public IAddonRuntime {
                         snapshot.options_model.ordinary.general.log_directory.c_str());
             ImGui::SameLine();
             ImGui::TextUnformatted(snapshot.log_root_available ? "(available)" : "(not found yet)");
+            ImGui::Text(
+                "Destinations: dps.report %s | GW2Wingman %s | DonBot %s | Twitch %s",
+                snapshot.enabled_providers[domain::provider_index(domain::Provider::DpsReport)]
+                    ? "On"
+                    : "Off",
+                snapshot.enabled_providers[domain::provider_index(domain::Provider::Wingman)]
+                    ? "On"
+                    : "Off",
+                snapshot.enabled_providers[domain::provider_index(domain::Provider::DonBot)]
+                    ? "On"
+                    : "Off",
+                snapshot.enabled_providers[domain::provider_index(domain::Provider::Twitch)]
+                    ? "On"
+                    : "Off");
             ImGui::Separator();
 
             if (!snapshot.dps_report_clipboard_text.empty() &&
@@ -829,12 +848,24 @@ class ProductionRuntime final : public IAddonRuntime {
                     ImGui::TableSetColumnIndex(1);
                     ImGui::TextUnformatted(row.encounter.c_str());
                     for (std::size_t index = 0; index < row.providers.size(); ++index) {
+                        const auto& cell = row.providers[index];
+                        const bool enabled_after_detection =
+                            cell.state == domain::ProviderState::Disabled &&
+                            snapshot.enabled_providers[index];
                         ImGui::TableSetColumnIndex(static_cast<int>(index + 2));
-                        ImGui::TextUnformatted(row.providers[index].status.c_str());
-                        if (!row.providers[index].detail.empty() && ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("%s", row.providers[index].detail.c_str());
+                        ImGui::TextUnformatted(enabled_after_detection ? "On - not sent"
+                                                                       : cell.status.c_str());
+                        if (enabled_after_detection && ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip(
+                                index == domain::provider_index(domain::Provider::Twitch)
+                                    ? "Enabled now. This older log is not sent automatically; use "
+                                      "Rechat to send it."
+                                    : "Enabled now. This older log is not uploaded automatically; "
+                                      "use Reupload to send it.");
+                        } else if (!cell.detail.empty() && ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("%s", cell.detail.c_str());
                         }
-                        if (row.providers[index].retry_available) {
+                        if (cell.retry_available) {
                             ImGui::PushID(static_cast<int>(index));
                             if (ImGui::SmallButton("Retry")) {
                                 submit_action(application::RetryFailedProviderCommand{
@@ -1118,6 +1149,16 @@ class ProductionRuntime final : public IAddonRuntime {
         ImGui::InputText(
             "Application client ID", twitch_client_id_.data(), twitch_client_id_.size(),
             client_id_editable ? ImGuiInputTextFlags_None : ImGuiInputTextFlags_ReadOnly);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Open dev.twitch.tv/console/apps and register an application.\n"
+                "Use a unique name, add http://localhost:3000 as the redirect URL if required, "
+                "choose a suitable category, and select Public as the client type.\n"
+                "After creation, open Manage and copy its Client ID into this field.\n"
+                "Do not create or paste a Client Secret; MannyUploader does not use one.");
+        }
         ImGui::TextWrapped("Status: %s", snapshot.options_model.twitch.status_text.c_str());
         if (!snapshot.options_model.twitch.diagnostic.empty()) {
             ImGui::TextWrapped("%s", snapshot.options_model.twitch.diagnostic.c_str());

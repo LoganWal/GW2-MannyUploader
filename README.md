@@ -113,8 +113,12 @@ processing IDs are retained so the main window can compose its aggregate URL.
 Twitch uses a public Device Code application and an available protected store. It never asks for or
 stores a client secret.
 
-1. Create or select an application in the [Twitch developer console](https://dev.twitch.tv/console/apps).
-2. Paste its public application Client ID into MannyUploader and save ordinary settings.
+1. Open the [Twitch developer console](https://dev.twitch.tv/console/apps), choose `Register Your
+   Application`, use a unique name, add `http://localhost:3000` as the redirect URL if required,
+   choose a suitable category, and select the public client type.
+2. Open `Manage` for the application, copy its public Client ID into MannyUploader, and save ordinary
+   settings. Do not create or paste a Client Secret; MannyUploader does not use one. The `(?)` beside
+   the field contains the same setup reminder in-game.
 3. Select `Connect Twitch`.
 4. Open the displayed verification address and enter the displayed Device Code.
 5. Authorize using the broadcaster account whose chat should receive links.

@@ -27,6 +27,10 @@ constexpr std::uintmax_t maximum_history_bytes = 32U * 1024U * 1024U;
 constexpr std::size_t maximum_path_bytes = 4096;
 constexpr std::size_t maximum_detail_bytes = 4096;
 
+} // namespace
+
+namespace upload_history_detail {
+
 struct EncodedProviderStatus {
     std::uint8_t state{};
     std::uint32_t attempts{};
@@ -72,6 +76,18 @@ struct EncodedHistory {
     std::uint32_t schema_version{history_schema_version};
     std::vector<EncodedUploadJob> logs;
 };
+
+} // namespace upload_history_detail
+
+namespace {
+
+using upload_history_detail::EncodedDonBotReceipt;
+using upload_history_detail::EncodedDpsReport;
+using upload_history_detail::EncodedHistory;
+using upload_history_detail::EncodedMetadata;
+using upload_history_detail::EncodedProviderStatus;
+using upload_history_detail::EncodedTwitchReceipt;
+using upload_history_detail::EncodedUploadJob;
 
 struct ReadOptions : glz::opts {
     bool validate_trailing_whitespace{true};

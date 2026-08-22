@@ -237,12 +237,15 @@ ports::UploadResult DonBotProviderWorker::process(const ports::UploadRequest& re
         }
     }
 
-    return make_result(request.job_id, ports::UploadOutcome::Succeeded,
-                       uploaded->fight_log_id ? "Uploaded and processed by DonBot (fight " +
-                                                    std::to_string(*uploaded->fight_log_id) + ")"
-                       : uploaded->upload_id  ? "Uploaded to DonBot (upload " +
-                                                    std::to_string(*uploaded->upload_id) + ")"
-                                              : "Uploaded to DonBot",
+    auto detail = std::string{"Uploaded to DonBot"};
+    if (uploaded->fight_log_id) {
+        detail = "Uploaded and processed by DonBot (fight " +
+                 std::to_string(*uploaded->fight_log_id) + ")";
+    } else if (uploaded->upload_id) {
+        detail = "Uploaded to DonBot (upload " + std::to_string(*uploaded->upload_id) + ")";
+    }
+
+    return make_result(request.job_id, ports::UploadOutcome::Succeeded, std::move(detail),
                        std::nullopt,
                        domain::DonBotUploadReceipt{
                            .upload_id = uploaded->upload_id,

@@ -18,6 +18,7 @@ int main() {
     manny_uploader::test::run_upload_coordinator_tests(suite);
     manny_uploader::test::run_log_discovery_tests(suite);
     manny_uploader::test::run_polling_log_candidate_source_tests(suite);
+    manny_uploader::test::run_change_notifying_log_candidate_source_tests(suite);
     manny_uploader::test::run_http_client_tests(suite);
     manny_uploader::test::run_http_body_source_tests(suite);
     manny_uploader::test::run_curl_http_client_tests(suite);

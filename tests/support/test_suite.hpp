@@ -48,6 +48,7 @@ void run_twitch_session_owner_tests(TestSuite& suite);
 void run_application_pump_tests(TestSuite& suite);
 void run_log_discovery_tests(TestSuite& suite);
 void run_polling_log_candidate_source_tests(TestSuite& suite);
+void run_change_notifying_log_candidate_source_tests(TestSuite& suite);
 void run_http_client_tests(TestSuite& suite);
 void run_http_body_source_tests(TestSuite& suite);
 void run_curl_http_client_tests(TestSuite& suite);

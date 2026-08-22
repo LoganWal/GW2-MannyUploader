@@ -66,13 +66,15 @@ owner drains settings, DonBot, and broadcaster-owned Twitch actions outside rend
 delivery state and control enablement are part of the same composite snapshot. A pure UI model
 supplies tested status labels and control enablement without depending on ImGui.
 
-A portable polling source now handles missing or newly created log directories, recursive Unicode
-paths, bounded candidate scans, and authoritative removals. A bounded application pump connects those
-observations to stability, deduplication, parser-result drainage, and upload-job creation. Saved
-general options are applied live on the application-owner thread: poll source, stability threshold,
-parser queue, and recent-history bounds change without replacing the worker graph or interrupting
-active parses/uploads. Source or stability changes discard only pending observations; accepted-log
-deduplication remains intact.
+A portable polling source handles missing or newly created log directories, recursive Unicode paths,
+bounded candidate scans, and authoritative removals. Native Windows composition now fronts it with a
+nonblocking directory-change handle, reuses complete observations while unchanged, and falls back to
+ordinary polling after bounded consecutive notification failures. Neither source owns a thread. A
+bounded application pump connects those observations to stability, deduplication, parser-result
+drainage, and upload-job creation. Saved general options are applied live on the application-owner
+thread: source, stability threshold, parser queue, and recent-history bounds change without replacing
+the worker graph or interrupting active parses/uploads. Source or stability changes discard only
+pending observations; accepted-log deduplication remains intact.
 
 The Windows DLL now exports the official Nexus API-v6 `GetAddonDef`, installs Nexus's ImGui 1.80
 context and allocators, and composes the complete application behind one background owner thread.

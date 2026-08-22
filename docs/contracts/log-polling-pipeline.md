@@ -1,8 +1,8 @@
-# Log polling and application-pump contract
+# Log candidate sources and application-pump contract
 
-This contract defines the first filesystem candidate source and the single-owner application tick
-that connects it to stability, deduplication, metadata parsing, and upload-job creation. Polling is the
-portable baseline and future fallback for native Windows directory notifications.
+This contract defines the filesystem candidate sources and the single-owner application tick that
+connects them to stability, deduplication, metadata parsing, and upload-job creation. Polling is the
+portable baseline and the authoritative scan behind native Windows directory notifications.
 
 ## Scheduling and ownership
 
@@ -61,6 +61,26 @@ The source retains only paths from the latest authoritative snapshot:
 An entry whose path is known but whose size or timestamp cannot be read is included in `seen_paths`
 but not in `observations`.
 
+## Native Windows notification front end
+
+Native Windows composition wraps the polling source with a nonblocking directory-change monitor. It
+uses `FindFirstChangeNotificationW`, a zero-timeout `WaitForSingleObject`, and
+`FindNextChangeNotification`; it owns one RAII handle and creates no thread. File-name,
+directory-name, size, creation, and last-write changes are observed, with the configured recursive
+policy passed to Windows.
+
+The first poll and every changed or unavailable notification run the standard polling source as the
+authoritative scan. An unchanged notification returns the last complete root-available observations
+so the stability policy can advance without traversing the tree again. Cached batches never replay
+removals or issues. Missing and incomplete roots are never cached, so polling continues until the root
+appears or a complete scan succeeds.
+
+Notification failures do not fail log ingestion when the authoritative poll succeeds. They produce a
+bounded diagnostic and use polling for that cycle. Three consecutive notification failures disable
+the monitor and retain ordinary polling for the rest of that configuration. A successful settings
+reconfiguration atomically replaces the polling source, clears its notification cache, and attempts
+to enable the monitor for the new root again. Invalid settings preserve the complete prior source.
+
 ## Application tick
 
 An application tick receives the currently enabled provider selection and performs bounded work:
@@ -86,9 +106,7 @@ changing either the current threshold or pending state.
 ## Shutdown
 
 `ApplicationPump::cancel_all()` is idempotent. It stops later ticks and delegates cancellation to
-`LogIngestionCoordinator`, which stops the parser and providers. The synchronous polling source owns
-no thread; an in-progress scan observes the caller's stop token between entries.
-
-Future native watcher events must implement the same `ILogCandidateSource` batch semantics. Repeated
-native failures may switch composition to this polling source without changing discovery or job
-coordination.
+`LogIngestionCoordinator`, which stops the parser and providers. Neither candidate source owns a
+thread. An in-progress scan observes the caller's stop token between entries, and the native monitor
+checks it before querying its handle. Destruction closes the native handle; repeated native failures
+switch to polling without changing discovery or job coordination.

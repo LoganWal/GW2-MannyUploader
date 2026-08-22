@@ -50,6 +50,7 @@ target_sources(
         src/evtc/metadata_decoder.cpp
         src/evtc/metadata_parser_worker.cpp
         src/evtc/zevtc_archive.cpp
+        src/filesystem/change_notifying_log_candidate_source.cpp
         src/filesystem/log_discovery.cpp
         src/filesystem/polling_log_candidate_source.cpp
         src/http/body_sources.cpp
@@ -100,6 +101,7 @@ target_sources(
             include/manny_uploader/evtc/metadata_decoder.hpp
             include/manny_uploader/evtc/metadata_parser_worker.hpp
             include/manny_uploader/evtc/zevtc_archive.hpp
+            include/manny_uploader/filesystem/change_notifying_log_candidate_source.hpp
             include/manny_uploader/filesystem/log_discovery.hpp
             include/manny_uploader/filesystem/polling_log_candidate_source.hpp
             include/manny_uploader/http/body_sources.hpp
@@ -139,6 +141,10 @@ target_sources(
 target_compile_features(manny_uploader_core PUBLIC cxx_std_23)
 target_link_libraries(manny_uploader_core PRIVATE glaze::glaze manny_miniz)
 if(WIN32)
+    target_sources(
+        manny_uploader_core
+        PRIVATE src/filesystem/windows_directory_change_monitor.cpp
+    )
     target_compile_definitions(manny_uploader_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 set_target_properties(manny_uploader_core PROPERTIES CXX_EXTENSIONS OFF)

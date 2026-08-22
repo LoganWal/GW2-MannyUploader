@@ -160,14 +160,17 @@ paths, handling missing files, and selecting native-notification or polling mech
 responsibilities. Repeated notifications after a stable emission are safe: stability may emit again,
 but the deduplicator suppresses the unchanged identity.
 
-The first concrete candidate source is a synchronous standard-filesystem poller. It is scheduled on
-the application owner thread, never from a render callback. Missing roots are a normal state so an
-arcdps directory created after startup is discovered later. Complete snapshots emit removals;
-incomplete traversal or metadata reads retain prior paths and emit diagnostics without manufacturing
-removals. Symlinks are not followed, candidate counts are bounded, and a stop token is checked during
-enumeration. Its root, recursion policy, and candidate bound may be replaced atomically by that same
-owner. A successful replacement clears only source-retained and pending stability observations; the
-accepted-log dedupe history is preserved.
+The authoritative candidate source is a synchronous standard-filesystem poller. Native Windows
+composition fronts it with a nonblocking change-notification handle and reuses complete cached
+observations while the directory is unchanged. Changed, unavailable, and initial states run the
+authoritative scan; repeated native failures fall back permanently to polling until configuration is
+replaced. Both paths are scheduled on the application owner thread, never from a render callback, and
+neither owns a thread. Missing roots are a normal state so an arcdps directory created after startup
+is discovered later. Complete snapshots emit removals; incomplete traversal or metadata reads retain
+prior paths and emit diagnostics without manufacturing removals. Symlinks are not followed, candidate
+counts are bounded, and a stop token is checked during enumeration. The root, recursion policy, and
+candidate bound may be replaced atomically by that same owner. A successful replacement clears only
+source-retained and pending stability observations; the accepted-log dedupe history is preserved.
 
 `ApplicationPump` owns the discovery pipeline and performs bounded ticks. It drains completed
 metadata results first, then polls, forgets confirmed removals, observes candidates, and submits newly

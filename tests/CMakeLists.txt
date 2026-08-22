@@ -23,6 +23,7 @@ add_executable(
     unit/evtc/zevtc_archive_test.cpp
     unit/filesystem/log_discovery_test.cpp
     unit/filesystem/polling_log_candidate_source_test.cpp
+    unit/filesystem/change_notifying_log_candidate_source_test.cpp
     unit/http/body_sources_test.cpp
     unit/http/curl_http_client_test.cpp
     unit/ports/http_client_test.cpp

@@ -14,7 +14,7 @@
 #include "manny_uploader/config/settings_store.hpp"
 #include "manny_uploader/evtc/metadata_parser_worker.hpp"
 #include "manny_uploader/evtc/zevtc_archive.hpp"
-#include "manny_uploader/filesystem/polling_log_candidate_source.hpp"
+#include "manny_uploader/filesystem/change_notifying_log_candidate_source.hpp"
 #include "manny_uploader/http/curl_http_client.hpp"
 #include "manny_uploader/ports/clock.hpp"
 #include "manny_uploader/ports/external_action_launcher.hpp"
@@ -211,7 +211,7 @@ struct RuntimeComponents {
 
     std::unique_ptr<evtc::ZevtcMetadataReader> metadata_reader;
     std::unique_ptr<evtc::MetadataParserWorker> metadata_worker;
-    std::unique_ptr<filesystem::StandardPollingLogCandidateSource> candidate_source;
+    std::unique_ptr<filesystem::ChangeNotifyingLogCandidateSource> candidate_source;
     std::unique_ptr<application::UploadCoordinator> upload_coordinator;
     std::unique_ptr<WindowsExternalActionLauncher> external_action_launcher;
     std::unique_ptr<application::RecentLogActionsController> recent_log_actions;
@@ -452,13 +452,14 @@ create_components(const AddonPaths& paths) {
         }
         result->metadata_worker = std::move(*metadata_worker);
 
-        auto candidate_source = filesystem::StandardPollingLogCandidateSource::create(
+        auto candidate_source = filesystem::ChangeNotifyingLogCandidateSource::create(
             std::filesystem::path{initial_settings.general.log_directory},
-            initial_settings.general.watch_subdirectories, initial_settings.general.max_candidates);
+            initial_settings.general.watch_subdirectories, initial_settings.general.max_candidates,
+            filesystem::make_windows_directory_change_monitor());
         if (!candidate_source) {
-            return std::unexpected(runtime_error("Unable to initialize log-directory polling"));
+            return std::unexpected(runtime_error("Unable to initialize log-directory monitoring"));
         }
-        result->candidate_source = std::make_unique<filesystem::StandardPollingLogCandidateSource>(
+        result->candidate_source = std::make_unique<filesystem::ChangeNotifyingLogCandidateSource>(
             std::move(*candidate_source));
 
         std::array<ports::IUploadProvider*, domain::provider_count> provider_ports{

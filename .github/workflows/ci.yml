@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Configure
         run: >-
@@ -34,3 +34,52 @@ jobs:
       - name: Test
         run: ctest --test-dir out/build/ci -C Debug --output-on-failure
 
+  windows-release-package:
+    name: Windows x64 release package
+    needs: build-and-test
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Configure release
+        env:
+          MANNY_CI_TWITCH_CLIENT_ID: ${{ vars.MANNY_TWITCH_CLIENT_ID }}
+        run: >-
+          cmake -S . -B out/build/windows-release -A x64
+          -DBUILD_TESTING=ON
+          -DMANNY_WARNINGS_AS_ERRORS=ON
+          "-DMANNY_TWITCH_CLIENT_ID=$env:MANNY_CI_TWITCH_CLIENT_ID"
+
+      - name: Build release
+        run: cmake --build out/build/windows-release --config Release --parallel
+
+      - name: Test release
+        run: ctest --test-dir out/build/windows-release -C Release --output-on-failure
+
+      - name: Create release package
+        run: cpack --config out/build/windows-release/CPackConfig.cmake -C Release
+
+      - name: Verify release package
+        run: >-
+          cmake
+          -DMANNY_PACKAGE_OUTPUT_DIRECTORY=out/build/windows-release/package
+          -DMANNY_PACKAGE_EXTRACT_DIRECTORY=out/build/windows-release/package-verified
+          -P cmake/VerifyWindowsPackage.cmake
+
+      - name: Smoke-test packaged DLL
+        run: >-
+          & "out/build/windows-release/tests/Release/manny_nexus_addon_smoke_test.exe"
+          "out/build/windows-release/package-verified/manny_uploader.dll"
+
+      - name: Upload verified package
+        uses: actions/upload-artifact@v7
+        with:
+          name: GW2-Manny-Uploader-windows-x64
+          path: |
+            out/build/windows-release/package/*.zip
+            out/build/windows-release/package/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

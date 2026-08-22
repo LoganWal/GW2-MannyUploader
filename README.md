@@ -151,6 +151,13 @@ The Windows plugin artifact is written beneath the selected build directory's `b
 `manny_uploader.dll`. Development-only non-Windows builds retain a bootstrap module so the portable
 core remains easy to compile and test without Windows or Nexus.
 
+Windows builds also expose a CPack ZIP target. The archive is versioned as
+`GW2-Manny-Uploader-<version>-windows-x64.zip`, contains only `manny_uploader.dll` at its root, and is
+accompanied by a SHA-256 sidecar. CI builds and tests Release with MSVC, validates the archive shape,
+checksum, size, and PE signature, extracts it, then runs the real ten-cycle Nexus smoke host against
+the packaged DLL before uploading both files. The public `MANNY_TWITCH_CLIENT_ID` repository variable
+is injected when configured; Twitch remains visibly disabled in artifacts built before registration.
+
 ## Repository layout
 
 ```text

@@ -56,6 +56,15 @@ endif()
 
 add_test(NAME unit_tests COMMAND manny_uploader_tests)
 
+add_test(
+    NAME windows_package_verification_contract
+    COMMAND
+        "${CMAKE_COMMAND}"
+        "-DMANNY_VERIFY_SCRIPT=${PROJECT_SOURCE_DIR}/cmake/VerifyWindowsPackage.cmake"
+        "-DMANNY_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/windows-package-verification-contract"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_package_verification_test.cmake"
+)
+
 if(WIN32)
     add_executable(manny_nexus_addon_smoke_test integration/nexus_addon_smoke_test.cpp)
     target_link_libraries(manny_nexus_addon_smoke_test PRIVATE manny_nexus_api manny_imgui)

@@ -55,6 +55,7 @@ if(MINGW)
 endif()
 
 add_test(NAME unit_tests COMMAND manny_uploader_tests)
+set_tests_properties(unit_tests PROPERTIES LABELS deterministic)
 
 add_test(
     NAME windows_package_verification_contract
@@ -63,6 +64,10 @@ add_test(
         "-DMANNY_VERIFY_SCRIPT=${PROJECT_SOURCE_DIR}/cmake/VerifyWindowsPackage.cmake"
         "-DMANNY_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/windows-package-verification-contract"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_package_verification_test.cmake"
+)
+set_tests_properties(
+    windows_package_verification_contract
+    PROPERTIES LABELS "deterministic;packaging"
 )
 
 if(WIN32)
@@ -82,4 +87,5 @@ if(WIN32)
         NAME nexus_addon_smoke_test
         COMMAND manny_nexus_addon_smoke_test "$<TARGET_FILE:manny_uploader>"
     )
+    set_tests_properties(nexus_addon_smoke_test PROPERTIES LABELS "nexus;windows")
 endif()

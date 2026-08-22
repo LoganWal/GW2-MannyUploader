@@ -1,0 +1,82 @@
+# Native Windows release validation
+
+- Status: Required before a public release
+- Date: 2026-08-22
+- Scope: MSVC, DPAPI, Schannel, packaged Nexus DLL, and in-game behavior
+
+## Automated native gate
+
+The `Windows x64 release package` CI job is the authoritative native build. It must pass on an
+ordinary Microsoft-hosted Windows runner, not Wine, and must use the x64 Release configuration with
+warnings treated as errors.
+
+The job sets `MANNY_REQUIRE_NATIVE_DPAPI=1`. This turns the portable test's normal Wine-compatible
+`UnsupportedEnvironment` result into a failure and therefore requires a real user-scoped DPAPI store
+round trip, ciphertext/plaintext separation, and tamper rejection. The same suite exercises the
+production libcurl adapter through deterministic loopback requests, including streaming, limits,
+redirect refusal, cancellation, and error redaction.
+
+The job then creates the versioned CPack ZIP and checksum, verifies and extracts the archive, and
+runs the ten-cycle Nexus smoke host against the packaged DLL. A passing build-tree DLL is not a
+substitute for this packaged-copy check.
+
+## Opt-in Schannel probe
+
+Ordinary pushes and pull requests never depend on a public network service. To verify the host trust
+store and production Schannel path, manually run the `CI` workflow from the repository's Actions tab
+with `run_live_https_probe` enabled. The probe performs one credential-free GET to the fixed
+`https://example.com/` target through the production HTTPS-only policy and requires status `200`.
+
+The probe is evidence for the selected Windows runner only. Record the workflow URL and Windows image
+version in the release notes; do not generalize one successful probe into a guarantee for every user
+environment.
+
+## Packaged-artifact checks
+
+Before installing the candidate in Guild Wars 2:
+
+- [ ] Download the verified CPack ZIP and its `.sha256` sidecar from the same workflow run.
+- [ ] Confirm the sidecar matches the downloaded ZIP.
+- [ ] Confirm the ZIP contains only `manny_uploader.dll` at its root.
+- [ ] Confirm the build used the registered public Twitch client ID when Twitch is in release scope.
+- [ ] Keep the exact workflow URL, commit, version, ZIP, checksum, and test output together.
+
+## In-game Nexus matrix
+
+Run this matrix on a supported native Windows installation with the release candidate installed:
+
+- [ ] Nexus loads the addon without a companion runtime DLL or loader warning.
+- [ ] The main window opens from quick access and the configured keybind, and both survive rebinding.
+- [ ] Main and options windows render, close, and reopen without blocking the game thread.
+- [ ] A missing log directory reports a waiting state and is discovered after creation.
+- [ ] Changing directory, recursion, polling, stability, parser capacity, and history options applies
+      live without duplicating an accepted log or cancelling active work.
+- [ ] A real `.zevtc` uploads independently to dps.report, direct GW2Wingman, and DonBot.
+- [ ] Enabling direct Wingman and DonBot together produces no duplicate Wingman submission from
+      DonBot (`wingman=false` remains in effect).
+- [ ] DonBot key verification, authorized-guild selection, restart recovery, disable, and disconnect
+      behave as shown in options.
+- [ ] Twitch Device Code connection targets only the authenticated broadcaster's own chat.
+- [ ] Twitch test delivery, successful-encounter posting, and failed-encounter posting obey their
+      independent options and contain the expected dps.report permalink.
+- [ ] Restart preserves native-Windows credentials while ordinary JSON contains no credentials.
+- [ ] Disconnect erases the relevant protected credential and leaves unrelated providers usable.
+- [ ] Offline, timeout, `429`, permanent rejection, and ambiguous Twitch delivery present actionable
+      states without unsafe automatic duplicate posting.
+- [ ] Unloading or exiting during parsing, upload, authentication, and retry joins work promptly; ten
+      manual unload/reload cycles leave no registered callback, keybind, shortcut, or locked DLL.
+- [ ] Unicode paths and account/encounter/message text render and upload correctly.
+
+Do not record keys, tokens, Device Codes, protected files, or raw provider responses in the evidence.
+Any failed row is a release blocker unless it is explicitly removed from the supported version-1
+scope and the product documentation is updated first.
+
+## External release gates
+
+Automation cannot complete these decisions:
+
+- register and inject the production public Twitch application ID;
+- reserve or confirm the Nexus addon signature; and
+- choose a new Nexus listing or an intentional successor identity.
+
+Record those outcomes before calling the artifact a release candidate.

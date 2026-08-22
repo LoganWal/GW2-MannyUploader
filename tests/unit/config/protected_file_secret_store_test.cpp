@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -375,9 +376,13 @@ void invalid_directory_test(TestSuite& suite) {
 }
 
 void dpapi_platform_test(TestSuite& suite) {
+    const auto* require_native_value = std::getenv("MANNY_REQUIRE_NATIVE_DPAPI");
+    const bool require_native =
+        require_native_value != nullptr && std::string_view{require_native_value} == "1";
     auto protector = config::make_dpapi_secret_protector();
 #ifdef _WIN32
     if (!protector) {
+        MANNY_CHECK(suite, !require_native);
         MANNY_CHECK(suite, protector.error().code ==
                                config::SecretProtectionErrorCode::UnsupportedEnvironment);
         MANNY_CHECK(suite, !protector.error().system_error.has_value());
@@ -405,6 +410,7 @@ void dpapi_platform_test(TestSuite& suite) {
     MANNY_CHECK(suite, tampered.error().code == SecretStoreErrorCode::UnprotectionFailed ||
                            tampered.error().code == SecretStoreErrorCode::CorruptRecord);
 #else
+    MANNY_CHECK(suite, !require_native);
     MANNY_CHECK(suite, !protector.has_value());
     MANNY_CHECK(suite, protector.error().code ==
                            config::SecretProtectionErrorCode::UnsupportedEnvironment);

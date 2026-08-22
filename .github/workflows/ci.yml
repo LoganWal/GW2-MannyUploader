@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_live_https_probe:
+        description: Run the public Schannel HTTPS probe
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -55,8 +62,19 @@ jobs:
       - name: Build release
         run: cmake --build out/build/windows-release --config Release --parallel
 
-      - name: Test release
+      - name: Test native Windows release
+        env:
+          MANNY_REQUIRE_NATIVE_DPAPI: "1"
         run: ctest --test-dir out/build/windows-release -C Release --output-on-failure
+
+      - name: Run opt-in Schannel HTTPS probe
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_https_probe }}
+        env:
+          MANNY_HTTP_LIVE_PROBE: "1"
+          MANNY_REQUIRE_NATIVE_DPAPI: "1"
+        run: >-
+          ctest --test-dir out/build/windows-release -C Release
+          --output-on-failure -R "^unit_tests$"
 
       - name: Create release package
         run: cpack --config out/build/windows-release/CPackConfig.cmake -C Release

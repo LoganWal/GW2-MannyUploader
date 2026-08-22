@@ -157,6 +157,8 @@ accompanied by a SHA-256 sidecar. CI builds and tests Release with MSVC, validat
 checksum, size, and PE signature, extracts it, then runs the real ten-cycle Nexus smoke host against
 the packaged DLL before uploading both files. The public `MANNY_TWITCH_CLIENT_ID` repository variable
 is injected when configured; Twitch remains visibly disabled in artifacts built before registration.
+The automated native gate, opt-in Schannel probe, evidence requirements, and in-game checklist are in
+[`docs/release/native-windows-validation.md`](docs/release/native-windows-validation.md).
 
 ## Repository layout
 
@@ -164,6 +166,7 @@ is injected when configured; Twitch remains visibly disabled in artifacts built 
 cmake/                       CMake helpers
 docs/architecture/           Architecture and decision records
 docs/contracts/              Independently written provider contracts
+docs/release/                Release validation and manual test matrices
 include/manny_uploader/      Public core headers
 src/                         Plugin and core implementation
 tests/                       Unit and smoke tests

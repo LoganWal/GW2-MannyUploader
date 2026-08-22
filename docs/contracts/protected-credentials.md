@@ -99,5 +99,6 @@ substring derived from it occurs in errors or persisted plaintext.
 Required deterministic cases include create validation, all stable IDs, missing load, atomic replace,
 idempotent erase, empty/oversized input, protected-record size cap, corrupt envelope, wrong-ID record,
 protector failure, failed replacement preserving the old record, and stale temporary cleanup. Native
-Windows CI additionally exercises a real DPAPI-backed store round trip and tamper rejection. A Wine
+Windows CI additionally sets `MANNY_REQUIRE_NATIVE_DPAPI=1`, so unavailable DPAPI is a hard failure,
+then exercises a real DPAPI-backed store round trip and tamper rejection. A Wine
 probe requires `UnsupportedEnvironment` and confirms that no record is written.

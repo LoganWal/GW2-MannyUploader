@@ -290,8 +290,9 @@ credential, result, and shutdown behavior is frozen in
 
 `WingmanClient` streams the same stable `.zevtc` identity with its POV account, decimal archive size,
 and boss/species trigger ID to the existing raw-EVTC compatibility bridge. It strictly validates
-inputs and the bridge's small JSON response, treats `409` as duplicate success, and classifies bounded
-retries without exposing paths, accounts, URLs, or server text.
+inputs and the bridge's small JSON response, treats `409` as duplicate success, follows an accepted
+processing ticket, and discovers the exact public fight permalink. It classifies bounded retries
+without exposing paths, accounts, URLs, or server text.
 
 The current public GW2Wingman API documents only Elite Insights processed upload or import of an
 already processed external link; it does not expose a raw-EVTC endpoint. Bundling Elite Insights and
@@ -452,11 +453,13 @@ boundary, queue policy, and shutdown responsibilities are frozen in
 
 Main-table buttons use a separate `RecentLogActionsController`. ImGui submits only a stable job ID and
 typed action into a bounded FIFO. The application owner resolves that ID against the coordinator's
-current immutable history before it opens a report, opens the derived containing folder, or requests
+current immutable history before it opens a provider fight page, opens the derived containing folder,
+or requests
 a failed-provider retry, explicit three-destination reupload, or explicit Twitch rechat. The render
 callback therefore never accepts a raw external target and never performs shell or provider work.
 
-The controller admits only exact, bounded `https://dps.report/` links and non-empty directories.
+The controller admits only exact, bounded dps.report and GW2Wingman links, locally constructs DonBot
+fight links from numeric receipts, and admits only non-empty directories.
 `IExternalActionLauncher` keeps Win32 outside the application layer; the production adapter invokes
 `ShellExecuteW` directly without a shell command line. Manual retries are distinguished in the value
 request sent to a provider. This lets an explicit Twitch retry bypass a prior ambiguous-delivery

@@ -13,6 +13,8 @@ namespace {
 constexpr std::size_t maximum_command_capacity = 256;
 constexpr std::size_t maximum_report_url_length = 2048;
 constexpr std::string_view dps_report_prefix = "https://dps.report/";
+constexpr std::string_view wingman_report_prefix = "https://gw2wingman.nevermindcreations.de/log/";
+constexpr std::string_view donbot_report_prefix = "https://donbot.walmslo.com/logs/";
 
 [[nodiscard]] RecentLogActionError make_error(RecentLogActionErrorCode code, std::string message) {
     return RecentLogActionError{
@@ -35,8 +37,8 @@ constexpr std::string_view dps_report_prefix = "https://dps.report/";
     return mapped;
 }
 
-[[nodiscard]] bool trusted_dps_report_url(std::string_view url) noexcept {
-    if (!url.starts_with(dps_report_prefix) || url.size() <= dps_report_prefix.size() ||
+[[nodiscard]] bool trusted_report_url(std::string_view url, std::string_view prefix) noexcept {
+    if (!url.starts_with(prefix) || url.size() <= prefix.size() ||
         url.size() > maximum_report_url_length) {
         return false;
     }
@@ -180,9 +182,50 @@ RecentLogActionsController::execute(const RecentLogActionCommand& command) {
                                               "This job does not have a dps.report link"));
         }
         const auto& url = job->dps_report_result->permalink;
-        if (!trusted_dps_report_url(url)) {
+        if (!trusted_report_url(url, dps_report_prefix)) {
             return std::unexpected(make_error(RecentLogActionErrorCode::UnsafeReportUrl,
                                               "The dps.report link is not trusted"));
+        }
+        if (auto opened = launcher_.open_url(url); !opened) {
+            return std::unexpected(from_launcher_error(opened.error()));
+        }
+        return {};
+    }
+    if (const auto* open_report = std::get_if<OpenWingmanReportCommand>(&command)) {
+        auto job = find_snapshot(open_report->job_id);
+        if (!job) {
+            return std::unexpected(make_error(RecentLogActionErrorCode::UnknownJob,
+                                              "The selected upload job is no longer retained"));
+        }
+        if (!job->wingman_upload_receipt) {
+            return std::unexpected(make_error(RecentLogActionErrorCode::ReportUnavailable,
+                                              "This job does not have a GW2Wingman link"));
+        }
+        const auto& url = job->wingman_upload_receipt->permalink;
+        if (!trusted_report_url(url, wingman_report_prefix)) {
+            return std::unexpected(make_error(RecentLogActionErrorCode::UnsafeReportUrl,
+                                              "The GW2Wingman link is not trusted"));
+        }
+        if (auto opened = launcher_.open_url(url); !opened) {
+            return std::unexpected(from_launcher_error(opened.error()));
+        }
+        return {};
+    }
+    if (const auto* open_report = std::get_if<OpenDonBotReportCommand>(&command)) {
+        auto job = find_snapshot(open_report->job_id);
+        if (!job) {
+            return std::unexpected(make_error(RecentLogActionErrorCode::UnknownJob,
+                                              "The selected upload job is no longer retained"));
+        }
+        if (!job->donbot_upload_receipt || !job->donbot_upload_receipt->fight_log_id) {
+            return std::unexpected(make_error(RecentLogActionErrorCode::ReportUnavailable,
+                                              "This job does not have a DonBot fight link"));
+        }
+        const auto url = std::string{donbot_report_prefix} +
+                         std::to_string(*job->donbot_upload_receipt->fight_log_id);
+        if (!trusted_report_url(url, donbot_report_prefix)) {
+            return std::unexpected(make_error(RecentLogActionErrorCode::UnsafeReportUrl,
+                                              "The DonBot link is not trusted"));
         }
         if (auto opened = launcher_.open_url(url); !opened) {
             return std::unexpected(from_launcher_error(opened.error()));

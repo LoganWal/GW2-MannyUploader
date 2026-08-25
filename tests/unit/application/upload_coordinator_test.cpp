@@ -183,6 +183,10 @@ void result_correlation_and_twitch_tests(TestSuite& suite) {
         .detail = "accepted",
         .retry_after = std::nullopt,
         .dps_report_result = std::nullopt,
+        .wingman_upload_receipt =
+            domain::WingmanUploadReceipt{
+                .permalink = "https://gw2wingman.nevermindcreations.de/log/example",
+            },
     });
     MANNY_CHECK(suite, !unknown.has_value());
     MANNY_CHECK(suite, unknown.error().code == CoordinatorErrorCode::UnknownJob);
@@ -194,6 +198,10 @@ void result_correlation_and_twitch_tests(TestSuite& suite) {
         .detail = "accepted",
         .retry_after = std::nullopt,
         .dps_report_result = std::nullopt,
+        .wingman_upload_receipt =
+            domain::WingmanUploadReceipt{
+                .permalink = "https://gw2wingman.nevermindcreations.de/log/example",
+            },
     });
     MANNY_CHECK(suite, wingman.has_value());
     MANNY_CHECK(suite, fixture.twitch.requests.empty());
@@ -221,6 +229,10 @@ void result_correlation_and_twitch_tests(TestSuite& suite) {
     MANNY_CHECK(suite,
                 snapshots.front().providers[domain::provider_index(Provider::Wingman)].state ==
                     ProviderState::Succeeded);
+    MANNY_CHECK(suite, snapshots.front().wingman_upload_receipt.has_value());
+    MANNY_CHECK(suite, snapshots.front().wingman_upload_receipt &&
+                           snapshots.front().wingman_upload_receipt->permalink ==
+                               "https://gw2wingman.nevermindcreations.de/log/example");
     MANNY_CHECK(suite,
                 snapshots.front().providers[domain::provider_index(Provider::Twitch)].state ==
                     ProviderState::Active);
@@ -655,6 +667,10 @@ void manual_retry_tests(TestSuite& suite) {
         .detected_at = std::chrono::system_clock::time_point{std::chrono::seconds{42}},
         .encounter_metadata = metadata(),
         .dps_report_result = dps_result(),
+        .wingman_upload_receipt =
+            domain::WingmanUploadReceipt{
+                .permalink = "https://gw2wingman.nevermindcreations.de/log/restored",
+            },
         .donbot_upload_receipt =
             domain::DonBotUploadReceipt{
                 .upload_id = 81,
@@ -692,6 +708,7 @@ void persistent_restore_and_explicit_delivery_tests(TestSuite& suite) {
     MANNY_CHECK(suite, fixture.donbot.requests.front().user_initiated_retry);
     const auto after_reupload = coordinator.snapshots().front();
     MANNY_CHECK(suite, !after_reupload.dps_report_result.has_value());
+    MANNY_CHECK(suite, !after_reupload.wingman_upload_receipt.has_value());
     MANNY_CHECK(suite, !after_reupload.donbot_upload_receipt.has_value());
     MANNY_CHECK(suite, after_reupload.twitch_delivery_receipt.has_value());
     MANNY_CHECK(suite, !coordinator.reupload(restored_id).has_value());

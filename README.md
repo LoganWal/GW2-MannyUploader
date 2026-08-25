@@ -55,11 +55,13 @@ when none are enabled, uses the normal accent when one or more upload providers 
 Twitch purple whenever Twitch reporting is enabled. If Nexus cannot create the optional textures,
 the addon remains active through its keybind and options entry.
 
-The main window shows recent logs and each provider's state. `Copy dps.report URLs` copies the
-visible report links, while `Copy DonBot aggregate URL` copies one aggregate page for the visible
-DonBot fight IDs. Each row can open its source folder. `Reupload` deliberately submits that log to
-dps.report, GW2Wingman, and DonBot again; `Rechat` deliberately sends its dps.report link to Twitch
-again.
+The main window shows recent logs and each provider's state. Successful encounter cells are green.
+Failed encounter cells are red and include the remaining boss health when the EVTC recorded it.
+Completed rows can open their dps.report, GW2Wingman, and DonBot fight pages. `Copy dps.report URLs`
+copies the visible report links, while `Copy DonBot aggregate URL` copies one aggregate page for the
+visible DonBot fight IDs. Each row can open its source folder. `Reupload` deliberately submits that
+log to dps.report, GW2Wingman, and DonBot again; `Rechat` deliberately sends its dps.report link to
+Twitch again. The status bar identifies the selected DonBot server while DonBot is enabled.
 
 `Show New` is the safe startup default and accepts only logs completed after the addon loaded.
 `Show Today` includes logs completed since local midnight plus new logs that arrive afterward. Upload

@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace manny_uploader::evtc {
 namespace {
@@ -22,13 +23,16 @@ constexpr std::size_t agent_count_offset = header_size;
 constexpr std::size_t agent_table_offset = agent_count_offset + sizeof(std::uint32_t);
 constexpr std::size_t agent_record_size = 96;
 constexpr std::size_t agent_address_offset = 0;
+constexpr std::size_t agent_profession_offset = 8;
 constexpr std::size_t agent_elite_offset = 12;
 constexpr std::size_t agent_name_offset = 28;
 constexpr std::size_t agent_name_size = 64;
 constexpr std::size_t skill_record_size = 68;
 constexpr std::size_t combat_event_size = 64;
 constexpr std::size_t event_source_offset = 8;
+constexpr std::size_t event_destination_offset = 16;
 constexpr std::size_t event_state_change_offset = 56;
+constexpr std::uint8_t health_percentage_state_change = 8;
 constexpr std::uint8_t point_of_view_state_change = 13;
 constexpr std::uint8_t supported_revision = 1;
 constexpr std::uint32_t max_agent_count = 100'000;
@@ -287,6 +291,52 @@ find_point_of_view_account(const ByteReader& reader, const PayloadLayout& layout
                                       "Point-of-view agent is absent from the agent table"));
 }
 
+[[nodiscard]] std::expected<std::optional<std::uint16_t>, ports::MetadataParseError>
+find_remaining_boss_health(const ByteReader& reader, const PayloadLayout& layout,
+                           const std::stop_token& stop_token) {
+    std::vector<std::uint64_t> boss_addresses;
+    for (std::uint32_t index = 0; index < layout.agent_count; ++index) {
+        if (stop_token.stop_requested()) {
+            return std::unexpected(cancelled_error());
+        }
+        const auto agent_offset =
+            agent_table_offset + (static_cast<std::size_t>(index) * agent_record_size);
+        const auto profession =
+            reader.read_little_endian<std::uint32_t>(agent_offset + agent_profession_offset);
+        const auto elite =
+            reader.read_little_endian<std::uint32_t>(agent_offset + agent_elite_offset);
+        const auto address =
+            reader.read_little_endian<std::uint64_t>(agent_offset + agent_address_offset);
+        if (profession && elite && address && *elite == std::numeric_limits<std::uint32_t>::max() &&
+            (*profession >> 16U) != std::numeric_limits<std::uint16_t>::max() &&
+            static_cast<std::uint16_t>(*profession) == layout.boss_id && *address != 0) {
+            boss_addresses.push_back(*address);
+        }
+    }
+
+    std::optional<std::uint16_t> remaining_health;
+    for (std::size_t index = 0; index < layout.event_count; ++index) {
+        if (stop_token.stop_requested()) {
+            return std::unexpected(cancelled_error());
+        }
+        const auto event_offset = layout.event_table_offset + (index * combat_event_size);
+        const auto state_change =
+            reader.read_little_endian<std::uint8_t>(event_offset + event_state_change_offset);
+        if (!state_change || *state_change != health_percentage_state_change) {
+            continue;
+        }
+        const auto source =
+            reader.read_little_endian<std::uint64_t>(event_offset + event_source_offset);
+        const auto percentage =
+            reader.read_little_endian<std::uint64_t>(event_offset + event_destination_offset);
+        if (source && percentage && *percentage <= 10'000 &&
+            std::ranges::find(boss_addresses, *source) != boss_addresses.end()) {
+            remaining_health = static_cast<std::uint16_t>(*percentage);
+        }
+    }
+    return remaining_health;
+}
+
 } // namespace
 
 std::expected<domain::EncounterMetadata, ports::MetadataParseError>
@@ -310,10 +360,15 @@ decode_metadata(std::span<const std::byte> payload, const std::stop_token& stop_
     if (!account) {
         return std::unexpected(account.error());
     }
+    auto remaining_health = find_remaining_boss_health(reader, *layout, stop_token);
+    if (!remaining_health) {
+        return std::unexpected(remaining_health.error());
+    }
 
     return domain::EncounterMetadata{
         .boss_id = layout->boss_id,
         .pov_account = std::move(account.value()),
+        .remaining_health_basis_points = *remaining_health,
     };
 }
 

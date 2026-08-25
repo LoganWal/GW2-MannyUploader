@@ -195,6 +195,33 @@ void metadata_tests(TestSuite& suite) {
     MANNY_CHECK(suite, duplicate.error().code == JobErrorCode::MetadataAlreadySet);
 }
 
+void wingman_receipt_tests(TestSuite& suite) {
+    auto created = UploadJob::create(UploadJobId{13}, example_file(), UploadJob::DetectedAt{},
+                                     providers(false, true, false, false));
+    MANNY_CHECK(suite, created.has_value());
+    auto job = std::move(*created);
+
+    const auto inactive = job.record_wingman_upload(
+        domain::WingmanUploadReceipt{.permalink = "https://example.invalid/inactive"});
+    MANNY_CHECK(suite, !inactive.has_value());
+    MANNY_CHECK(suite, inactive.error().code == JobErrorCode::InvalidTransition);
+    MANNY_CHECK(suite, job.transition(Provider::Wingman, ProviderState::Active).has_value());
+    const auto empty = job.record_wingman_upload(domain::WingmanUploadReceipt{});
+    MANNY_CHECK(suite, !empty.has_value());
+    MANNY_CHECK(suite, empty.error().code == JobErrorCode::InvalidWingmanUpload);
+    MANNY_CHECK(suite, job
+                           .record_wingman_upload(domain::WingmanUploadReceipt{
+                               .permalink = "https://gw2wingman.nevermindcreations.de/log/example",
+                           })
+                           .has_value());
+    MANNY_CHECK(suite, job.wingman_upload_receipt().has_value());
+    const auto duplicate = job.record_wingman_upload(domain::WingmanUploadReceipt{
+        .permalink = "https://gw2wingman.nevermindcreations.de/log/duplicate",
+    });
+    MANNY_CHECK(suite, !duplicate.has_value());
+    MANNY_CHECK(suite, duplicate.error().code == JobErrorCode::WingmanUploadAlreadyRecorded);
+}
+
 void manual_retry_tests(TestSuite& suite) {
     auto created = UploadJob::create(UploadJobId{12}, example_file(), UploadJob::DetectedAt{},
                                      providers(true, false, false, true));
@@ -244,6 +271,7 @@ void run_upload_job_tests(TestSuite& suite) {
     transition_tests(suite);
     dps_report_and_twitch_tests(suite);
     metadata_tests(suite);
+    wingman_receipt_tests(suite);
     manual_retry_tests(suite);
 
     MANNY_CHECK(suite, domain::provider_name(Provider::DpsReport) == "dps.report");

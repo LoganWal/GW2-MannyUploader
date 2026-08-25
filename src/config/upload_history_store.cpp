@@ -40,6 +40,7 @@ struct EncodedProviderStatus {
 struct EncodedMetadata {
     std::uint16_t boss_id{};
     std::string pov_account;
+    std::optional<std::uint16_t> remaining_health_basis_points;
 };
 
 struct EncodedDpsReport {
@@ -48,6 +49,10 @@ struct EncodedDpsReport {
     std::uint16_t boss_id{};
     std::string mode;
     bool success{};
+};
+
+struct EncodedWingmanReceipt {
+    std::string permalink;
 };
 
 struct EncodedDonBotReceipt {
@@ -67,6 +72,7 @@ struct EncodedUploadJob {
     std::int64_t detected_at_milliseconds{};
     std::optional<EncodedMetadata> encounter_metadata;
     std::optional<EncodedDpsReport> dps_report_result;
+    std::optional<EncodedWingmanReceipt> wingman_upload_receipt;
     std::optional<EncodedDonBotReceipt> donbot_upload_receipt;
     std::optional<EncodedTwitchReceipt> twitch_delivery_receipt;
     std::array<EncodedProviderStatus, domain::provider_count> providers;
@@ -88,6 +94,7 @@ using upload_history_detail::EncodedMetadata;
 using upload_history_detail::EncodedProviderStatus;
 using upload_history_detail::EncodedTwitchReceipt;
 using upload_history_detail::EncodedUploadJob;
+using upload_history_detail::EncodedWingmanReceipt;
 
 struct ReadOptions : glz::opts {
     bool validate_trailing_whitespace{true};
@@ -162,12 +169,15 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
             encoded.detected_at_milliseconds}},
         .encounter_metadata = std::nullopt,
         .dps_report_result = std::nullopt,
+        .wingman_upload_receipt = std::nullopt,
         .donbot_upload_receipt = std::nullopt,
         .twitch_delivery_receipt = std::nullopt,
         .providers = {},
     };
     if (encoded.encounter_metadata) {
-        if (!valid_text(encoded.encounter_metadata->pov_account, 256)) {
+        if (!valid_text(encoded.encounter_metadata->pov_account, 256) ||
+            (encoded.encounter_metadata->remaining_health_basis_points &&
+             *encoded.encounter_metadata->remaining_health_basis_points > 10'000)) {
             return std::unexpected(make_error(UploadHistoryStoreErrorCode::ValidationFailed,
                                               "Upload history contains invalid encounter metadata",
                                               store_path));
@@ -175,6 +185,8 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
         record.encounter_metadata = domain::EncounterMetadata{
             .boss_id = encoded.encounter_metadata->boss_id,
             .pov_account = encoded.encounter_metadata->pov_account,
+            .remaining_health_basis_points =
+                encoded.encounter_metadata->remaining_health_basis_points,
         };
     }
     if (encoded.dps_report_result) {
@@ -192,6 +204,17 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
             .boss_id = encoded.dps_report_result->boss_id,
             .mode = encoded.dps_report_result->mode,
             .success = encoded.dps_report_result->success,
+        };
+    }
+    if (encoded.wingman_upload_receipt) {
+        if (encoded.wingman_upload_receipt->permalink.empty() ||
+            !valid_text(encoded.wingman_upload_receipt->permalink, 2048)) {
+            return std::unexpected(make_error(UploadHistoryStoreErrorCode::ValidationFailed,
+                                              "Upload history contains an invalid Wingman receipt",
+                                              store_path));
+        }
+        record.wingman_upload_receipt = domain::WingmanUploadReceipt{
+            .permalink = encoded.wingman_upload_receipt->permalink,
         };
     }
     if (encoded.donbot_upload_receipt) {
@@ -252,6 +275,7 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
                                         .count(),
         .encounter_metadata = std::nullopt,
         .dps_report_result = std::nullopt,
+        .wingman_upload_receipt = std::nullopt,
         .donbot_upload_receipt = std::nullopt,
         .twitch_delivery_receipt = std::nullopt,
         .providers = {},
@@ -260,6 +284,8 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
         encoded.encounter_metadata = EncodedMetadata{
             .boss_id = record.encounter_metadata->boss_id,
             .pov_account = record.encounter_metadata->pov_account,
+            .remaining_health_basis_points =
+                record.encounter_metadata->remaining_health_basis_points,
         };
     }
     if (record.dps_report_result) {
@@ -269,6 +295,11 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
             .boss_id = record.dps_report_result->boss_id,
             .mode = record.dps_report_result->mode,
             .success = record.dps_report_result->success,
+        };
+    }
+    if (record.wingman_upload_receipt) {
+        encoded.wingman_upload_receipt = EncodedWingmanReceipt{
+            .permalink = record.wingman_upload_receipt->permalink,
         };
     }
     if (record.donbot_upload_receipt) {

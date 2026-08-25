@@ -4,10 +4,11 @@ This contract defines the version-1 direct `.zevtc` integration used by GW2 Mann
 request is sent to the existing `evtc.bel.st` compatibility bridge, which submits accepted logs to
 GW2Wingman without requiring the addon to bundle Elite Insights.
 
-Verified 2026-08-20 against:
+Verified 2026-08-25 against:
 
 - <https://gw2wingman.nevermindcreations.de/api>;
-- <https://gw2wingman.nevermindcreations.de/uploader>; and
+- <https://gw2wingman.nevermindcreations.de/uploader>;
+- the compatibility bridge client at <https://github.com/belst/nexus-wingman-uploader>; and
 - observable validation and response behavior at <https://evtc.bel.st/evtc>.
 
 ## Compatibility boundary
@@ -53,12 +54,23 @@ Response headers are capped at 64 KiB and the response body at 64 KiB. Redirects
 ## Response
 
 A `409 Conflict` means the log is already present and is treated as successful duplicate delivery.
-The body is ignored.
+The body is ignored and the client proceeds to permalink discovery.
 
 Every 2xx response other than the duplicate status must be JSON with a boolean `result`. Unknown
-fields, including the bridge's current queue ticket, are ignored for forward compatibility. `true`
-means accepted; `false`, a missing/wrong-typed field, malformed JSON, or trailing content is a
-permanent failure. Raw response content is never copied into diagnostics.
+fields are ignored for forward compatibility. `true` means accepted. When a positive integer
+`ticket` is present, the client polls `GET https://evtc.bel.st/status/{ticket}` every 3 seconds for up
+to 30 minutes. `uploaded`, `skipped`, and `404` finish ticket processing. `queued`, `processing`, and
+`deferred` continue polling. `failed`, an unknown state, malformed JSON, or an invalid zero ticket is
+a permanent failure. A legacy successful response without a ticket remains accepted without a fight
+link. Raw response content is never copied into diagnostics.
+
+After ticket completion, and immediately for a duplicate, the client polls
+`POST https://gw2wingman.nevermindcreations.de/checkUploadSuccessfulWithLog` every 5 seconds for up
+to 5 minutes. Its URL-encoded fields are the bridge filename derived from the POV account, stable
+file size, boss ID, and POV account. A successful response must provide an ASCII alphanumeric,
+hyphen, or underscore `log.html` slug. The retained public permalink is
+`https://gw2wingman.nevermindcreations.de/log/{slug}`. Expiry without a match preserves upload
+success without exposing a View fight action.
 
 ## Status and transport classification
 
@@ -83,7 +95,8 @@ transport message.
 ## Deterministic tests
 
 The client is tested through an injected fake `IHttpClient`; the default suite never contacts the
-bridge or uploads a log. Tests assert exact multipart fields and streamed bytes, fixed endpoint and
-limits, valid and forward-compatible success, duplicate success, false/malformed/incomplete JSON,
-every status and transport class, bounded retry headers, stable-file changes, input validation,
-cancellation, endpoint policy, exception containment, and diagnostic redaction.
+bridge or uploads a log. Tests assert exact multipart fields and streamed bytes, fixed endpoints and
+limits, legacy and ticketed success, polling, permalink validation, duplicate success,
+false/malformed/incomplete JSON, every status and transport class, bounded retry headers,
+stable-file changes, input validation, cancellation, endpoint policy, exception containment, and
+diagnostic redaction.

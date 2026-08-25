@@ -14,6 +14,11 @@
 namespace manny_uploader::providers {
 
 inline constexpr std::string_view wingman_compat_upload_url = "https://evtc.bel.st/evtc";
+inline constexpr std::string_view wingman_compat_status_base_url = "https://evtc.bel.st/status/";
+inline constexpr std::string_view wingman_check_upload_url =
+    "https://gw2wingman.nevermindcreations.de/checkUploadSuccessfulWithLog";
+inline constexpr std::string_view wingman_log_base_url =
+    "https://gw2wingman.nevermindcreations.de/log/";
 
 enum class WingmanUploadDisposition : std::uint8_t {
     Retry,
@@ -31,6 +36,14 @@ struct WingmanUploadError {
 
 struct WingmanUploadSuccess {
     bool duplicate{};
+    std::optional<std::string> permalink{};
+};
+
+struct WingmanPollingOptions {
+    std::chrono::milliseconds ticket_interval{std::chrono::seconds{3}};
+    std::chrono::milliseconds check_interval{std::chrono::seconds{5}};
+    std::chrono::milliseconds ticket_timeout{std::chrono::minutes{30}};
+    std::chrono::milliseconds check_timeout{std::chrono::minutes{5}};
 };
 
 class IWingmanClient {
@@ -45,7 +58,8 @@ class IWingmanClient {
 class WingmanClient final : public IWingmanClient {
   public:
     explicit WingmanClient(const ports::IHttpClient& http_client,
-                           std::string upload_url = std::string{wingman_compat_upload_url});
+                           std::string upload_url = std::string{wingman_compat_upload_url},
+                           WingmanPollingOptions polling = {});
 
     [[nodiscard]] std::expected<WingmanUploadSuccess, WingmanUploadError>
     upload(const domain::LogFileIdentity& file, const domain::EncounterMetadata& metadata,
@@ -54,6 +68,7 @@ class WingmanClient final : public IWingmanClient {
   private:
     const ports::IHttpClient& http_client_;
     std::string upload_url_;
+    WingmanPollingOptions polling_;
 };
 
 } // namespace manny_uploader::providers

@@ -18,15 +18,20 @@ Version 1 accepts an uncompressed revision-1 EVTC payload in little-endian byte 
 |---|---:|---|
 | Header | 16 bytes | `EVTC` magic at 0, revision at 12, boss/species ID at 13 |
 | Agent count | 4 bytes | Unsigned count |
-| Agent table | 96 bytes each | Address at 0, elite marker at 12, combined name at 28 |
+| Agent table | 96 bytes each | Address at 0, profession/species at 8, elite marker at 12, combined name at 28 |
 | Skill count | 4 bytes | Unsigned count |
 | Skill table | 68 bytes each | Skipped by this decoder |
-| Combat events | 64 bytes each | Source address at 8, state change at 56 |
+| Combat events | 64 bytes each | Source address at 8, destination value at 16, state change at 56 |
 
 The 64-byte agent name field contains character name, account name, and subgroup as consecutive
 NUL-terminated UTF-8 strings. The account token is preserved exactly, including the conventional
 leading `:`. The point-of-view event is state-change value 13 (`CBTS_POINTOFVIEW`); its source address
 must identify a player agent with a non-empty, valid UTF-8 account segment.
+
+For the encounter NPC whose profession/species low 16 bits match the header boss ID, state-change
+value 8 (`CBTS_HEALTHUPDATE`) carries remaining health in the destination field on a scale from 0 to
+10,000. The decoder retains the last valid update for that NPC as optional basis points. Missing or
+out-of-range updates do not fail metadata parsing and leave remaining health unavailable.
 
 ## Validation and limits
 

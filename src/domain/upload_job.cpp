@@ -84,11 +84,16 @@ std::expected<UploadJob, JobError> UploadJob::restore(UploadJobId id, UploadJobR
         return std::unexpected(
             make_error(JobErrorCode::EmptyPermalink, "dps.report permalink must not be empty"));
     }
+    if (record.wingman_upload_receipt && record.wingman_upload_receipt->permalink.empty()) {
+        return std::unexpected(make_error(JobErrorCode::InvalidWingmanUpload,
+                                          "GW2Wingman permalink must not be empty"));
+    }
 
     ProviderSelection disabled{};
     UploadJob job{id, std::move(record.file), record.detected_at, disabled};
     job.encounter_metadata_ = std::move(record.encounter_metadata);
     job.dps_report_result_ = std::move(record.dps_report_result);
+    job.wingman_upload_receipt_ = std::move(record.wingman_upload_receipt);
     job.donbot_upload_receipt_ = std::move(record.donbot_upload_receipt);
     job.twitch_delivery_receipt_ = std::move(record.twitch_delivery_receipt);
     job.providers_ = std::move(record.providers);
@@ -134,6 +139,10 @@ const std::optional<EncounterMetadata>& UploadJob::encounter_metadata() const no
 
 const std::optional<DpsReportResult>& UploadJob::dps_report_result() const noexcept {
     return dps_report_result_;
+}
+
+const std::optional<WingmanUploadReceipt>& UploadJob::wingman_upload_receipt() const noexcept {
+    return wingman_upload_receipt_;
 }
 
 const std::optional<DonBotUploadReceipt>& UploadJob::donbot_upload_receipt() const noexcept {
@@ -243,6 +252,23 @@ std::expected<void, JobError> UploadJob::record_twitch_delivery(TwitchDeliveryRe
     return {};
 }
 
+std::expected<void, JobError> UploadJob::record_wingman_upload(WingmanUploadReceipt receipt) {
+    if (providers_[provider_index(Provider::Wingman)].state != ProviderState::Active) {
+        return std::unexpected(
+            make_error(JobErrorCode::InvalidTransition, "GW2Wingman is not active"));
+    }
+    if (wingman_upload_receipt_) {
+        return std::unexpected(make_error(JobErrorCode::WingmanUploadAlreadyRecorded,
+                                          "GW2Wingman upload has already been recorded"));
+    }
+    if (receipt.permalink.empty()) {
+        return std::unexpected(
+            make_error(JobErrorCode::InvalidWingmanUpload, "GW2Wingman upload receipt is invalid"));
+    }
+    wingman_upload_receipt_ = std::move(receipt);
+    return {};
+}
+
 std::expected<void, JobError> UploadJob::record_donbot_upload(DonBotUploadReceipt receipt) {
     if (providers_[provider_index(Provider::DonBot)].state != ProviderState::Active) {
         return std::unexpected(make_error(JobErrorCode::InvalidTransition, "DonBot is not active"));
@@ -313,6 +339,8 @@ std::expected<void, JobError> UploadJob::prepare_explicit_delivery(Provider prov
     status.retry_at.reset();
     if (provider == Provider::DpsReport) {
         dps_report_result_.reset();
+    } else if (provider == Provider::Wingman) {
+        wingman_upload_receipt_.reset();
     } else if (provider == Provider::DonBot) {
         donbot_upload_receipt_.reset();
     } else if (provider == Provider::Twitch) {
@@ -327,6 +355,7 @@ UploadJobRecord UploadJob::record() const {
         .detected_at = detected_at_,
         .encounter_metadata = encounter_metadata_,
         .dps_report_result = dps_report_result_,
+        .wingman_upload_receipt = wingman_upload_receipt_,
         .donbot_upload_receipt = donbot_upload_receipt_,
         .twitch_delivery_receipt = twitch_delivery_receipt_,
         .providers = providers_,

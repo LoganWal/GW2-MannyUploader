@@ -331,6 +331,12 @@ UploadCoordinator::validate_result(const domain::UploadJob& job, const UploadRes
             make_error(CoordinatorErrorCode::UnexpectedResult,
                        "Only a successful dps.report result may include a report response"));
     }
+    if (result.wingman_upload_receipt && (result.provider != domain::Provider::Wingman ||
+                                          result.outcome != UploadOutcome::Succeeded)) {
+        return std::unexpected(
+            make_error(CoordinatorErrorCode::UnexpectedResult,
+                       "Only a successful GW2Wingman upload may include a Wingman receipt"));
+    }
     if (result.donbot_upload_receipt && (result.provider != domain::Provider::DonBot ||
                                          result.outcome != UploadOutcome::Succeeded)) {
         return std::unexpected(
@@ -386,6 +392,13 @@ std::expected<void, CoordinatorError> UploadCoordinator::apply_result(domain::Up
             }
             transition_result = job.complete_dps_report(std::move(*result.dps_report_result),
                                                         std::move(result.detail));
+        } else if (result.provider == domain::Provider::Wingman && result.wingman_upload_receipt) {
+            transition_result =
+                job.record_wingman_upload(std::move(*result.wingman_upload_receipt));
+            if (transition_result) {
+                transition_result = job.transition(
+                    result.provider, domain::ProviderState::Succeeded, std::move(result.detail));
+            }
         } else if (result.provider == domain::Provider::Twitch) {
             if (!result.twitch_delivery_receipt) {
                 return std::unexpected(make_error(CoordinatorErrorCode::UnexpectedResult,
@@ -573,6 +586,7 @@ std::vector<UploadJobSnapshot> UploadCoordinator::snapshots() const {
             .detected_at = job.detected_at(),
             .encounter_metadata = job.encounter_metadata(),
             .dps_report_result = job.dps_report_result(),
+            .wingman_upload_receipt = job.wingman_upload_receipt(),
             .donbot_upload_receipt = job.donbot_upload_receipt(),
             .twitch_delivery_receipt = job.twitch_delivery_receipt(),
             .providers = {},

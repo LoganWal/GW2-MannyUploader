@@ -226,7 +226,9 @@ struct RecentLogRow {
     std::string encounter;
     std::string dps_report_url;
     std::optional<std::uint64_t> donbot_fight_log_id;
+    std::optional<bool> encounter_success;
     bool report_available{};
+    bool wingman_report_available{};
     bool directory_available{};
     bool reupload_available{};
     bool rechat_available{};
@@ -241,6 +243,7 @@ struct RuntimeSnapshot {
     std::vector<RecentLogRow> recent_logs;
     std::string dps_report_clipboard_text;
     std::string donbot_aggregate_url;
+    std::string donbot_destination_status;
     std::size_t dps_report_url_count{};
     std::size_t donbot_fight_count{};
     std::string runtime_diagnostic;
@@ -630,12 +633,26 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
     return text.data();
 }
 
+[[nodiscard]] std::string format_health_left(std::uint16_t basis_points) {
+    std::string formatted = std::to_string(basis_points / 100U);
+    const auto fraction = basis_points % 100U;
+    if (fraction != 0) {
+        formatted.push_back('.');
+        formatted += std::to_string(fraction / 10U);
+        if ((fraction % 10U) != 0) {
+            formatted += std::to_string(fraction % 10U);
+        }
+    }
+    return formatted + "% left";
+}
+
 [[nodiscard]] RecentLogRow make_row(const application::UploadJobSnapshot& job) {
     RecentLogRow row;
     row.id = job.id.value;
     row.detected_at = format_detected_at(job.detected_at);
     row.filename = job.file.canonical_path.filename().string();
     row.report_available = job.dps_report_result.has_value();
+    row.wingman_report_available = job.wingman_upload_receipt.has_value();
     row.directory_available = !job.file.canonical_path.parent_path().empty();
     const auto busy = [](domain::ProviderState state) {
         return state == domain::ProviderState::Waiting || state == domain::ProviderState::Active ||
@@ -651,9 +668,16 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
         !busy(job.providers[domain::provider_index(domain::Provider::Twitch)].state);
     if (job.dps_report_result) {
         row.dps_report_url = job.dps_report_result->permalink;
+        row.encounter_success = job.dps_report_result->success;
         row.encounter = job.dps_report_result->encounter_name;
         if (!job.dps_report_result->mode.empty()) {
             row.encounter += " (" + job.dps_report_result->mode + ")";
+        }
+        if (!job.dps_report_result->success && job.encounter_metadata &&
+            job.encounter_metadata->remaining_health_basis_points) {
+            row.encounter +=
+                " (" + format_health_left(*job.encounter_metadata->remaining_health_basis_points) +
+                ")";
         }
     } else if (job.encounter_metadata) {
         row.encounter = "Encounter " + std::to_string(job.encounter_metadata->boss_id);
@@ -690,6 +714,7 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
         .recent_logs = {},
         .dps_report_clipboard_text = {},
         .donbot_aggregate_url = {},
+        .donbot_destination_status = "Off",
         .dps_report_url_count = 0,
         .donbot_fight_count = 0,
         .runtime_diagnostic = std::move(diagnostic),
@@ -700,6 +725,19 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
         .twitch_application_configured = components.twitch_client->configured(),
         .revision = revision,
     };
+    if (snapshot.enabled_providers[domain::provider_index(domain::Provider::DonBot)]) {
+        snapshot.donbot_destination_status = "On";
+        auto server_name = options_snapshot.configuration.settings.donbot.selected_guild_id;
+        for (const auto& guild : options_snapshot.donbot.guilds) {
+            if (guild.guild_id == server_name) {
+                server_name = guild.guild_name;
+                break;
+            }
+        }
+        if (!server_name.empty()) {
+            snapshot.donbot_destination_status += " (" + server_name + ")";
+        }
+    }
     auto jobs = components.upload_coordinator->snapshots();
     snapshot.recent_logs.reserve(jobs.size());
     for (auto iterator = jobs.rbegin(); iterator != jobs.rend(); ++iterator) {
@@ -799,9 +837,7 @@ class ProductionRuntime final : public IAddonRuntime {
                 snapshot.enabled_providers[domain::provider_index(domain::Provider::Wingman)]
                     ? "On"
                     : "Off",
-                snapshot.enabled_providers[domain::provider_index(domain::Provider::DonBot)]
-                    ? "On"
-                    : "Off",
+                snapshot.donbot_destination_status.c_str(),
                 snapshot.enabled_providers[domain::provider_index(domain::Provider::Twitch)]
                     ? "On"
                     : "Off");
@@ -843,6 +879,13 @@ class ProductionRuntime final : public IAddonRuntime {
                     ImGui::TableSetColumnIndex(0);
                     ImGui::TextUnformatted(row.detected_at.c_str());
                     ImGui::TableSetColumnIndex(1);
+                    if (row.encounter_success) {
+                        const auto color = *row.encounter_success
+                                               ? ImVec4{0.12F, 0.55F, 0.18F, 0.45F}
+                                               : ImVec4{0.70F, 0.12F, 0.12F, 0.45F};
+                        ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
+                                               ImGui::GetColorU32(color));
+                    }
                     ImGui::TextUnformatted(row.encounter.c_str());
                     for (std::size_t index = 0; index < row.providers.size(); ++index) {
                         const auto& cell = row.providers[index];
@@ -861,6 +904,33 @@ class ProductionRuntime final : public IAddonRuntime {
                                       "use Reupload to send it.");
                         } else if (!cell.detail.empty() && ImGui::IsItemHovered()) {
                             ImGui::SetTooltip("%s", cell.detail.c_str());
+                        }
+                        const bool view_available =
+                            (index == domain::provider_index(domain::Provider::DpsReport) &&
+                             row.report_available) ||
+                            (index == domain::provider_index(domain::Provider::Wingman) &&
+                             row.wingman_report_available) ||
+                            (index == domain::provider_index(domain::Provider::DonBot) &&
+                             row.donbot_fight_log_id.has_value());
+                        if (view_available) {
+                            if (ImGui::SmallButton(
+                                    index == domain::provider_index(domain::Provider::DpsReport)
+                                        ? "View report"
+                                    : index == domain::provider_index(domain::Provider::Wingman)
+                                        ? "View fight"
+                                        : "View on DonBot")) {
+                                if (index == domain::provider_index(domain::Provider::DpsReport)) {
+                                    submit_action(application::OpenDpsReportCommand{
+                                        .job_id = domain::UploadJobId{row.id}});
+                                } else if (index ==
+                                           domain::provider_index(domain::Provider::Wingman)) {
+                                    submit_action(application::OpenWingmanReportCommand{
+                                        .job_id = domain::UploadJobId{row.id}});
+                                } else {
+                                    submit_action(application::OpenDonBotReportCommand{
+                                        .job_id = domain::UploadJobId{row.id}});
+                                }
+                            }
                         }
                         if (cell.retry_available) {
                             ImGui::PushID(static_cast<int>(index));

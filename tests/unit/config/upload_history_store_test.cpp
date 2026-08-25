@@ -102,6 +102,7 @@ class TempHistoryTree {
             domain::EncounterMetadata{
                 .boss_id = 123,
                 .pov_account = "Broadcaster.1234",
+                .remaining_health_basis_points = std::uint16_t{4321},
             },
         .dps_report_result =
             domain::DpsReportResult{
@@ -110,6 +111,11 @@ class TempHistoryTree {
                 .boss_id = 123,
                 .mode = "CM",
                 .success = true,
+            },
+        .wingman_upload_receipt =
+            domain::WingmanUploadReceipt{
+                .permalink = "https://gw2wingman.nevermindcreations.de/log/example-" +
+                             std::to_string(identity),
             },
         .donbot_upload_receipt =
             domain::DonBotUploadReceipt{

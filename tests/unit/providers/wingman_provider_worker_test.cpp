@@ -187,7 +187,10 @@ void creation_and_outcome_tests(TestSuite& suite) {
     MANNY_CHECK(suite, invalid.error().code == WingmanProviderWorkerErrorCode::InvalidCapacity);
 
     FakeWingmanClient client;
-    client.push(providers::WingmanUploadSuccess{.duplicate = false});
+    client.push(providers::WingmanUploadSuccess{
+        .duplicate = false,
+        .permalink = "https://gw2wingman.nevermindcreations.de/log/example",
+    });
     client.push(providers::WingmanUploadSuccess{.duplicate = true});
     client.push(std::unexpected(
         upload_error(providers::WingmanUploadDisposition::Retry, "retry detail", 12s)));
@@ -220,9 +223,14 @@ void creation_and_outcome_tests(TestSuite& suite) {
         if (id == 11) {
             MANNY_CHECK(suite, result->outcome == ports::UploadOutcome::Succeeded);
             MANNY_CHECK(suite, result->detail == "Uploaded to GW2Wingman");
+            MANNY_CHECK(suite, result->wingman_upload_receipt.has_value());
+            MANNY_CHECK(suite, result->wingman_upload_receipt &&
+                                   result->wingman_upload_receipt->permalink ==
+                                       "https://gw2wingman.nevermindcreations.de/log/example");
         } else if (id == 12) {
             MANNY_CHECK(suite, result->outcome == ports::UploadOutcome::Succeeded);
             MANNY_CHECK(suite, result->detail == "Already present in GW2Wingman");
+            MANNY_CHECK(suite, !result->wingman_upload_receipt.has_value());
         } else if (id == 13) {
             MANNY_CHECK(suite, result->outcome == ports::UploadOutcome::Retry);
             MANNY_CHECK(suite, result->retry_after == 12s);

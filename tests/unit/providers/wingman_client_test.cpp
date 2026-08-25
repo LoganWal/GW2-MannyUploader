@@ -8,9 +8,11 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <expected>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -134,6 +136,50 @@ class FakeHttpClient final : public ports::IHttpClient {
     std::expected<ports::HttpResponse, ports::HttpError> result_;
 };
 
+class SequentialHttpClient final : public ports::IHttpClient {
+  public:
+    explicit SequentialHttpClient(std::vector<ports::HttpResponse> responses)
+        : responses_{std::make_move_iterator(responses.begin()),
+                     std::make_move_iterator(responses.end())} {}
+
+    [[nodiscard]] std::expected<ports::HttpResponse, ports::HttpError>
+    execute(ports::HttpRequest request, const std::stop_token& stop_token) const override {
+        methods.push_back(request.method);
+        urls.push_back(std::move(request.url));
+        if (request.body) {
+            std::array<std::byte, 64> buffer{};
+            std::vector<std::byte> captured;
+            while (true) {
+                auto read = request.body->read(buffer, stop_token);
+                if (!read) {
+                    return std::unexpected(transport_error(ports::HttpErrorCode::BodyReadFailed));
+                }
+                if (*read == 0) {
+                    break;
+                }
+                captured.insert(captured.end(), buffer.begin(),
+                                buffer.begin() + static_cast<std::ptrdiff_t>(*read));
+            }
+            bodies.push_back(text(captured));
+        } else {
+            bodies.emplace_back();
+        }
+        if (responses_.empty()) {
+            return std::unexpected(transport_error(ports::HttpErrorCode::Internal));
+        }
+        auto next = std::move(responses_.front());
+        responses_.pop_front();
+        return next;
+    }
+
+    mutable std::vector<ports::HttpMethod> methods;
+    mutable std::vector<std::string> urls;
+    mutable std::vector<std::string> bodies;
+
+  private:
+    mutable std::deque<ports::HttpResponse> responses_;
+};
+
 class ThrowingHttpClient final : public ports::IHttpClient {
   public:
     [[nodiscard]] std::expected<ports::HttpResponse, ports::HttpError>
@@ -159,6 +205,7 @@ void request_and_success_tests(TestSuite& suite, const domain::LogFileIdentity& 
 
     MANNY_CHECK(suite, result.has_value());
     MANNY_CHECK(suite, result && !result->duplicate);
+    MANNY_CHECK(suite, result && !result->permalink.has_value());
     MANNY_CHECK(suite, http.calls == 1);
     MANNY_CHECK(suite, http.method == ports::HttpMethod::Post);
     MANNY_CHECK(suite, http.url == providers::wingman_compat_upload_url);
@@ -189,10 +236,65 @@ void request_and_success_tests(TestSuite& suite, const domain::LogFileIdentity& 
     MANNY_CHECK(suite, http.body.find("wingman-log-payload") != std::string::npos);
 
     FakeHttpClient duplicate_http{response("private duplicate response", 409)};
-    providers::WingmanClient duplicate_client{duplicate_http};
+    providers::WingmanClient duplicate_client{
+        duplicate_http, std::string{providers::wingman_compat_upload_url},
+        providers::WingmanPollingOptions{.check_timeout = std::chrono::milliseconds::zero()}};
     const auto duplicate = duplicate_client.upload(file, metadata());
     MANNY_CHECK(suite, duplicate.has_value());
     MANNY_CHECK(suite, duplicate && duplicate->duplicate);
+}
+
+void ticket_and_permalink_tests(TestSuite& suite, const domain::LogFileIdentity& file) {
+    SequentialHttpClient http{{
+        response(R"json({"result":true,"ticket":42})json"),
+        response(R"json({"state":"processing"})json"),
+        response(R"json({"state":"uploaded"})json"),
+        response(R"json({"success":false})json"),
+        response(R"json({"success":true,"log":{"html":"20260825-123456_boss_kill"}})json"),
+    }};
+    providers::WingmanClient client{http, std::string{providers::wingman_compat_upload_url},
+                                    providers::WingmanPollingOptions{
+                                        .ticket_interval = std::chrono::milliseconds::zero(),
+                                        .check_interval = std::chrono::milliseconds::zero(),
+                                        .ticket_timeout = std::chrono::seconds{1},
+                                        .check_timeout = std::chrono::seconds{1},
+                                    }};
+    const auto result = client.upload(file, metadata());
+
+    MANNY_CHECK(suite, result.has_value());
+    MANNY_CHECK(suite, result && !result->duplicate);
+    MANNY_CHECK(suite,
+                result && result->permalink == std::optional<std::string>{
+                                                   "https://gw2wingman.nevermindcreations.de/log/"
+                                                   "20260825-123456_boss_kill"});
+    MANNY_CHECK(suite, http.urls.size() == 5);
+    MANNY_CHECK(suite, http.urls.size() > 2 && http.urls[1] == "https://evtc.bel.st/status/42" &&
+                           http.urls[2] == "https://evtc.bel.st/status/42");
+    MANNY_CHECK(suite, http.urls.size() > 4 &&
+                           http.urls[3] == providers::wingman_check_upload_url &&
+                           http.urls[4] == providers::wingman_check_upload_url);
+    MANNY_CHECK(suite, http.bodies.size() > 3 &&
+                           http.bodies[3].contains("file=Player1234_upload.zevtc") &&
+                           http.bodies[3].contains("bossID=15438") &&
+                           http.bodies[3].contains("account=Player.1234"));
+
+    SequentialHttpClient unsafe_http{{
+        response(R"json({"result":true,"ticket":7})json"),
+        response(R"json({"state":"uploaded"})json"),
+        response(R"json({"success":true,"log":{"html":"../private"}})json"),
+    }};
+    providers::WingmanClient unsafe_client{unsafe_http,
+                                           std::string{providers::wingman_compat_upload_url},
+                                           providers::WingmanPollingOptions{
+                                               .ticket_interval = std::chrono::milliseconds::zero(),
+                                               .check_interval = std::chrono::milliseconds::zero(),
+                                               .ticket_timeout = std::chrono::seconds{1},
+                                               .check_timeout = std::chrono::seconds{1},
+                                           }};
+    const auto unsafe = unsafe_client.upload(file, metadata());
+    MANNY_CHECK(suite, !unsafe.has_value());
+    MANNY_CHECK(suite, !unsafe && unsafe.error().disposition ==
+                                      providers::WingmanUploadDisposition::Failed);
 }
 
 void response_and_status_tests(TestSuite& suite, const domain::LogFileIdentity& file) {
@@ -368,6 +470,7 @@ void run_wingman_client_tests(TestSuite& suite) {
     TempLog log{"wingman-log-payload"};
     const auto file = log.identity();
     request_and_success_tests(suite, file);
+    ticket_and_permalink_tests(suite, file);
     response_and_status_tests(suite, file);
     transport_tests(suite, file);
     validation_tests(suite, log);

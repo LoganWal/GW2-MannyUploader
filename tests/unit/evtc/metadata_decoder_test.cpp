@@ -27,11 +27,13 @@ struct AgentSpec {
     std::string account;
     bool player{true};
     bool terminate_account{true};
+    std::uint32_t profession{1};
 };
 
 struct EventSpec {
     std::uint64_t source_address;
     std::uint8_t state_change;
+    std::uint64_t destination{};
 };
 
 void append_little_endian(std::vector<std::byte>& target, std::uint64_t value, std::size_t width) {
@@ -64,7 +66,7 @@ void append_header(std::vector<std::byte>& target, std::uint16_t boss_id,
 void append_agent(std::vector<std::byte>& target, const AgentSpec& spec) {
     std::array<std::byte, agent_size> record{};
     write_little_endian(record, 0, spec.address, 8);
-    write_little_endian(record, 8, 1, 4);
+    write_little_endian(record, 8, spec.profession, 4);
     write_little_endian(record, 12, spec.player ? 0 : 0xffffffffU, 4);
 
     constexpr std::string_view character_name{"Character"};
@@ -101,6 +103,7 @@ void append_skill(std::vector<std::byte>& target) {
 void append_event(std::vector<std::byte>& target, const EventSpec& spec) {
     std::array<std::byte, event_size> record{};
     write_little_endian(record, 8, spec.source_address, 8);
+    write_little_endian(record, 16, spec.destination, 8);
     record[56] = static_cast<std::byte>(spec.state_change);
     target.insert(target.end(), record.begin(), record.end());
 }
@@ -146,6 +149,7 @@ void valid_payload_tests(TestSuite& suite) {
     MANNY_CHECK(suite, result.has_value());
     MANNY_CHECK(suite, result->boss_id == 0xbeef);
     MANNY_CHECK(suite, result->pov_account == ":Broadcaster.1234");
+    MANNY_CHECK(suite, !result->remaining_health_basis_points.has_value());
 
     const std::string unicode_account = ":Str\xc3\xa9"
                                         "amer.5678";
@@ -154,6 +158,35 @@ void valid_payload_tests(TestSuite& suite) {
                        {EventSpec{.source_address = 300, .state_change = 13}}));
     MANNY_CHECK(suite, unicode.has_value());
     MANNY_CHECK(suite, unicode->pov_account == unicode_account);
+}
+
+void remaining_health_tests(TestSuite& suite) {
+    const auto result = decode(payload(
+        15438,
+        {
+            AgentSpec{.address = 100, .account = "Boss", .player = false, .profession = 15438},
+            AgentSpec{.address = 200, .account = ":Player.1234"},
+        },
+        {
+            EventSpec{.source_address = 100, .state_change = 8, .destination = 9'876},
+            EventSpec{.source_address = 200, .state_change = 13},
+            EventSpec{.source_address = 100, .state_change = 8, .destination = 1'234},
+        }));
+    MANNY_CHECK(suite, result.has_value());
+    MANNY_CHECK(suite, result && result->remaining_health_basis_points == 1'234);
+
+    const auto unrelated = decode(payload(
+        15438,
+        {
+            AgentSpec{.address = 100, .account = "Other", .player = false, .profession = 999},
+            AgentSpec{.address = 200, .account = ":Player.1234"},
+        },
+        {
+            EventSpec{.source_address = 100, .state_change = 8, .destination = 500},
+            EventSpec{.source_address = 200, .state_change = 13},
+        }));
+    MANNY_CHECK(suite, unrelated.has_value());
+    MANNY_CHECK(suite, unrelated && !unrelated->remaining_health_basis_points.has_value());
 }
 
 void header_validation_tests(TestSuite& suite) {
@@ -277,6 +310,7 @@ void cancellation_tests(TestSuite& suite) {
 
 void run_evtc_metadata_decoder_tests(TestSuite& suite) {
     valid_payload_tests(suite);
+    remaining_health_tests(suite);
     header_validation_tests(suite);
     truncated_section_tests(suite);
     count_limit_tests(suite);

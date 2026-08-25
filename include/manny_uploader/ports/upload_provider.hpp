@@ -52,6 +52,7 @@ struct UploadResult {
     std::string detail;
     std::optional<std::chrono::seconds> retry_after;
     std::optional<domain::DpsReportResult> dps_report_result;
+    std::optional<domain::WingmanUploadReceipt> wingman_upload_receipt{};
     std::optional<domain::DonBotUploadReceipt> donbot_upload_receipt{};
     std::optional<domain::TwitchDeliveryReceipt> twitch_delivery_receipt{};
 };

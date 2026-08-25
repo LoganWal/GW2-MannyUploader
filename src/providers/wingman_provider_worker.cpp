@@ -14,7 +14,8 @@ constexpr auto default_retry_delay = std::chrono::seconds{30};
 
 [[nodiscard]] ports::UploadResult
 make_result(domain::UploadJobId job_id, ports::UploadOutcome outcome, std::string detail,
-            std::optional<std::chrono::seconds> retry_after = std::nullopt) {
+            std::optional<std::chrono::seconds> retry_after = std::nullopt,
+            std::optional<domain::WingmanUploadReceipt> receipt = std::nullopt) {
     return ports::UploadResult{
         .job_id = job_id,
         .provider = domain::Provider::Wingman,
@@ -22,6 +23,7 @@ make_result(domain::UploadJobId job_id, ports::UploadOutcome outcome, std::strin
         .detail = std::move(detail),
         .retry_after = retry_after,
         .dps_report_result = std::nullopt,
+        .wingman_upload_receipt = std::move(receipt),
         .twitch_delivery_receipt = std::nullopt,
     };
 }
@@ -138,9 +140,14 @@ ports::UploadResult WingmanProviderWorker::process(const ports::UploadRequest& r
         }
     }
 
+    std::optional<domain::WingmanUploadReceipt> receipt;
+    if (uploaded->permalink) {
+        receipt = domain::WingmanUploadReceipt{.permalink = std::move(*uploaded->permalink)};
+    }
     return make_result(request.job_id, ports::UploadOutcome::Succeeded,
                        uploaded->duplicate ? "Already present in GW2Wingman"
-                                           : "Uploaded to GW2Wingman");
+                                           : "Uploaded to GW2Wingman",
+                       std::nullopt, std::move(receipt));
 }
 
 } // namespace manny_uploader::providers

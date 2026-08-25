@@ -56,10 +56,11 @@ struct Fixture {
     };
 }
 
-[[nodiscard]] domain::ProviderSelection selection(bool wingman = false) {
+[[nodiscard]] domain::ProviderSelection selection(bool wingman = false, bool donbot = false) {
     domain::ProviderSelection result{};
     result[domain::provider_index(domain::Provider::DpsReport)] = true;
     result[domain::provider_index(domain::Provider::Wingman)] = wingman;
+    result[domain::provider_index(domain::Provider::DonBot)] = donbot;
     return result;
 }
 
@@ -85,11 +86,42 @@ void open_and_validation_tests(TestSuite& suite) {
     Fixture fixture;
     auto uploads = application::UploadCoordinator::create(fixture.clock, fixture.providers);
     MANNY_CHECK(suite, uploads.has_value());
-    auto job = uploads->add_job(
-        log_file(), domain::EncounterMetadata{.boss_id = 26257, .pov_account = {}}, selection());
+    auto job =
+        uploads->add_job(log_file(), domain::EncounterMetadata{.boss_id = 26257, .pov_account = {}},
+                         selection(true, true));
     MANNY_CHECK(suite, job.has_value());
     MANNY_CHECK(
         suite, uploads->handle_result(dps_success(*job, "https://dps.report/abc-123")).has_value());
+    MANNY_CHECK(suite,
+                uploads
+                    ->handle_result(ports::UploadResult{
+                        .job_id = *job,
+                        .provider = domain::Provider::Wingman,
+                        .outcome = ports::UploadOutcome::Succeeded,
+                        .detail = "uploaded",
+                        .retry_after = std::nullopt,
+                        .dps_report_result = std::nullopt,
+                        .wingman_upload_receipt =
+                            domain::WingmanUploadReceipt{
+                                .permalink = "https://gw2wingman.nevermindcreations.de/log/fight-1",
+                            },
+                    })
+                    .has_value());
+    MANNY_CHECK(suite, uploads
+                           ->handle_result(ports::UploadResult{
+                               .job_id = *job,
+                               .provider = domain::Provider::DonBot,
+                               .outcome = ports::UploadOutcome::Succeeded,
+                               .detail = "uploaded",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = std::nullopt,
+                               .donbot_upload_receipt =
+                                   domain::DonBotUploadReceipt{
+                                       .upload_id = 271,
+                                       .fight_log_id = 314,
+                                   },
+                           })
+                           .has_value());
     auto controller = application::RecentLogActionsController::create(*uploads, fixture.launcher);
     MANNY_CHECK(suite, controller.has_value());
     MANNY_CHECK(
@@ -97,11 +129,21 @@ void open_and_validation_tests(TestSuite& suite) {
         (*controller)->submit(application::OpenDpsReportCommand{.job_id = *job}).has_value());
     MANNY_CHECK(
         suite,
+        (*controller)->submit(application::OpenWingmanReportCommand{.job_id = *job}).has_value());
+    MANNY_CHECK(
+        suite,
+        (*controller)->submit(application::OpenDonBotReportCommand{.job_id = *job}).has_value());
+    MANNY_CHECK(
+        suite,
         (*controller)->submit(application::OpenLogDirectoryCommand{.job_id = *job}).has_value());
     const auto report = (*controller)->tick();
-    MANNY_CHECK(suite, report.has_value() && report->commands_processed == 2);
-    MANNY_CHECK(suite,
-                fixture.launcher.urls == std::vector<std::string>{"https://dps.report/abc-123"});
+    MANNY_CHECK(suite, report.has_value() && report->commands_processed == 4);
+    MANNY_CHECK(
+        suite, (fixture.launcher.urls == std::vector<std::string>{
+                                             "https://dps.report/abc-123",
+                                             "https://gw2wingman.nevermindcreations.de/log/fight-1",
+                                             "https://donbot.walmslo.com/logs/314",
+                                         }));
     MANNY_CHECK(suite, fixture.launcher.directories ==
                            std::vector<std::filesystem::path>{"/logs/encounters"});
 
@@ -118,7 +160,36 @@ void open_and_validation_tests(TestSuite& suite) {
     MANNY_CHECK(suite, (*controller)->tick()->action_failures == 1);
     MANNY_CHECK(suite, (*controller)->snapshot().last_error->code ==
                            application::RecentLogActionErrorCode::UnsafeReportUrl);
-    MANNY_CHECK(suite, fixture.launcher.urls.size() == 1);
+    MANNY_CHECK(suite, fixture.launcher.urls.size() == 3);
+
+    auto unsafe_wingman_job = uploads->add_job(
+        log_file("unsafe-wingman.zevtc"),
+        domain::EncounterMetadata{.boss_id = 1, .pov_account = {}}, selection(true));
+    MANNY_CHECK(suite, unsafe_wingman_job.has_value());
+    MANNY_CHECK(
+        suite,
+        uploads
+            ->handle_result(ports::UploadResult{
+                .job_id = *unsafe_wingman_job,
+                .provider = domain::Provider::Wingman,
+                .outcome = ports::UploadOutcome::Succeeded,
+                .detail = "uploaded",
+                .retry_after = std::nullopt,
+                .dps_report_result = std::nullopt,
+                .wingman_upload_receipt =
+                    domain::WingmanUploadReceipt{
+                        .permalink = "https://gw2wingman.nevermindcreations.de.evil/log/private",
+                    },
+            })
+            .has_value());
+    MANNY_CHECK(suite,
+                (*controller)
+                    ->submit(application::OpenWingmanReportCommand{.job_id = *unsafe_wingman_job})
+                    .has_value());
+    MANNY_CHECK(suite, (*controller)->tick()->action_failures == 1);
+    MANNY_CHECK(suite, (*controller)->snapshot().last_error->code ==
+                           application::RecentLogActionErrorCode::UnsafeReportUrl);
+    MANNY_CHECK(suite, fixture.launcher.urls.size() == 3);
 
     MANNY_CHECK(
         suite,

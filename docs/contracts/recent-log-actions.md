@@ -9,8 +9,9 @@ application owner drains at most a configured number of commands per tick.
 
 Supported commands are:
 
-- open the retained job's dps.report permalink (an application capability not exposed by the current
-  table UI);
+- open the retained job's dps.report permalink;
+- open the retained job's GW2Wingman permalink;
+- open the retained job's exact DonBot fight page;
 - open the retained log's containing directory;
 - retry one failed provider for the retained job;
 - explicitly reupload the retained log to dps.report, GW2Wingman, and DonBot;
@@ -24,14 +25,17 @@ error in a secret-free snapshot. Submission itself performs no external action.
 ## External targets
 
 The controller resolves the target from the upload coordinator's current snapshot rather than
-accepting a URL or path from ImGui. A report target must:
+accepting a URL or path from ImGui. A dps.report or GW2Wingman target must:
 
-- begin with the exact `https://dps.report/` origin and contain a non-empty suffix;
+- begin with its exact trusted origin and contain a non-empty suffix;
 - be at most 2,048 bytes;
 - contain printable ASCII only; and
 - contain no backslash or double quote.
 
-The folder target is exactly the parent of the retained canonical log path and must be non-empty.
+The trusted origins are `https://dps.report/` and
+`https://gw2wingman.nevermindcreations.de/log/`. A DonBot target is constructed locally as
+`https://donbot.walmslo.com/logs/{fight_log_id}` from the retained numeric receipt. The folder target
+is exactly the parent of the retained canonical log path and must be non-empty.
 The Windows adapter passes either validated target directly to `ShellExecuteW`; it does not construct
 a command line or invoke a command interpreter. Launching occurs on the application-owner thread.
 
@@ -59,9 +63,10 @@ attempt.
 ## Explicit replay
 
 `Reupload` is distinct from failed-provider retry. It requires parsed encounter metadata and requires
-all three upload destinations to be idle. It atomically resets the dps.report result and DonBot
-receipt, then dispatches dps.report, GW2Wingman, and DonBot with the user-initiated flag regardless of
-their state when the log was first detected. Twitch is not part of this action.
+all three upload destinations to be idle. It atomically resets the dps.report result, GW2Wingman
+permalink, and DonBot receipt, then dispatches dps.report, GW2Wingman, and DonBot with the
+user-initiated flag regardless of their state when the log was first detected. Twitch is not part of
+this action.
 
 `Rechat` requires a retained dps.report result and an idle Twitch state. It clears the prior Twitch
 receipt and queues one user-initiated chat attempt. That flag deliberately bypasses both confirmed

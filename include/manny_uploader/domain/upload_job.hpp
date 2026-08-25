@@ -50,9 +50,17 @@ struct LogFileIdentity {
 struct EncounterMetadata {
     std::uint16_t boss_id{};
     std::string pov_account;
+    std::optional<std::uint16_t> remaining_health_basis_points{};
 
     [[nodiscard]] friend bool operator==(const EncounterMetadata&,
                                          const EncounterMetadata&) = default;
+};
+
+struct WingmanUploadReceipt {
+    std::string permalink;
+
+    [[nodiscard]] friend bool operator==(const WingmanUploadReceipt&,
+                                         const WingmanUploadReceipt&) = default;
 };
 
 struct DpsReportResult {
@@ -118,6 +126,8 @@ enum class JobErrorCode : std::uint8_t {
     TwitchDeliveryAlreadyRecorded,
     InvalidDonBotUpload,
     DonBotUploadAlreadyRecorded,
+    InvalidWingmanUpload,
+    WingmanUploadAlreadyRecorded,
     ManualRetryRequiresFailure,
     ExplicitDeliveryBusy,
     EncounterMetadataRequired,
@@ -133,6 +143,7 @@ struct UploadJobRecord {
     std::chrono::system_clock::time_point detected_at;
     std::optional<EncounterMetadata> encounter_metadata;
     std::optional<DpsReportResult> dps_report_result;
+    std::optional<WingmanUploadReceipt> wingman_upload_receipt{};
     std::optional<DonBotUploadReceipt> donbot_upload_receipt;
     std::optional<TwitchDeliveryReceipt> twitch_delivery_receipt;
     std::array<ProviderStatus, provider_count> providers;
@@ -158,6 +169,8 @@ class UploadJob {
     [[nodiscard]] const ProviderStatus& provider_status(Provider provider) const noexcept;
     [[nodiscard]] const std::optional<EncounterMetadata>& encounter_metadata() const noexcept;
     [[nodiscard]] const std::optional<DpsReportResult>& dps_report_result() const noexcept;
+    [[nodiscard]] const std::optional<WingmanUploadReceipt>&
+    wingman_upload_receipt() const noexcept;
     [[nodiscard]] const std::optional<DonBotUploadReceipt>& donbot_upload_receipt() const noexcept;
     [[nodiscard]] const std::optional<TwitchDeliveryReceipt>&
     twitch_delivery_receipt() const noexcept;
@@ -172,6 +185,7 @@ class UploadJob {
                                                                     std::string detail = {});
     [[nodiscard]] std::expected<void, JobError>
     record_twitch_delivery(TwitchDeliveryReceipt receipt);
+    [[nodiscard]] std::expected<void, JobError> record_wingman_upload(WingmanUploadReceipt receipt);
     [[nodiscard]] std::expected<void, JobError> record_donbot_upload(DonBotUploadReceipt receipt);
     [[nodiscard]] std::expected<void, JobError> prepare_manual_retry(Provider provider);
     [[nodiscard]] std::expected<void, JobError> prepare_explicit_delivery(Provider provider);
@@ -187,6 +201,7 @@ class UploadJob {
     std::array<ProviderStatus, provider_count> providers_;
     std::optional<EncounterMetadata> encounter_metadata_;
     std::optional<DpsReportResult> dps_report_result_;
+    std::optional<WingmanUploadReceipt> wingman_upload_receipt_;
     std::optional<DonBotUploadReceipt> donbot_upload_receipt_;
     std::optional<TwitchDeliveryReceipt> twitch_delivery_receipt_;
 };

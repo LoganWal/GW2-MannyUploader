@@ -19,6 +19,14 @@ struct OpenDpsReportCommand {
     domain::UploadJobId job_id;
 };
 
+struct OpenWingmanReportCommand {
+    domain::UploadJobId job_id;
+};
+
+struct OpenDonBotReportCommand {
+    domain::UploadJobId job_id;
+};
+
 struct OpenLogDirectoryCommand {
     domain::UploadJobId job_id;
 };
@@ -39,8 +47,9 @@ struct RechatLogCommand {
 struct DismissRecentLogActionErrorCommand {};
 
 using RecentLogActionCommand =
-    std::variant<OpenDpsReportCommand, OpenLogDirectoryCommand, RetryFailedProviderCommand,
-                 ReuploadLogCommand, RechatLogCommand, DismissRecentLogActionErrorCommand>;
+    std::variant<OpenDpsReportCommand, OpenWingmanReportCommand, OpenDonBotReportCommand,
+                 OpenLogDirectoryCommand, RetryFailedProviderCommand, ReuploadLogCommand,
+                 RechatLogCommand, DismissRecentLogActionErrorCommand>;
 
 enum class RecentLogActionErrorCode : std::uint8_t {
     InvalidConfiguration,

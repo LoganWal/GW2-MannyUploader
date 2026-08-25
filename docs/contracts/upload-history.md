@@ -8,8 +8,9 @@ restarts. This is ordinary local state, not a secret store and not a remote sour
 `upload-history.json` is a versioned UTF-8 JSON document in the Nexus addon data directory. It stores
 at most 10,000 unique log identities, ordered oldest to newest. Each identity contains the canonical
 UTF-8 filesystem path, exact size, and last-write timestamp. A record may also contain detection time,
-parsed encounter metadata, public dps.report result, DonBot upload/fight IDs, normalized Twitch
-receipt, and every provider's state, attempt count, and locally generated detail.
+parsed encounter metadata including optional remaining boss health, public dps.report result, public
+GW2Wingman permalink, DonBot upload/fight IDs, normalized Twitch receipt, and every provider's state,
+attempt count, and locally generated detail.
 
 OAuth tokens, DonBot keys, Device Codes, request bodies, response documents, account secrets, and
 retry deadlines are never stored. The file is capped at 32 MiB before parsing and after serialization.

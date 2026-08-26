@@ -93,7 +93,7 @@ void successful_ingestion_tests(TestSuite& suite) {
     MANNY_CHECK(suite, parsed.has_value());
     MANNY_CHECK(suite, fixture.dps.requests.size() == 1);
     MANNY_CHECK(suite, fixture.wingman.requests.empty());
-    MANNY_CHECK(suite, fixture.donbot.requests.size() == 1);
+    MANNY_CHECK(suite, fixture.donbot.requests.empty());
     MANNY_CHECK(suite, fixture.twitch.requests.empty());
     MANNY_CHECK(suite, fixture.dps.requests.front().metadata.boss_id == 321);
     snapshots = upload.snapshots();

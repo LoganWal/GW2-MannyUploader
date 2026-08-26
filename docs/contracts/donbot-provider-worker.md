@@ -13,12 +13,15 @@ used at the settings boundary. An enabled DonBot configuration requires a select
 `enqueue()` copies the current configuration into a DonBot-only request context before delegating to
 the bounded worker. This gives every accepted attempt deterministic settings: a later options save
 affects later enqueues but cannot retarget work already waiting in the queue. Other provider wrappers
-reject this context, and DonBot rejects pre-populated context or a dps.report dependency result.
+reject this context, and DonBot rejects a pre-populated context. A same-job dps.report result is an
+accepted optional input.
 
 The API key is deliberately absent from the request context. The worker loads
 `DonBotGw2ApiKey` from `ISecretStore` immediately before every network attempt. Missing storage is a
 permanent, actionable configuration failure; read or adapter failure is a generic permanent failure.
-The key remains a move-only `SecretValue` and is destroyed after the attempt.
+The key remains a move-only `SecretValue` and is destroyed after the attempt. When the request has a
+dps.report result, the worker calls the permalink-import client path. Without one, it calls the TUS
+archive-upload path.
 
 ## Result mapping and lifecycle
 
@@ -33,7 +36,8 @@ and joined destruction are inherited from
 [`async-provider-workers.md`](async-provider-workers.md). Escaping secret-store or client exceptions
 become a generic DonBot worker failure and cannot expose exception text.
 
-Condition-variable tests cover configuration validation and snapshot timing, secret loading on each
+Condition-variable tests cover both conditional routes, configuration validation and snapshot
+timing, secret loading on each
 attempt, correct secret identifier, missing/failing/throwing storage, every result type, retry
 defaulting, invalid cross-provider payloads, client exceptions, in-flight cancellation, pending-work
 removal, and post-shutdown rejection.

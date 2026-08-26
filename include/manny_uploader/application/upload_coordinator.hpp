@@ -112,14 +112,15 @@ class UploadCoordinator {
     void dispatch(domain::UploadJob& job, domain::Provider provider,
                   bool user_initiated_retry = false);
     void settle_dps_report_dependency(domain::UploadJob& job, UploadOutcome outcome);
-    static void settle_twitch_dependency(domain::UploadJob& job, domain::ProviderState state,
-                                         std::string detail);
+    static void settle_dps_report_dependents(domain::UploadJob& job, domain::ProviderState state,
+                                             const std::string& detail);
 
     ports::IClock& clock_;
     std::array<ports::IUploadProvider*, domain::provider_count> providers_;
     std::size_t history_limit_;
     std::uint64_t next_job_id_{1};
     std::deque<domain::UploadJob> jobs_;
+    std::vector<std::uint64_t> explicit_reuploads_;
     std::size_t next_result_provider_index_{};
     bool shutting_down_{};
 };

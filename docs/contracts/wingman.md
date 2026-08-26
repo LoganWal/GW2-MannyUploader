@@ -1,8 +1,8 @@
-# GW2Wingman compatibility-upload contract
+# GW2Wingman upload contract
 
-This contract defines the version-1 direct `.zevtc` integration used by GW2 Manny Uploader. The
-request is sent to the existing `evtc.bel.st` compatibility bridge, which submits accepted logs to
-GW2Wingman without requiring the addon to bundle Elite Insights.
+This contract defines the conditional GW2Wingman integration used by GW2 Manny Uploader. When the
+same job enables dps.report, Wingman imports its trusted permalink. Otherwise the addon sends the
+`.zevtc` through the existing `evtc.bel.st` compatibility bridge.
 
 Verified 2026-08-25 against:
 
@@ -22,10 +22,37 @@ This project deliberately does not embed Elite Insights or a .NET runtime. It th
 small raw-EVTC bridge as an explicit compatibility integration. The bridge is live but is not a
 GW2Wingman public API, so it may change or disappear without notice. Its URL is owned by the client
 adapter rather than ordinary settings, and the constructor seam permits a reviewed replacement
-without changing application scheduling. The addon must never silently fall back to forwarding the
-dps.report permalink because direct Wingman is currently modeled as an independent provider.
+without changing application scheduling. The direct bridge is the explicit fallback only when
+dps.report is disabled for that job.
 
-## Request
+## dps.report permalink import
+
+When dps.report is enabled, the coordinator leaves Wingman waiting. A successful dps.report result
+queues two bounded requests without reading or uploading the archive:
+
+```text
+POST https://gw2wingman.nevermindcreations.de/api/importLogQueued?link=<percent-encoded-permalink>
+GET  https://gw2wingman.nevermindcreations.de/api/checkLogQueuedOrDB?link=<percent-encoded-permalink>
+Accept: application/json
+```
+
+The permalink must use the exact `https://dps.report/` prefix and contain no credentials, query,
+fragment, backslash, control, or non-ASCII byte. The import response is successful only when its
+integer `success` is `1`. The status response must include boolean `inQueue` and `inDB`, at least one
+of which is true, plus a `targetURL` under the exact
+`https://gw2wingman.nevermindcreations.de/log/` prefix with a safe log slug. The target is retained
+immediately so the UI can open the fight while Wingman finishes processing it. `inDB: true` is
+reported as duplicate success.
+
+Both requests use 10-second connect, 60-second operation, and 30-second stalled-transfer timeouts.
+Headers and bodies use the normal 64 KiB response limits. Redirects are disabled. Transport and HTTP
+status classification follows the table below.
+
+If dps.report fails or is cancelled, Wingman is skipped or cancelled with it. An explicit retry of
+dps.report re-arms a skipped Wingman attempt. A Wingman retry after dps.report success imports the
+same retained permalink again. The idempotent queue endpoint makes that retry safe.
+
+## Direct fallback request
 
 Send one synchronous request from a provider worker, never a Nexus render or options callback:
 
@@ -51,7 +78,7 @@ incrementally rather than assembled in RAM.
 The request has a 10-second connect timeout and 15-minute operation and stalled-transfer timeouts.
 Response headers are capped at 64 KiB and the response body at 64 KiB. Redirects are never followed.
 
-## Response
+## Direct fallback response
 
 A `409 Conflict` means the log is already present and is treated as successful duplicate delivery.
 The body is ignored and the client proceeds to permalink discovery.
@@ -96,7 +123,8 @@ transport message.
 
 The client is tested through an injected fake `IHttpClient`; the default suite never contacts the
 bridge or uploads a log. Tests assert exact multipart fields and streamed bytes, fixed endpoints and
-limits, legacy and ticketed success, polling, permalink validation, duplicate success,
+limits, queued permalink import and status resolution, legacy and ticketed success, polling,
+permalink validation, duplicate success,
 false/malformed/incomplete JSON, every status and transport class, bounded retry headers,
 stable-file changes, input validation, cancellation, endpoint policy, exception containment, and
 diagnostic redaction.

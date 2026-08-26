@@ -79,7 +79,9 @@ Run this matrix on a supported native Windows installation with the release cand
 - [ ] A missing log directory reports a waiting state and is discovered after creation.
 - [ ] Changing directory, recursion, polling, stability, parser capacity, and history options applies
       live without duplicating an accepted log or cancelling active work.
-- [ ] A real `.zevtc` uploads independently to dps.report, direct GW2Wingman, and DonBot.
+- [ ] With dps.report enabled, a real `.zevtc` uploads there once and its permalink imports into
+      GW2Wingman and DonBot.
+- [ ] With dps.report disabled, a real `.zevtc` uses the direct GW2Wingman and DonBot upload paths.
 - [ ] Enabling direct Wingman and DonBot together produces no duplicate Wingman submission from
       DonBot (`wingman=false` remains in effect).
 - [ ] DonBot key verification, authorized-guild selection, restart recovery, disable, and disconnect

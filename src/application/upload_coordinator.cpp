@@ -164,8 +164,12 @@ UploadCoordinator::cancel_pending_job(domain::UploadJobId id, const std::string&
 }
 
 void UploadCoordinator::dispatch_initial_providers(domain::UploadJob& job) {
-    for (const auto provider :
-         {domain::Provider::DpsReport, domain::Provider::Wingman, domain::Provider::DonBot}) {
+    if (job.provider_status(domain::Provider::DpsReport).state == domain::ProviderState::Waiting) {
+        dispatch(job, domain::Provider::DpsReport);
+        return;
+    }
+
+    for (const auto provider : {domain::Provider::Wingman, domain::Provider::DonBot}) {
         if (job.provider_status(provider).state == domain::ProviderState::Waiting) {
             dispatch(job, provider);
         }
@@ -224,9 +228,6 @@ UploadCoordinator::retry_failed_provider(domain::UploadJobId id, domain::Provide
             make_error(CoordinatorErrorCode::UnexpectedResult,
                        "A metadata failure must be retried by detecting the log again"));
     }
-    const bool rearmed_twitch_dependency =
-        provider == domain::Provider::DpsReport &&
-        job->provider_status(domain::Provider::Twitch).state == domain::ProviderState::Skipped;
     if (auto prepared = job->prepare_manual_retry(provider); !prepared) {
         return std::unexpected(from_domain_error(prepared.error()));
     }
@@ -234,12 +235,6 @@ UploadCoordinator::retry_failed_provider(domain::UploadJobId id, domain::Provide
     dispatch(*job, provider, true);
     const auto& status = job->provider_status(provider);
     if (status.state == domain::ProviderState::Failed) {
-        if (rearmed_twitch_dependency && job->provider_status(domain::Provider::Twitch).state ==
-                                             domain::ProviderState::Waiting) {
-            [[maybe_unused]] const auto rolled_back =
-                job->transition(domain::Provider::Twitch, domain::ProviderState::Skipped,
-                                "Skipped because the dps.report retry could not be queued");
-        }
         return std::unexpected(
             make_error(CoordinatorErrorCode::UnexpectedResult,
                        status.detail.empty() ? "Unable to queue the retry" : status.detail));
@@ -265,10 +260,8 @@ std::expected<void, CoordinatorError> UploadCoordinator::reupload(domain::Upload
         }
     }
     *job = std::move(prepared);
-    for (const auto provider :
-         {domain::Provider::DpsReport, domain::Provider::Wingman, domain::Provider::DonBot}) {
-        dispatch(*job, provider, true);
-    }
+    explicit_reuploads_.push_back(job->id().value);
+    dispatch(*job, domain::Provider::DpsReport, true);
     return {};
 }
 
@@ -456,23 +449,31 @@ std::expected<void, CoordinatorError> UploadCoordinator::apply_result(domain::Up
 
 void UploadCoordinator::settle_dps_report_dependency(domain::UploadJob& job,
                                                      UploadOutcome outcome) {
+    const auto explicit_reupload =
+        std::ranges::find(explicit_reuploads_, job.id().value) != explicit_reuploads_.end();
     switch (outcome) {
     case UploadOutcome::Succeeded:
-        if (job.provider_status(domain::Provider::Twitch).state == domain::ProviderState::Waiting) {
-            dispatch(job, domain::Provider::Twitch);
+        for (const auto provider :
+             {domain::Provider::Wingman, domain::Provider::DonBot, domain::Provider::Twitch}) {
+            if (job.provider_status(provider).state == domain::ProviderState::Waiting) {
+                dispatch(job, provider, explicit_reupload);
+            }
         }
         break;
     case UploadOutcome::Failed:
     case UploadOutcome::Skipped:
-        settle_twitch_dependency(job, domain::ProviderState::Skipped,
-                                 "Skipped because dps.report failed");
+        settle_dps_report_dependents(job, domain::ProviderState::Skipped,
+                                     "Skipped because dps.report failed");
         break;
     case UploadOutcome::Cancelled:
-        settle_twitch_dependency(job, domain::ProviderState::Cancelled,
-                                 "Cancelled because dps.report was cancelled");
+        settle_dps_report_dependents(job, domain::ProviderState::Cancelled,
+                                     "Cancelled because dps.report was cancelled");
         break;
     case UploadOutcome::Retry:
         break;
+    }
+    if (outcome != UploadOutcome::Retry) {
+        std::erase(explicit_reuploads_, job.id().value);
     }
 }
 
@@ -555,6 +556,7 @@ void UploadCoordinator::cancel_all() noexcept {
         return;
     }
     shutting_down_ = true;
+    explicit_reuploads_.clear();
 
     for (auto* provider : providers_) {
         if (provider != nullptr) {
@@ -709,6 +711,9 @@ void UploadCoordinator::dispatch(domain::UploadJob& job, domain::Provider provid
     if (provider_port == nullptr) {
         [[maybe_unused]] const auto failed = job.transition(
             provider, domain::ProviderState::Failed, "Provider implementation is unavailable");
+        if (provider == domain::Provider::DpsReport) {
+            settle_dps_report_dependency(job, UploadOutcome::Failed);
+        }
         return;
     }
 
@@ -720,6 +725,9 @@ void UploadCoordinator::dispatch(domain::UploadJob& job, domain::Provider provid
     if (!job.encounter_metadata().has_value()) {
         [[maybe_unused]] const auto failed = job.transition(provider, domain::ProviderState::Failed,
                                                             "Encounter metadata is unavailable");
+        if (provider == domain::Provider::DpsReport) {
+            settle_dps_report_dependency(job, UploadOutcome::Failed);
+        }
         return;
     }
     auto request = ports::UploadRequest{
@@ -727,8 +735,11 @@ void UploadCoordinator::dispatch(domain::UploadJob& job, domain::Provider provid
         .provider = provider,
         .file = job.file(),
         .metadata = job.encounter_metadata().value_or(domain::EncounterMetadata{}),
-        .dps_report_result =
-            provider == domain::Provider::Twitch ? job.dps_report_result() : std::nullopt,
+        .dps_report_result = provider == domain::Provider::Wingman ||
+                                     provider == domain::Provider::DonBot ||
+                                     provider == domain::Provider::Twitch
+                                 ? job.dps_report_result()
+                                 : std::nullopt,
         .donbot_context = std::nullopt,
         .twitch_context = std::nullopt,
         .attempt = job.provider_status(provider).attempts,
@@ -738,13 +749,20 @@ void UploadCoordinator::dispatch(domain::UploadJob& job, domain::Provider provid
         [[maybe_unused]] const auto failed = job.transition(provider, domain::ProviderState::Failed,
                                                             std::move(queued.error().message));
     }
+    if (provider == domain::Provider::DpsReport &&
+        job.provider_status(provider).state == domain::ProviderState::Failed) {
+        settle_dps_report_dependency(job, UploadOutcome::Failed);
+    }
 }
 
-void UploadCoordinator::settle_twitch_dependency(domain::UploadJob& job,
-                                                 domain::ProviderState state, std::string detail) {
-    if (job.provider_status(domain::Provider::Twitch).state == domain::ProviderState::Waiting) {
-        [[maybe_unused]] const auto settled =
-            job.transition(domain::Provider::Twitch, state, std::move(detail));
+void UploadCoordinator::settle_dps_report_dependents(domain::UploadJob& job,
+                                                     domain::ProviderState state,
+                                                     const std::string& detail) {
+    for (const auto provider :
+         {domain::Provider::Wingman, domain::Provider::DonBot, domain::Provider::Twitch}) {
+        if (job.provider_status(provider).state == domain::ProviderState::Waiting) {
+            [[maybe_unused]] const auto settled = job.transition(provider, state, detail);
+        }
     }
 }
 

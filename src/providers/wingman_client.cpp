@@ -39,6 +39,16 @@ struct ParsedCheckResponse {
     std::optional<ParsedWingmanLog> log;
 };
 
+struct ParsedQueuedImport {
+    std::optional<int> success;
+};
+
+struct ParsedQueuedCheck {
+    std::optional<bool> inQueue;
+    std::optional<bool> inDB;
+    std::optional<std::string> targetURL;
+};
+
 } // namespace detail
 
 namespace {
@@ -88,6 +98,16 @@ make_error(WingmanUploadDisposition disposition, std::string detail,
            std::ranges::none_of(value, [](char character) {
                const auto byte = static_cast<unsigned char>(character);
                return byte <= 0x20U || byte == 0x7fU;
+           });
+}
+
+[[nodiscard]] bool trusted_dps_report_permalink(std::string_view value) noexcept {
+    constexpr std::string_view prefix = "https://dps.report/";
+    return value.starts_with(prefix) && value.size() > prefix.size() && value.size() <= 2048 &&
+           !value.contains('@') && !value.contains('?') && !value.contains('#') &&
+           !value.contains('\\') && std::ranges::all_of(value, [](char character) {
+               const auto byte = static_cast<unsigned char>(character);
+               return byte >= 0x21U && byte <= 0x7eU;
            });
 }
 
@@ -224,6 +244,11 @@ decode_success(const ports::HttpResponse& response) {
                 byte <= static_cast<unsigned char>('9')) ||
                character == '-' || character == '_';
     });
+}
+
+[[nodiscard]] bool trusted_wingman_permalink(std::string_view value) noexcept {
+    return value.starts_with(wingman_log_base_url) &&
+           safe_wingman_slug(value.substr(wingman_log_base_url.size()));
 }
 
 [[nodiscard]] std::string form_encode(std::string_view value) {
@@ -524,6 +549,68 @@ WingmanClient::upload(const domain::LogFileIdentity& file,
     } catch (...) {
         return std::unexpected(make_error(WingmanUploadDisposition::Failed,
                                           "The GW2Wingman client failed unexpectedly"));
+    }
+}
+
+std::expected<WingmanUploadSuccess, WingmanUploadError>
+WingmanClient::import_permalink(std::string_view dps_report_permalink,
+                                const std::stop_token& stop_token) const {
+    try {
+        if (stop_token.stop_requested()) {
+            return std::unexpected(make_error(WingmanUploadDisposition::Cancelled,
+                                              "The GW2Wingman import was cancelled"));
+        }
+        if (!trusted_dps_report_permalink(dps_report_permalink)) {
+            return std::unexpected(make_error(WingmanUploadDisposition::Failed,
+                                              "The dps.report permalink is invalid"));
+        }
+
+        const auto encoded = form_encode(dps_report_permalink);
+        auto queued = http_client_.execute(
+            json_request(ports::HttpMethod::Post, std::string{wingman_import_queued_url} + encoded),
+            stop_token);
+        if (!queued) {
+            return std::unexpected(classify_transport_error(queued.error()));
+        }
+        if (queued->status_code < 200 || queued->status_code >= 300) {
+            return std::unexpected(classify_status(*queued));
+        }
+        const auto queued_document = std::string_view{
+            reinterpret_cast<const char*>(queued->body.data()), queued->body.size()};
+        detail::ParsedQueuedImport queued_response;
+        if (const auto error = glz::read<ResponseReadOptions{}>(queued_response, queued_document);
+            error || !queued_response.success || *queued_response.success != 1) {
+            return std::unexpected(make_error(WingmanUploadDisposition::Failed,
+                                              "GW2Wingman returned an invalid import response"));
+        }
+
+        auto checked = http_client_.execute(
+            json_request(ports::HttpMethod::Get, std::string{wingman_check_queued_url} + encoded),
+            stop_token);
+        if (!checked) {
+            return std::unexpected(classify_transport_error(checked.error()));
+        }
+        if (checked->status_code < 200 || checked->status_code >= 300) {
+            return std::unexpected(classify_status(*checked));
+        }
+        const auto checked_document = std::string_view{
+            reinterpret_cast<const char*>(checked->body.data()), checked->body.size()};
+        detail::ParsedQueuedCheck checked_response;
+        if (const auto error = glz::read<ResponseReadOptions{}>(checked_response, checked_document);
+            error || !checked_response.inQueue || !checked_response.inDB ||
+            !checked_response.targetURL ||
+            !trusted_wingman_permalink(*checked_response.targetURL) ||
+            (!*checked_response.inQueue && !*checked_response.inDB)) {
+            return std::unexpected(make_error(WingmanUploadDisposition::Failed,
+                                              "GW2Wingman returned an invalid import status"));
+        }
+        return WingmanUploadSuccess{
+            .duplicate = *checked_response.inDB,
+            .permalink = std::move(*checked_response.targetURL),
+        };
+    } catch (...) {
+        return std::unexpected(make_error(WingmanUploadDisposition::Failed,
+                                          "The GW2Wingman import failed unexpectedly"));
     }
 }
 

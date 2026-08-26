@@ -11,9 +11,10 @@ blocking the game thread.
 - DonBot
 - The authenticated broadcaster's own Twitch chat
 
-Each upload destination runs independently. Twitch waits for the same log's successful dps.report
-result, then posts a configurable message containing that trusted permalink. Twitch has no channel
-setting: the authenticated account is always both sender and broadcaster.
+When dps.report is enabled for a log, GW2Wingman, DonBot, and Twitch wait for its successful result.
+Wingman and DonBot then import the trusted permalink instead of uploading the same archive again. If
+dps.report is disabled, Wingman and DonBot use their independent direct archive-upload paths. Twitch
+has no channel setting: the authenticated account is always both sender and broadcaster.
 
 ## Requirements
 
@@ -94,9 +95,9 @@ log table and is required before Twitch posting can be enabled.
 
 ### Direct GW2Wingman
 
-`Upload to GW2Wingman` is enabled by default. This uses an isolated raw-EVTC compatibility endpoint
-because Wingman's current public workflow is based on processed Elite Insights data. If the
-compatibility endpoint is retired, Wingman can fail without blocking the other destinations.
+`Upload to GW2Wingman` is enabled by default. With dps.report enabled, the addon queues its permalink
+through Wingman's public import API. With dps.report disabled, it uses the isolated raw-EVTC
+compatibility endpoint because Wingman's direct workflow is based on processed Elite Insights data.
 
 ### DonBot
 
@@ -105,8 +106,9 @@ compatibility endpoint is retired, Wingman can fail without blocking the other d
 3. Once verified, the API-key field is hidden. Select one authorized server from the dropdown.
 4. Enable uploads with the checkbox beside the server dropdown.
 
-The key is protected separately from ordinary JSON. DonBot always submits with `wingman=false`, so
-enabling direct Wingman and DonBot does not ask DonBot to create a duplicate Wingman upload.
+The key is protected separately from ordinary JSON. With dps.report enabled, DonBot imports its
+permalink for the selected server. With dps.report disabled, DonBot uploads the archive through TUS.
+Both routes disable DonBot's own Wingman submission, so enabling Wingman does not create a duplicate.
 `Deverify DonBot` disables the workflow and erases its locally protected key. Completed DonBot
 processing IDs are retained so the main window can compose its aggregate URL.
 
@@ -197,9 +199,10 @@ both existing files are invalid, startup fails closed instead of silently discar
 
 ### An upload or Twitch message fails
 
-Providers fail independently. Inspect the recent-log row and retry only when the UI offers an
-explicit retry. Ambiguous Twitch delivery is not retried automatically because that could create a
-duplicate message.
+Inspect the recent-log row and retry only when the UI offers an explicit retry. A failed dps.report
+attempt skips its waiting Wingman, DonBot, and Twitch imports until dps.report is retried. Direct
+Wingman and DonBot attempts still fail independently when dps.report is disabled. Ambiguous Twitch
+delivery is not retried automatically because that could create a duplicate message.
 
 Issue reports should include the addon, Windows, and Nexus versions, safe status text, and
 reproduction steps. Never include API keys, OAuth tokens, Device Codes, protected files, raw provider

@@ -303,11 +303,13 @@ std::expected<void, JobError> UploadJob::prepare_manual_retry(Provider provider)
         twitch_delivery_receipt_.reset();
     }
     if (provider == Provider::DpsReport && !dps_report_result_) {
-        auto& twitch = providers_[provider_index(Provider::Twitch)];
-        if (twitch.state == ProviderState::Skipped) {
-            twitch.state = ProviderState::Waiting;
-            twitch.detail.clear();
-            twitch.retry_at.reset();
+        for (const auto dependent : {Provider::Wingman, Provider::DonBot, Provider::Twitch}) {
+            auto& status = providers_[provider_index(dependent)];
+            if (status.state == ProviderState::Skipped) {
+                status.state = ProviderState::Waiting;
+                status.detail.clear();
+                status.retry_at.reset();
+            }
         }
     }
     return {};

@@ -1,8 +1,8 @@
 # DonBot upload contract
 
-This contract defines version 1 of GW2 Manny Uploader's DonBot integration. It covers API-key
-verification, server-authorized guild discovery, one-shot TUS upload of a stable `.zevtc` file, and
-the completion stream used to retain the resulting DonBot fight ID.
+This contract defines GW2 Manny Uploader's DonBot integration. It covers API-key verification,
+server-authorized guild discovery, permalink import when dps.report is enabled, one-shot TUS upload
+when dps.report is disabled, and the completion stream used to retain the DonBot fight ID.
 
 Verified 2026-08-20 against:
 
@@ -56,7 +56,47 @@ that account must be linked to a DonBot/Discord identity, and the returned list 
 guilds in which that Discord user is a member. The addon never treats a locally entered guild ID as
 authorization.
 
-## TUS creation
+## dps.report permalink import
+
+When the same job enables dps.report, DonBot waits for its successful result and sends:
+
+```text
+POST <api-base>/api/upload/gw2/url
+Accept: application/json
+Content-Type: application/json
+X-GW2-API-Key: <protected key>
+
+{"url":"https://dps.report/<permalink>","guildId":"<selected guild ID>"}
+```
+
+The permalink must have the exact `https://dps.report/` prefix and no credentials, query, fragment,
+backslash, control, or non-ASCII byte. The selected guild and key use the same validation and
+authorization boundary as a direct upload. The server stores the selected guild, deduplicates by
+authorized identity, guild, and canonical URL, and disables its own Wingman submission.
+
+New work returns `202`; an idempotent existing result returns `200`. Both responses are capped at 64
+KiB and must contain:
+
+```json
+{
+  "uploadId": 42,
+  "fightLogId": null,
+  "status": "pending",
+  "duplicate": false
+}
+```
+
+`uploadId` is a positive signed-64-bit integer. `duplicate` is required. `status` is `pending` with a
+null fight ID, or `complete` with a positive signed-64-bit fight ID. Pending work reuses the anonymous
+completion stream below. The import POST is idempotent, so a transient transport error, `408`, `429`,
+or `5xx` remains retryable. Invalid input, authentication, authorization, or response data is a
+permanent failure.
+
+If dps.report fails or is cancelled, DonBot is skipped or cancelled without making a request. A
+dps.report retry re-arms skipped DonBot work. A DonBot retry after dps.report success imports the same
+retained permalink.
+
+## Direct fallback TUS creation
 
 Uploads require a non-empty selected guild ID and a protected key loaded immediately before the
 attempt. Creation sends no body:
@@ -71,8 +111,8 @@ Upload-Metadata: filename dXBsb2FkLnpldnRj,guildid <base64 guild ID>,wingman ZmF
 ```
 
 The implementation-owned filename decodes to `upload.zevtc`; it does not expose a local path or
-Unicode filename. `wingman` always decodes to `false`. Direct GW2Wingman submission is the canonical
-independent provider, so DonBot must not enqueue a second Wingman upload.
+Unicode filename. `wingman` always decodes to `false`, so DonBot must not enqueue a second Wingman
+upload.
 
 Success is exactly `201`. The response must contain exactly one `Tus-Resumable: 1.0.0` and one
 `Location`. An optional `X-Log-Upload-Id` must be a unique positive signed-64-bit decimal value.
@@ -146,7 +186,8 @@ key, URL, file path, account, guild name, response body, raw server message, or 
 
 ## Deterministic coverage
 
-Fake-transport tests cover verification JSON and bounds, secret placement, all accepted location
+Fake-transport tests cover verification JSON and bounds, permalink import and idempotent responses,
+secret placement, all accepted location
 forms, cross-origin and path-confusion rejection, exact metadata including `wingman=false`, streamed
 file bytes, both TUS response handshakes, optional upload IDs, cancellation, local validation,
 creation retry classification, and no-retry ambiguous PATCH failures. Default tests never contact

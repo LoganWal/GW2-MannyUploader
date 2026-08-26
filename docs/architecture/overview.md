@@ -49,14 +49,17 @@ pending upload job
       v
 asynchronous EVTC metadata
       |
-      +----> dps.report ----> Twitch chat
-      +----> GW2Wingman
-      +----> DonBot
+      +----> dps.report ----> GW2Wingman permalink import
+      |                 +---> DonBot permalink import
+      |                 +---> Twitch chat
+      +----> GW2Wingman direct fallback when dps.report is disabled
+      +----> DonBot direct fallback when dps.report is disabled
 ```
 
-dps.report, GW2Wingman, and DonBot are independent. Twitch is the only dependent provider and may
-start only after dps.report has produced a valid permalink. Job states and public delivery receipts
-are atomically persisted, then seed discovery on the next process so unchanged logs are not replayed.
+When dps.report is selected, Wingman, DonBot, and Twitch start only after it produces a valid
+permalink. Without dps.report, Wingman and DonBot remain independent direct providers. Job states and
+public delivery receipts are atomically persisted, then seed discovery on the next process so
+unchanged logs are not replayed.
 
 ## State ownership
 
@@ -72,20 +75,21 @@ The implemented domain foundation enforces:
 - retry timestamps only on scheduled retries;
 - attempt counting when work becomes active;
 - dps.report completion requires a non-empty permalink;
-- Twitch cannot activate without a successful dps.report result;
+- Wingman, DonBot, and Twitch wait for dps.report when it is selected;
 - encounter metadata is assigned once.
 
 The application coordinator is the sole mutable job owner. It:
 
 - allocates monotonically increasing stable job IDs;
-- dispatches dps.report, GW2Wingman, and DonBot independently;
+- dispatches dps.report first when selected, then fans its result out to Wingman and DonBot;
+- dispatches Wingman and DonBot directly when dps.report is disabled;
 - holds Twitch in `Waiting` until dps.report supplies a valid permalink;
 - correlates every provider result by job ID and provider ID;
 - schedules retries against an injected monotonic clock;
 - evicts only settled jobs when the bounded history is full;
 - publishes deep-copy snapshots for consumers such as the UI;
-- re-arms only explicitly selected failed providers for user-initiated retry, including dependent
-  dps.report/Twitch recovery;
+- re-arms only explicitly selected failed providers for user-initiated retry, including all
+  dps.report dependents;
 - restores durable history without dispatch and exposes distinct explicit Reupload and Rechat paths;
   and
 - cancels provider queues and unsettled job states exactly once during shutdown.
@@ -104,7 +108,7 @@ or paths alone.
 
 The parser adapter returns a typed result to the coordinator owner:
 
-- success assigns encounter metadata once and starts the independent upload providers;
+- success assigns encounter metadata once and starts the applicable upload route;
 - a parse failure marks every enabled provider failed with a visible diagnostic;
 - parser cancellation marks the pending provider states cancelled; and
 - failure to enqueue parsing creates a retained failed job rather than silently dropping the file.
@@ -294,11 +298,10 @@ inputs and the bridge's small JSON response, treats `409` as duplicate success, 
 processing ticket, and discovers the exact public fight permalink. It classifies bounded retries
 without exposing paths, accounts, URLs, or server text.
 
-The current public GW2Wingman API documents only Elite Insights processed upload or import of an
-already processed external link; it does not expose a raw-EVTC endpoint. Bundling Elite Insights and
-its .NET runtime would violate this addon's streamlined native scope, while importing dps.report would
-make Wingman dependent on another provider. The raw bridge is therefore isolated as an explicit,
-replaceable compatibility risk rather than presented as an official API.
+The current public GW2Wingman API documents Elite Insights processed upload and queued import of an
+already processed dps.report link; it does not expose a raw-EVTC endpoint. The queued import is the
+primary route when dps.report is selected. The raw bridge remains isolated as an explicit,
+replaceable compatibility fallback for jobs that disable dps.report.
 
 `WingmanProviderWorker` adds only Wingman-specific request/result rules and owns the same
 `AsyncUploadWorker` used by dps.report. Both providers consequently share FIFO bounds, output
@@ -308,12 +311,11 @@ and worker behavior is frozen in [`docs/contracts/wingman.md`](../contracts/wing
 
 ## DonBot provider adapter
 
-`DonBotClient` implements protected-key verification with authorized guild discovery, a two-request
-TUS upload, and the anonymous processing-progress stream used to obtain the resulting fight-log ID.
-The creation metadata fixes the remote filename, supplies the selected decimal guild ID, and always
-sets `wingman=false` so the independent direct Wingman provider remains canonical. A TUS `Location`
-is accepted only beneath the configured creation path at the exact same HTTPS origin before the same
-key can be sent in PATCH.
+`DonBotClient` implements protected-key verification with authorized guild discovery, an idempotent
+dps.report permalink import, a two-request TUS fallback, and the anonymous processing-progress stream
+used to obtain the resulting fight-log ID. Both upload routes supply the selected decimal guild ID
+and disable DonBot's own Wingman submission. A TUS `Location` is accepted only beneath the configured
+creation path at the exact same HTTPS origin before the same key can be sent in PATCH.
 
 The client requires exact `201` creation and `204` completion handshakes, including protocol version
 and final upload offset. A completed event stream contributes the DonBot fight ID used for aggregate

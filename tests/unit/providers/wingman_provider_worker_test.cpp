@@ -111,14 +111,31 @@ class FakeWingmanClient final : public providers::IWingmanClient {
         return saw_stop_;
     }
 
+    [[nodiscard]] std::string permalink() const {
+        const std::scoped_lock lock{mutex_};
+        return permalink_;
+    }
+
     [[nodiscard]] std::expected<providers::WingmanUploadSuccess, providers::WingmanUploadError>
     upload(const domain::LogFileIdentity&, const domain::EncounterMetadata& metadata,
            const std::stop_token& stop_token) const override {
+        return run(metadata.boss_id, metadata.pov_account, {}, stop_token);
+    }
+
+    [[nodiscard]] std::expected<providers::WingmanUploadSuccess, providers::WingmanUploadError>
+    import_permalink(std::string_view permalink, const std::stop_token& stop_token) const override {
+        return run(0, {}, permalink, stop_token);
+    }
+
+  private:
+    [[nodiscard]] Result run(std::uint16_t boss_id, std::string_view account,
+                             std::string_view permalink, const std::stop_token& stop_token) const {
         std::stop_callback wake_on_stop{stop_token, [this] { condition_.notify_all(); }};
         std::unique_lock lock{mutex_};
         ++calls_;
-        boss_id_ = metadata.boss_id;
-        account_ = metadata.pov_account;
+        boss_id_ = boss_id;
+        account_ = account;
+        permalink_ = permalink;
         condition_.notify_all();
         condition_.wait(lock, [this, &stop_token] {
             return !blocked_ || released_ || stop_token.stop_requested();
@@ -140,13 +157,13 @@ class FakeWingmanClient final : public providers::IWingmanClient {
         return result;
     }
 
-  private:
     mutable std::mutex mutex_;
     mutable std::condition_variable condition_;
     mutable std::deque<Result> results_;
     mutable std::size_t calls_{};
     mutable std::uint16_t boss_id_{};
     mutable std::string account_;
+    mutable std::string permalink_;
     mutable bool blocked_{};
     mutable bool released_{};
     mutable bool throw_next_{};
@@ -284,9 +301,11 @@ void request_validation_tests(TestSuite& suite) {
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(wrong_provider)).has_value());
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(empty_path)).has_value());
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(zero_attempt)).has_value());
-    MANNY_CHECK(suite, !(*worker)->enqueue(std::move(has_report)).has_value());
+    MANNY_CHECK(suite, (*worker)->enqueue(std::move(has_report)).has_value());
+    MANNY_CHECK(suite, (*worker)->wait_for_result(2s).has_value());
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(has_donbot_context)).has_value());
-    MANNY_CHECK(suite, client.calls() == 0);
+    MANNY_CHECK(suite, client.calls() == 1);
+    MANNY_CHECK(suite, client.permalink() == "https://dps.report/not-for-wingman");
 }
 
 void bounded_queue_and_backpressure_tests(TestSuite& suite) {

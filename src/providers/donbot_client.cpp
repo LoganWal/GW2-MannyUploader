@@ -39,6 +39,18 @@ struct ParsedDonBotProgress {
     std::optional<std::uint64_t> fightLogId;
 };
 
+struct DonBotPermalinkImportRequest {
+    std::string url;
+    std::string guildId;
+};
+
+struct ParsedDonBotPermalinkImport {
+    std::optional<std::uint64_t> uploadId;
+    std::optional<std::uint64_t> fightLogId;
+    std::optional<std::string> status;
+    std::optional<bool> duplicate;
+};
+
 } // namespace detail
 
 namespace {
@@ -48,6 +60,7 @@ using namespace std::chrono_literals;
 constexpr std::string_view tus_version = "1.0.0";
 constexpr std::string_view guilds_path = "/api/upload/gw2/guilds";
 constexpr std::string_view tus_path = "/api/upload/tus";
+constexpr std::string_view permalink_import_path = "/api/upload/gw2/url";
 constexpr std::string_view progress_path = "/api/upload/stream/";
 constexpr std::size_t max_api_base_bytes = 2048;
 constexpr std::size_t max_display_name_bytes = 256;
@@ -106,6 +119,13 @@ struct ParsedBaseUrl {
         return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
                (character >= '0' && character <= '9') || character == '-';
     });
+}
+
+[[nodiscard]] bool trusted_dps_report_permalink(std::string_view value) noexcept {
+    constexpr std::string_view prefix = "https://dps.report/";
+    return value.starts_with(prefix) && value.size() > prefix.size() && value.size() <= 2048 &&
+           !value.contains('@') && !value.contains('?') && !value.contains('#') &&
+           !value.contains('\\') && visible_ascii(value);
 }
 
 [[nodiscard]] bool valid_positive_long(std::string_view value,
@@ -738,6 +758,105 @@ DonBotClient::upload(const domain::LogFileIdentity& file, std::string_view api_b
     } catch (...) {
         return std::unexpected(
             make_error(DonBotDisposition::Failed, "The DonBot upload failed unexpectedly"));
+    }
+}
+// NOLINTEND(bugprone-easily-swappable-parameters)
+
+// Ordered protocol arguments implement the existing client port.
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+std::expected<DonBotUploadSuccess, DonBotError>
+DonBotClient::import_permalink(std::string_view dps_report_permalink, std::string_view api_base_url,
+                               std::string_view guild_id, const support::SecretValue& gw2_api_key,
+                               const std::stop_token& stop_token) const {
+    try {
+        if (stop_token.stop_requested()) {
+            return std::unexpected(
+                make_error(DonBotDisposition::Cancelled, "The DonBot request was cancelled"));
+        }
+        auto base = parse_base_url(api_base_url);
+        if (!base) {
+            return std::unexpected(std::move(base.error()));
+        }
+        if (!valid_positive_long(guild_id)) {
+            return std::unexpected(
+                make_error(DonBotDisposition::Failed, "The DonBot guild selection is invalid"));
+        }
+        if (!valid_api_key(gw2_api_key)) {
+            return std::unexpected(
+                make_error(DonBotDisposition::Failed, "The DonBot GW2 API key is invalid"));
+        }
+        if (!trusted_dps_report_permalink(dps_report_permalink)) {
+            return std::unexpected(
+                make_error(DonBotDisposition::Failed, "The dps.report permalink is invalid"));
+        }
+
+        detail::DonBotPermalinkImportRequest request_body{
+            .url = std::string{dps_report_permalink},
+            .guildId = std::string{guild_id},
+        };
+        std::string document;
+        if (const auto error = glz::write_json(request_body, document); error) {
+            return std::unexpected(make_error(DonBotDisposition::Failed,
+                                              "The DonBot import request could not be prepared"));
+        }
+        const auto body_bytes = std::as_bytes(std::span{document.data(), document.size()});
+        auto headers = common_headers(gw2_api_key);
+        headers.push_back(ports::HttpHeader{
+            .name = "Content-Type",
+            .value = "application/json",
+            .sensitivity = ports::HttpHeaderSensitivity::Public,
+        });
+        ports::HttpRequest request{
+            .method = ports::HttpMethod::Post,
+            .url = base->normalized + std::string{permalink_import_path},
+            .headers = std::move(headers),
+            .body = http::make_memory_http_body_source(
+                std::vector<std::byte>{body_bytes.begin(), body_bytes.end()}),
+            .timeouts = upload_timeouts(),
+            .response_limits = small_response_limits(std::size_t{64} * 1024U),
+        };
+        auto response = http_client_.execute(std::move(request), stop_token);
+        if (!response) {
+            return std::unexpected(classify_transport_error(response.error(), false));
+        }
+        if (response->status_code != 200 && response->status_code != 202) {
+            return std::unexpected(classify_status(*response, false));
+        }
+
+        const auto response_document = std::string_view{
+            reinterpret_cast<const char*>(response->body.data()), response->body.size()};
+        detail::ParsedDonBotPermalinkImport parsed;
+        if (const auto error = glz::read<ResponseReadOptions{}>(parsed, response_document);
+            error || !parsed.uploadId || !parsed.status || !parsed.duplicate ||
+            *parsed.uploadId == 0 ||
+            *parsed.uploadId >
+                static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+            (*parsed.status != "pending" && *parsed.status != "complete") ||
+            (parsed.fightLogId &&
+             (*parsed.fightLogId == 0 ||
+              *parsed.fightLogId >
+                  static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))) ||
+            (*parsed.status == "complete") != parsed.fightLogId.has_value()) {
+            return std::unexpected(make_error(DonBotDisposition::Failed,
+                                              "DonBot returned an invalid import response",
+                                              std::nullopt, std::nullopt, response->status_code));
+        }
+
+        auto fight_log_id = parsed.fightLogId;
+        if (!fight_log_id) {
+            auto processed = wait_for_processing(http_client_, *base, *parsed.uploadId, stop_token);
+            if (!processed) {
+                return std::unexpected(std::move(processed.error()));
+            }
+            fight_log_id = *processed;
+        }
+        return DonBotUploadSuccess{
+            .upload_id = parsed.uploadId,
+            .fight_log_id = fight_log_id,
+        };
+    } catch (...) {
+        return std::unexpected(
+            make_error(DonBotDisposition::Failed, "The DonBot import failed unexpectedly"));
     }
 }
 // NOLINTEND(bugprone-easily-swappable-parameters)

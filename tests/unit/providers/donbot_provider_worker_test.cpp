@@ -71,6 +71,7 @@ struct CapturedUpload {
     std::string api_base_url;
     std::string guild_id;
     std::string api_key;
+    std::optional<std::string> dps_report_permalink;
 };
 
 class FakeDonBotClient final : public providers::IDonBotClient {
@@ -125,12 +126,28 @@ class FakeDonBotClient final : public providers::IDonBotClient {
     [[nodiscard]] std::expected<providers::DonBotUploadSuccess, providers::DonBotError>
     upload(const domain::LogFileIdentity&, std::string_view api_base_url, std::string_view guild_id,
            const support::SecretValue& api_key, const std::stop_token& stop_token) const override {
+        return run(api_base_url, guild_id, api_key, std::nullopt, stop_token);
+    }
+
+    [[nodiscard]] std::expected<providers::DonBotUploadSuccess, providers::DonBotError>
+    import_permalink(std::string_view permalink, std::string_view api_base_url,
+                     std::string_view guild_id, const support::SecretValue& api_key,
+                     const std::stop_token& stop_token) const override {
+        return run(api_base_url, guild_id, api_key, std::string{permalink}, stop_token);
+    }
+
+  private:
+    [[nodiscard]] Result run(std::string_view api_base_url, std::string_view guild_id,
+                             const support::SecretValue& api_key,
+                             std::optional<std::string> permalink,
+                             const std::stop_token& stop_token) const {
         std::stop_callback wake_on_stop{stop_token, [this] { condition_.notify_all(); }};
         std::unique_lock lock{mutex_};
         uploads_.push_back(CapturedUpload{
             .api_base_url = std::string{api_base_url},
             .guild_id = std::string{guild_id},
             .api_key = secret_text(api_key),
+            .dps_report_permalink = std::move(permalink),
         });
         condition_.notify_all();
         condition_.wait(lock, [this, &stop_token] {
@@ -156,7 +173,6 @@ class FakeDonBotClient final : public providers::IDonBotClient {
         return result;
     }
 
-  private:
     mutable std::mutex mutex_;
     mutable std::condition_variable condition_;
     mutable std::deque<Result> results_;
@@ -335,7 +351,13 @@ void credential_and_validation_tests(TestSuite& suite) {
     MANNY_CHECK(suite, worker.has_value());
     auto wrong_provider = request(31, domain::Provider::Wingman);
     auto has_report = request(32);
-    has_report.dps_report_result = domain::DpsReportResult{};
+    has_report.dps_report_result = domain::DpsReportResult{
+        .permalink = "https://dps.report/donbot-import",
+        .encounter_name = "Boss",
+        .boss_id = 123,
+        .mode = "CM",
+        .success = true,
+    };
     auto has_context = request(33);
     has_context.donbot_context = ports::DonBotUploadContext{
         .api_base_url = "https://example.com",
@@ -344,7 +366,12 @@ void credential_and_validation_tests(TestSuite& suite) {
     auto empty_path = request(34);
     empty_path.file.canonical_path.clear();
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(wrong_provider)).has_value());
-    MANNY_CHECK(suite, !(*worker)->enqueue(std::move(has_report)).has_value());
+    MANNY_CHECK(suite, (*worker)->enqueue(std::move(has_report)).has_value());
+    MANNY_CHECK(suite, (*worker)->wait_for_result(2s).has_value());
+    const auto imports = client.uploads();
+    MANNY_CHECK(suite, imports.size() == 1);
+    MANNY_CHECK(suite, imports.front().dps_report_permalink ==
+                           std::optional<std::string>{"https://dps.report/donbot-import"});
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(has_context)).has_value());
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(empty_path)).has_value());
     MANNY_CHECK(suite, !(*worker)->update_config(config("0")).has_value());

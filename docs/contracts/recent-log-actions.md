@@ -64,9 +64,8 @@ attempt.
 
 `Reupload` is distinct from failed-provider retry. It requires parsed encounter metadata and requires
 all three upload destinations to be idle. It atomically resets the dps.report result, GW2Wingman
-permalink, and DonBot receipt, then dispatches dps.report, GW2Wingman, and DonBot with the
-user-initiated flag regardless of their state when the log was first detected. Twitch is not part of
-this action.
+permalink, and DonBot receipt, then dispatches dps.report with the user-initiated flag. Its successful
+permalink fans out to Wingman and DonBot with the same flag. Twitch is not part of this action.
 
 `Rechat` requires a retained dps.report result and an idle Twitch state. It clears the prior Twitch
 receipt and queues one user-initiated chat attempt. That flag deliberately bypasses both confirmed

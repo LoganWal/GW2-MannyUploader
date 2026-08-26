@@ -464,6 +464,55 @@ void validation_tests(TestSuite& suite, const TempLog& log) {
                                          providers::WingmanUploadDisposition::Cancelled);
 }
 
+void permalink_import_tests(TestSuite& suite) {
+    SequentialHttpClient http{{
+        response(R"json({"link":"https://dps.report/abc-123","success":1})json"),
+        response(
+            R"json({"link":"https://dps.report/abc-123","inQueue":true,"inDB":false,"targetURL":"https://gw2wingman.nevermindcreations.de/log/abc-123"})json"),
+    }};
+    providers::WingmanClient client{http};
+    const auto imported = client.import_permalink("https://dps.report/abc-123");
+    MANNY_CHECK(suite, imported.has_value());
+    MANNY_CHECK(suite, imported && !imported->duplicate);
+    MANNY_CHECK(suite, imported && imported->permalink ==
+                                       std::optional<std::string>{
+                                           "https://gw2wingman.nevermindcreations.de/log/abc-123"});
+    MANNY_CHECK(suite,
+                (http.methods == std::vector{ports::HttpMethod::Post, ports::HttpMethod::Get}));
+    MANNY_CHECK(suite, http.urls.size() == 2);
+    if (http.urls.size() == 2) {
+        constexpr std::string_view encoded = "https%3A%2F%2Fdps.report%2Fabc-123";
+        MANNY_CHECK(suite, http.urls[0] == std::string{providers::wingman_import_queued_url} +
+                                               std::string{encoded});
+        MANNY_CHECK(suite, http.urls[1] == std::string{providers::wingman_check_queued_url} +
+                                               std::string{encoded});
+    }
+
+    SequentialHttpClient duplicate_http{{
+        response(R"json({"success":1})json"),
+        response(
+            R"json({"inQueue":false,"inDB":true,"targetURL":"https://gw2wingman.nevermindcreations.de/log/existing"})json"),
+    }};
+    providers::WingmanClient duplicate_client{duplicate_http};
+    const auto duplicate = duplicate_client.import_permalink("https://dps.report/existing");
+    MANNY_CHECK(suite, duplicate.has_value() && duplicate->duplicate);
+
+    FakeHttpClient invalid_http{response(R"json({"success":1})json")};
+    providers::WingmanClient invalid_client{invalid_http};
+    const auto invalid = invalid_client.import_permalink("https://dps.report.evil/private");
+    MANNY_CHECK(suite, !invalid.has_value());
+    MANNY_CHECK(suite, invalid_http.calls == 0);
+
+    SequentialHttpClient unsafe_target{{
+        response(R"json({"success":1})json"),
+        response(
+            R"json({"inQueue":true,"inDB":false,"targetURL":"https://gw2wingman.nevermindcreations.de.evil/log/private"})json"),
+    }};
+    providers::WingmanClient unsafe_client{unsafe_target};
+    MANNY_CHECK(suite,
+                !unsafe_client.import_permalink("https://dps.report/unsafe-target").has_value());
+}
+
 } // namespace
 
 void run_wingman_client_tests(TestSuite& suite) {
@@ -474,6 +523,7 @@ void run_wingman_client_tests(TestSuite& suite) {
     response_and_status_tests(suite, file);
     transport_tests(suite, file);
     validation_tests(suite, log);
+    permalink_import_tests(suite);
 }
 
 } // namespace manny_uploader::test

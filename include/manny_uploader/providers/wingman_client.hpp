@@ -19,6 +19,10 @@ inline constexpr std::string_view wingman_check_upload_url =
     "https://gw2wingman.nevermindcreations.de/checkUploadSuccessfulWithLog";
 inline constexpr std::string_view wingman_log_base_url =
     "https://gw2wingman.nevermindcreations.de/log/";
+inline constexpr std::string_view wingman_import_queued_url =
+    "https://gw2wingman.nevermindcreations.de/api/importLogQueued?link=";
+inline constexpr std::string_view wingman_check_queued_url =
+    "https://gw2wingman.nevermindcreations.de/api/checkLogQueuedOrDB?link=";
 
 enum class WingmanUploadDisposition : std::uint8_t {
     Retry,
@@ -53,6 +57,10 @@ class IWingmanClient {
     [[nodiscard]] virtual std::expected<WingmanUploadSuccess, WingmanUploadError>
     upload(const domain::LogFileIdentity& file, const domain::EncounterMetadata& metadata,
            const std::stop_token& stop_token = {}) const = 0;
+
+    [[nodiscard]] virtual std::expected<WingmanUploadSuccess, WingmanUploadError>
+    import_permalink(std::string_view dps_report_permalink,
+                     const std::stop_token& stop_token = {}) const = 0;
 };
 
 class WingmanClient final : public IWingmanClient {
@@ -64,6 +72,10 @@ class WingmanClient final : public IWingmanClient {
     [[nodiscard]] std::expected<WingmanUploadSuccess, WingmanUploadError>
     upload(const domain::LogFileIdentity& file, const domain::EncounterMetadata& metadata,
            const std::stop_token& stop_token = {}) const override;
+
+    [[nodiscard]] std::expected<WingmanUploadSuccess, WingmanUploadError>
+    import_permalink(std::string_view dps_report_permalink,
+                     const std::stop_token& stop_token = {}) const override;
 
   private:
     const ports::IHttpClient& http_client_;

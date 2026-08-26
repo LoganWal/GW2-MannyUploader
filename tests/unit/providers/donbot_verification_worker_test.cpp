@@ -125,6 +125,12 @@ class FakeVerificationClient final : public providers::IDonBotClient {
         return std::unexpected(client_error(providers::DonBotDisposition::Failed, "unused"));
     }
 
+    [[nodiscard]] std::expected<providers::DonBotUploadSuccess, providers::DonBotError>
+    import_permalink(std::string_view, std::string_view, std::string_view,
+                     const support::SecretValue&, const std::stop_token&) const override {
+        return std::unexpected(client_error(providers::DonBotDisposition::Failed, "unused"));
+    }
+
   private:
     mutable std::mutex mutex_;
     mutable std::condition_variable condition_;

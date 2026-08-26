@@ -127,7 +127,7 @@ domain::Provider DonBotProviderWorker::provider() const noexcept {
 
 std::expected<void, ports::DispatchError>
 DonBotProviderWorker::enqueue(ports::UploadRequest request) {
-    if (request.dps_report_result || request.donbot_context || request.twitch_context) {
+    if (request.donbot_context || request.twitch_context) {
         return std::unexpected(ports::DispatchError{.message = "DonBot upload request is invalid"});
     }
     try {
@@ -220,8 +220,13 @@ ports::UploadResult DonBotProviderWorker::process(const ports::UploadRequest& re
                                : "The DonBot GW2 API key could not be loaded");
     }
 
-    auto uploaded = client_.upload(request.file, request.donbot_context->api_base_url,
-                                   request.donbot_context->guild_id, *api_key, stop_token);
+    auto uploaded =
+        request.dps_report_result
+            ? client_.import_permalink(request.dps_report_result->permalink,
+                                       request.donbot_context->api_base_url,
+                                       request.donbot_context->guild_id, *api_key, stop_token)
+            : client_.upload(request.file, request.donbot_context->api_base_url,
+                             request.donbot_context->guild_id, *api_key, stop_token);
     if (!uploaded) {
         switch (uploaded.error().disposition) {
         case DonBotDisposition::Retry:
@@ -237,12 +242,16 @@ ports::UploadResult DonBotProviderWorker::process(const ports::UploadRequest& re
         }
     }
 
-    auto detail = std::string{"Uploaded to DonBot"};
+    auto detail = request.dps_report_result ? std::string{"Queued in DonBot"}
+                                            : std::string{"Uploaded to DonBot"};
     if (uploaded->fight_log_id) {
-        detail = "Uploaded and processed by DonBot (fight " +
+        detail = (request.dps_report_result ? "Imported and processed by DonBot (fight "
+                                            : "Uploaded and processed by DonBot (fight ") +
                  std::to_string(*uploaded->fight_log_id) + ")";
     } else if (uploaded->upload_id) {
-        detail = "Uploaded to DonBot (upload " + std::to_string(*uploaded->upload_id) + ")";
+        detail = (request.dps_report_result ? "Queued in DonBot (upload "
+                                            : "Uploaded to DonBot (upload ") +
+                 std::to_string(*uploaded->upload_id) + ")";
     }
 
     return make_result(request.job_id, ports::UploadOutcome::Succeeded, std::move(detail),

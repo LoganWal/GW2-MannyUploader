@@ -473,6 +473,68 @@ void failure_policy_tests(TestSuite& suite, const domain::LogFileIdentity& file)
                             .has_value());
 }
 
+void permalink_import_tests(TestSuite& suite) {
+    const auto key = support::SecretValue::from_text("VALID-KEY");
+    SequencedHttpClient http;
+    http.push(response(
+        202, {},
+        R"json({"uploadId":42,"fightLogId":null,"status":"pending","duplicate":false})json"));
+    http.push(response(200, {}, R"sse(data: {"stage":"complete","fightLogId":314}
+
+)sse"));
+    providers::DonBotClient client{http};
+    const auto imported =
+        client.import_permalink("https://dps.report/abc-123", providers::donbot_default_api_base,
+                                "123456789012345678", key);
+    MANNY_CHECK(suite, imported.has_value());
+    MANNY_CHECK(suite, imported && imported->upload_id == 42);
+    MANNY_CHECK(suite, imported && imported->fight_log_id == 314);
+    MANNY_CHECK(suite, http.requests().size() == 2);
+    if (http.requests().size() == 2) {
+        const auto& request = http.requests()[0];
+        MANNY_CHECK(suite, request.method == ports::HttpMethod::Post);
+        MANNY_CHECK(suite, request.url == "https://donbot-api.walmslo.com/api/upload/gw2/url");
+        MANNY_CHECK(suite,
+                    request.body ==
+                        R"({"url":"https://dps.report/abc-123","guildId":"123456789012345678"})");
+        const auto* api_key = find_header(request, "X-GW2-API-Key");
+        MANNY_CHECK(suite, api_key != nullptr && api_key->value == "VALID-KEY");
+        MANNY_CHECK(suite, api_key != nullptr &&
+                               api_key->sensitivity == ports::HttpHeaderSensitivity::Sensitive);
+        MANNY_CHECK(suite, find_header(request, "Content-Type") != nullptr);
+        MANNY_CHECK(suite, http.requests()[1].method == ports::HttpMethod::Get);
+        MANNY_CHECK(suite, http.requests()[1].url ==
+                               "https://donbot-api.walmslo.com/api/upload/stream/42");
+    }
+
+    SequencedHttpClient duplicate_http;
+    duplicate_http.push(response(
+        200, {},
+        R"json({"uploadId":43,"fightLogId":315,"status":"complete","duplicate":true})json"));
+    providers::DonBotClient duplicate_client{duplicate_http};
+    const auto duplicate = duplicate_client.import_permalink(
+        "https://dps.report/existing", providers::donbot_default_api_base, "123", key);
+    MANNY_CHECK(suite, duplicate.has_value());
+    MANNY_CHECK(suite, duplicate && duplicate->fight_log_id == 315);
+    MANNY_CHECK(suite, duplicate_http.requests().size() == 1);
+
+    SequencedHttpClient invalid_http;
+    providers::DonBotClient invalid_client{invalid_http};
+    MANNY_CHECK(suite, !invalid_client
+                            .import_permalink("https://dps.report.evil/private",
+                                              providers::donbot_default_api_base, "123", key)
+                            .has_value());
+    MANNY_CHECK(suite, invalid_http.requests().empty());
+
+    SequencedHttpClient retry_http;
+    retry_http.push(std::unexpected(http_error(ports::HttpErrorCode::Timeout)));
+    providers::DonBotClient retry_client{retry_http};
+    const auto retry = retry_client.import_permalink(
+        "https://dps.report/retry", providers::donbot_default_api_base, "123", key);
+    MANNY_CHECK(suite, !retry.has_value());
+    MANNY_CHECK(suite, retry.error().disposition == providers::DonBotDisposition::Retry);
+}
+
 } // namespace
 
 void run_donbot_client_tests(TestSuite& suite) {
@@ -484,6 +546,7 @@ void run_donbot_client_tests(TestSuite& suite) {
     unsafe_location_tests(suite, file);
     protocol_response_tests(suite, file);
     failure_policy_tests(suite, file);
+    permalink_import_tests(suite);
 }
 
 } // namespace manny_uploader::test

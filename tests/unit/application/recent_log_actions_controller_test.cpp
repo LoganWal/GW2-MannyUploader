@@ -166,6 +166,10 @@ void open_and_validation_tests(TestSuite& suite) {
         log_file("unsafe-wingman.zevtc"),
         domain::EncounterMetadata{.boss_id = 1, .pov_account = {}}, selection(true));
     MANNY_CHECK(suite, unsafe_wingman_job.has_value());
+    MANNY_CHECK(suite, uploads
+                           ->handle_result(dps_success(*unsafe_wingman_job,
+                                                       "https://dps.report/unsafe-wingman"))
+                           .has_value());
     MANNY_CHECK(
         suite,
         uploads
@@ -237,6 +241,8 @@ void retry_queue_and_shutdown_tests(TestSuite& suite) {
     auto job = uploads->add_job(
         log_file(), domain::EncounterMetadata{.boss_id = 1, .pov_account = {}}, selection(true));
     MANNY_CHECK(suite, job.has_value());
+    MANNY_CHECK(suite,
+                uploads->handle_result(dps_success(*job, "https://dps.report/retry")).has_value());
     MANNY_CHECK(suite, uploads
                            ->handle_result(ports::UploadResult{
                                .job_id = *job,

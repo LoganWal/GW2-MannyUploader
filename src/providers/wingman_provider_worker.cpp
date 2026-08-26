@@ -78,8 +78,7 @@ domain::Provider WingmanProviderWorker::provider() const noexcept {
 
 std::expected<void, ports::DispatchError>
 WingmanProviderWorker::enqueue(ports::UploadRequest request) {
-    if (request.dps_report_result.has_value() || request.donbot_context.has_value() ||
-        request.twitch_context.has_value()) {
+    if (request.donbot_context.has_value() || request.twitch_context.has_value()) {
         return std::unexpected(
             ports::DispatchError{.message = "GW2Wingman upload request is invalid"});
     }
@@ -124,7 +123,9 @@ std::size_t WingmanProviderWorker::parallelism() const noexcept {
 
 ports::UploadResult WingmanProviderWorker::process(const ports::UploadRequest& request,
                                                    const std::stop_token& stop_token) const {
-    auto uploaded = client_.upload(request.file, request.metadata, stop_token);
+    auto uploaded = request.dps_report_result
+                        ? client_.import_permalink(request.dps_report_result->permalink, stop_token)
+                        : client_.upload(request.file, request.metadata, stop_token);
     if (!uploaded) {
         switch (uploaded.error().disposition) {
         case WingmanUploadDisposition::Retry:
@@ -145,8 +146,9 @@ ports::UploadResult WingmanProviderWorker::process(const ports::UploadRequest& r
         receipt = domain::WingmanUploadReceipt{.permalink = std::move(*uploaded->permalink)};
     }
     return make_result(request.job_id, ports::UploadOutcome::Succeeded,
-                       uploaded->duplicate ? "Already present in GW2Wingman"
-                                           : "Uploaded to GW2Wingman",
+                       uploaded->duplicate         ? "Already present in GW2Wingman"
+                       : request.dps_report_result ? "Queued in GW2Wingman"
+                                                   : "Uploaded to GW2Wingman",
                        std::nullopt, std::move(receipt));
 }
 

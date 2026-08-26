@@ -224,7 +224,7 @@ void wingman_receipt_tests(TestSuite& suite) {
 
 void manual_retry_tests(TestSuite& suite) {
     auto created = UploadJob::create(UploadJobId{12}, example_file(), UploadJob::DetectedAt{},
-                                     providers(true, false, false, true));
+                                     providers(true, true, true, true));
     MANNY_CHECK(suite, created.has_value());
     auto job = std::move(*created);
 
@@ -235,12 +235,16 @@ void manual_retry_tests(TestSuite& suite) {
     MANNY_CHECK(suite, job.transition(Provider::DpsReport, ProviderState::Active).has_value());
     MANNY_CHECK(suite,
                 job.transition(Provider::DpsReport, ProviderState::Failed, "failed").has_value());
-    MANNY_CHECK(suite, job.transition(Provider::Twitch, ProviderState::Skipped,
-                                      "Skipped because dps.report failed")
-                           .has_value());
+    for (const auto dependent : {Provider::Wingman, Provider::DonBot, Provider::Twitch}) {
+        MANNY_CHECK(suite, job.transition(dependent, ProviderState::Skipped,
+                                          "Skipped because dps.report failed")
+                               .has_value());
+    }
     MANNY_CHECK(suite, job.prepare_manual_retry(Provider::DpsReport).has_value());
     MANNY_CHECK(suite, job.provider_status(Provider::DpsReport).state == ProviderState::Waiting);
-    MANNY_CHECK(suite, job.provider_status(Provider::Twitch).state == ProviderState::Waiting);
+    for (const auto dependent : {Provider::Wingman, Provider::DonBot, Provider::Twitch}) {
+        MANNY_CHECK(suite, job.provider_status(dependent).state == ProviderState::Waiting);
+    }
 
     MANNY_CHECK(suite, job.transition(Provider::DpsReport, ProviderState::Active).has_value());
     MANNY_CHECK(suite, job.complete_dps_report(DpsReportResult{

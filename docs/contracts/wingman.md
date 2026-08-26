@@ -37,12 +37,12 @@ Accept: application/json
 ```
 
 The permalink must use the exact `https://dps.report/` prefix and contain no credentials, query,
-fragment, backslash, control, or non-ASCII byte. The import response is successful only when its
-integer `success` is `1`. The status response must include boolean `inQueue` and `inDB`, at least one
-of which is true, plus a `targetURL` under the exact
+fragment, backslash, control, or non-ASCII byte. An import response with integer `success: 1` means
+newly queued. `success: 0` is accepted only when the following status check confirms `inQueue: true`
+or `inDB: true`. The status response must include both booleans, plus a `targetURL` under the exact
 `https://gw2wingman.nevermindcreations.de/log/` prefix with a safe log slug. The target is retained
-immediately so the UI can open the fight while Wingman finishes processing it. `inDB: true` is
-reported as duplicate success.
+immediately so the UI can open the fight while Wingman finishes processing it. A newly queued import
+may temporarily report both status flags false. `inDB: true` is reported as duplicate success.
 
 Both requests use 10-second connect, 60-second operation, and 30-second stalled-transfer timeouts.
 Headers and bodies use the normal 64 KiB response limits. Redirects are disabled. Transport and HTTP

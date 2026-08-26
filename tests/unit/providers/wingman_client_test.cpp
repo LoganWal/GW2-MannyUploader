@@ -489,13 +489,44 @@ void permalink_import_tests(TestSuite& suite) {
     }
 
     SequentialHttpClient duplicate_http{{
-        response(R"json({"success":1})json"),
+        response(R"json({"success":0})json"),
         response(
             R"json({"inQueue":false,"inDB":true,"targetURL":"https://gw2wingman.nevermindcreations.de/log/existing"})json"),
     }};
     providers::WingmanClient duplicate_client{duplicate_http};
     const auto duplicate = duplicate_client.import_permalink("https://dps.report/existing");
     MANNY_CHECK(suite, duplicate.has_value() && duplicate->duplicate);
+
+    SequentialHttpClient already_queued_http{{
+        response(R"json({"success":0})json"),
+        response(
+            R"json({"inQueue":true,"inDB":false,"targetURL":"https://gw2wingman.nevermindcreations.de/log/already-queued"})json"),
+    }};
+    providers::WingmanClient already_queued_client{already_queued_http};
+    const auto already_queued =
+        already_queued_client.import_permalink("https://dps.report/already-queued");
+    MANNY_CHECK(suite, already_queued.has_value());
+    MANNY_CHECK(suite, already_queued && !already_queued->duplicate);
+
+    SequentialHttpClient not_visible_yet_http{{
+        response(R"json({"success":1})json"),
+        response(
+            R"json({"inQueue":false,"inDB":false,"targetURL":"https://gw2wingman.nevermindcreations.de/log/not-visible-yet"})json"),
+    }};
+    providers::WingmanClient not_visible_yet_client{not_visible_yet_http};
+    const auto not_visible_yet =
+        not_visible_yet_client.import_permalink("https://dps.report/not-visible-yet");
+    MANNY_CHECK(suite, not_visible_yet.has_value());
+    MANNY_CHECK(suite, not_visible_yet && !not_visible_yet->duplicate);
+
+    SequentialHttpClient declined_http{{
+        response(R"json({"success":0})json"),
+        response(
+            R"json({"inQueue":false,"inDB":false,"targetURL":"https://gw2wingman.nevermindcreations.de/log/declined"})json"),
+    }};
+    providers::WingmanClient declined_client{declined_http};
+    MANNY_CHECK(suite,
+                !declined_client.import_permalink("https://dps.report/declined").has_value());
 
     FakeHttpClient invalid_http{response(R"json({"success":1})json")};
     providers::WingmanClient invalid_client{invalid_http};

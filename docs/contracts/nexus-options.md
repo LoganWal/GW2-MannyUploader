@@ -74,11 +74,13 @@ the authentication workflow is connected. Final settings validation still runs i
 `ConfigurationService`, so enabling Twitch also requires dps.report and at least one post-result
 policy.
 
-Discord summary delivery can be enabled only while DonBot uploads are enabled and the selected guild
+Automatic Discord summary delivery can be enabled only while DonBot uploads are enabled and the selected guild
 advertises `discord-summary-delivery-v1`. Guild defaults are selected initially. Route commands
 accept empty for guild defaults or an exact channel ID from the current verified guild. Only an
 explicit channel command sets the persisted override marker. These workflow-owned values are
-excluded from stale ordinary-options drafts.
+excluded from stale ordinary-options drafts. Turning automatic delivery off preserves an authorized
+route for explicit aggregate delivery. Disabling DonBot, changing guild, deverifying, or losing
+authorization clears an invalid route.
 
 There is no command or settings field for a Twitch channel, broadcaster ID, sender ID, raw token, or
 client secret. The ordinary Client ID identifies the public application; the Twitch workflow's

@@ -1,6 +1,8 @@
 #include "manny_uploader/domain/upload_job.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <limits>
 #include <ranges>
 #include <utility>
 
@@ -83,9 +85,24 @@ valid_donbot_discord_delivery(const DonBotDiscordDeliveryReceipt& receipt) noexc
 }
 
 [[nodiscard]] bool valid_donbot_upload(const DonBotUploadReceipt& receipt) noexcept {
+    const auto valid_guild_id = [&receipt] {
+        if (!receipt.guild_id) {
+            return true;
+        }
+        const auto& value = *receipt.guild_id;
+        std::uint64_t parsed{};
+        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+        return !value.empty() && value.size() <= 19 && value.front() != '0' &&
+               result.ec == std::errc{} && result.ptr == value.data() + value.size() &&
+               parsed > 0 &&
+               parsed <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+    }();
     return (!receipt.upload_id || *receipt.upload_id != 0) &&
-           (!receipt.fight_log_id || *receipt.fight_log_id != 0) &&
-           valid_donbot_discord_delivery(receipt.discord_delivery);
+           (!receipt.fight_log_id ||
+            (*receipt.fight_log_id != 0 &&
+             *receipt.fight_log_id <=
+                 static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))) &&
+           valid_donbot_discord_delivery(receipt.discord_delivery) && valid_guild_id;
 }
 
 } // namespace

@@ -323,6 +323,13 @@ user explicitly selects one verified channel for either DonBot upload path. Both
 explicit acceptance, and
 completion returns only normalized delivery counts.
 
+Capability `discord-aggregate-delivery-v1` adds a bounded explicit delivery for 2 through 100
+already processed fight IDs. New upload receipts retain the captured guild ID as non-secret
+provenance. A separate application controller accepts stable selected job IDs, re-resolves the
+current revisions, guild, route, provenance, and unique fight IDs, then queues one request to a
+joined single-operation worker. Aggregate uncertainty is never retried automatically and its result
+is not written into per-log history.
+
 The client requires exact `201` creation and `204` completion handshakes, including protocol version
 and final upload offset. A completed event stream contributes the DonBot fight ID used for aggregate
 links. Once creation succeeds, an ambiguous PATCH or processing failure is not automatically retried
@@ -348,9 +355,10 @@ Guild selection and disconnect are also write-through, with disconnect disabling
 before protected-key erasure. The exact state and failure ordering is frozen in
 [`docs/contracts/donbot-configuration-workflow.md`](../contracts/donbot-configuration-workflow.md).
 
-The DonBot options model exposes the delivery toggle and default-or-channel route only while the
+The DonBot options model exposes the automatic delivery toggle and default-or-channel route only while the
 current verified guild authorizes them. Changing guilds clears delivery targeting. Startup
-re-verification disables a revoked route without retargeting it.
+re-verification disables a revoked route without retargeting it. Turning automatic delivery off
+preserves a still-authorized route for the explicit aggregate action.
 
 ## Twitch broadcaster client
 

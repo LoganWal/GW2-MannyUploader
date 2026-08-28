@@ -5,6 +5,7 @@ add_executable(
     unit/addon/addon_lifecycle_test.cpp
     unit/application/application_pump_test.cpp
     unit/application/configuration_service_test.cpp
+    unit/application/donbot_aggregate_delivery_controller_test.cpp
     unit/application/donbot_configuration_controller_test.cpp
     unit/application/twitch_authentication_controller_test.cpp
     unit/application/twitch_message_template_test.cpp
@@ -32,6 +33,7 @@ add_executable(
     unit/providers/dps_report_client_test.cpp
     unit/providers/dps_report_provider_worker_test.cpp
     unit/providers/donbot_client_test.cpp
+    unit/providers/donbot_aggregate_delivery_worker_test.cpp
     unit/providers/donbot_provider_worker_test.cpp
     unit/providers/donbot_verification_worker_test.cpp
     unit/providers/twitch_client_test.cpp
@@ -40,6 +42,7 @@ add_executable(
     unit/providers/twitch_test_message_worker_test.cpp
     unit/providers/wingman_client_test.cpp
     unit/providers/wingman_provider_worker_test.cpp
+    unit/ui/donbot_aggregate_selection_test.cpp
     unit/ui/nexus_options_model_test.cpp
 )
 

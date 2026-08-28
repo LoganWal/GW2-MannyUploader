@@ -163,7 +163,8 @@ class FakeDonBotVerifier final : public ports::IDonBotVerifier {
                          {.guild_id = "123", .guild_name = "Guild One", .discord_delivery = {}},
                          {.guild_id = "456", .guild_name = "Guild Two", .discord_delivery = {}},
                      },
-                 bool discord_summary_delivery_v1 = false) {
+                 bool discord_summary_delivery_v1 = false,
+                 bool discord_aggregate_delivery_v1 = false) {
         auto request = std::move(requests.front());
         requests.pop_front();
         results.push_back(ports::DonBotVerificationResult{
@@ -174,6 +175,7 @@ class FakeDonBotVerifier final : public ports::IDonBotVerifier {
                         ports::DonBotVerification{
                             .account_name = std::move(account),
                             .discord_summary_delivery_v1 = discord_summary_delivery_v1,
+                            .discord_aggregate_delivery_v1 = discord_aggregate_delivery_v1,
                             .guilds = std::move(guilds),
                         },
                     .api_key = std::move(request.api_key),
@@ -255,6 +257,8 @@ struct Fixture {
                 .wvw_summary = true,
                 .wvw_advanced = true,
                 .wvw_stream = false,
+                .aggregate_enabled = true,
+                .max_aggregate_fight_logs = 50,
                 .channels =
                     {
                         {.channel_id = "223", .channel_name = "logs"},
@@ -387,9 +391,10 @@ void discord_delivery_selection_tests(TestSuite& suite) {
                            .begin_verification("https://donbot.example",
                                                support::SecretValue::from_text("KEY"))
                            .has_value());
-    fixture.verifier.succeed_next("Player.1234", {delivery_guild(), second_guild}, true);
+    fixture.verifier.succeed_next("Player.1234", {delivery_guild(), second_guild}, true, true);
     MANNY_CHECK(suite, controller.poll().has_value());
     MANNY_CHECK(suite, controller.snapshot().discord_summary_delivery_v1);
+    MANNY_CHECK(suite, controller.snapshot().discord_aggregate_delivery_v1);
     MANNY_CHECK(suite, controller.select_guild("123").has_value());
 
     const auto disabled = controller.set_discord_delivery_enabled(true);
@@ -417,6 +422,16 @@ void discord_delivery_selection_tests(TestSuite& suite) {
     MANNY_CHECK(suite,
                 override_delivery.mode == domain::DonBotDiscordDeliveryMode::ChannelOverride);
     MANNY_CHECK(suite, override_delivery.channel_id == "223");
+    MANNY_CHECK(suite, controller.set_discord_delivery_enabled(false).has_value());
+    MANNY_CHECK(suite, !fixture.configuration->snapshot().settings.donbot.discord_delivery_enabled);
+    MANNY_CHECK(suite, application::authorized_donbot_delivery(
+                           fixture.configuration->snapshot().settings, controller.snapshot())
+                               .mode == domain::DonBotDiscordDeliveryMode::None);
+    const auto aggregate_route = application::authorized_donbot_route(
+        fixture.configuration->snapshot().settings, controller.snapshot());
+    MANNY_CHECK(suite, aggregate_route.mode == domain::DonBotDiscordDeliveryMode::ChannelOverride);
+    MANNY_CHECK(suite, aggregate_route.channel_id == "223");
+    MANNY_CHECK(suite, controller.set_discord_delivery_enabled(true).has_value());
 
     const auto unknown = controller.select_discord_channel("999");
     MANNY_CHECK(suite, !unknown.has_value());

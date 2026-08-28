@@ -26,6 +26,8 @@ struct DonBotDiscordDeliveryPolicy {
     bool wvw_summary{};
     bool wvw_advanced{};
     bool wvw_stream{};
+    bool aggregate_enabled{};
+    std::uint16_t max_aggregate_fight_logs{};
     std::vector<DonBotChannel> channels;
 
     [[nodiscard]] friend bool operator==(const DonBotDiscordDeliveryPolicy&,
@@ -43,6 +45,7 @@ struct DonBotGuild {
 struct DonBotVerification {
     std::string account_name;
     bool discord_summary_delivery_v1{};
+    bool discord_aggregate_delivery_v1{};
     std::vector<DonBotGuild> guilds;
 };
 

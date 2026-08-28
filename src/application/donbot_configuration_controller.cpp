@@ -91,6 +91,7 @@ DonBotConfigurationController::create(ConfigurationService& configuration,
             .api_base_url = std::move(base_url),
             .account_name = std::nullopt,
             .discord_summary_delivery_v1 = false,
+            .discord_aggregate_delivery_v1 = false,
             .guilds = {},
             .selected_guild_id = {},
             .diagnostic = {},
@@ -109,13 +110,11 @@ DonBotConfigurationSnapshot DonBotConfigurationController::snapshot() const {
     return snapshot_;
 }
 
-DonBotDeliveryAuthorization
-authorized_donbot_delivery(const config::Settings& settings,
-                           const DonBotConfigurationSnapshot& snapshot) {
+DonBotDeliveryAuthorization authorized_donbot_route(const config::Settings& settings,
+                                                    const DonBotConfigurationSnapshot& snapshot) {
     DonBotDeliveryAuthorization authorization;
-    if (!settings.donbot.enabled || !settings.donbot.discord_delivery_enabled ||
-        snapshot.state != DonBotConfigurationState::Verified || !snapshot.account_name ||
-        !snapshot.discord_summary_delivery_v1 ||
+    if (!settings.donbot.enabled || snapshot.state != DonBotConfigurationState::Verified ||
+        !snapshot.account_name || !snapshot.discord_summary_delivery_v1 ||
         normalize_base_url(settings.donbot.api_base_url) != snapshot.api_base_url ||
         settings.donbot.selected_guild_id != snapshot.selected_guild_id) {
         return authorization;
@@ -137,6 +136,15 @@ authorized_donbot_delivery(const config::Settings& settings,
         authorization.channel_id = settings.donbot.selected_discord_channel_id;
     }
     return authorization;
+}
+
+DonBotDeliveryAuthorization
+authorized_donbot_delivery(const config::Settings& settings,
+                           const DonBotConfigurationSnapshot& snapshot) {
+    if (!settings.donbot.discord_delivery_enabled) {
+        return {};
+    }
+    return authorized_donbot_route(settings, snapshot);
 }
 
 std::expected<void, DonBotConfigurationError>
@@ -252,8 +260,7 @@ DonBotConfigurationController::set_discord_delivery_enabled(bool enabled) {
                                           "The selected DonBot Discord channel is unavailable"));
     }
     settings.donbot.discord_delivery_enabled = enabled;
-    if (!enabled || !settings.donbot.discord_channel_override_explicit) {
-        settings.donbot.discord_channel_override_explicit = false;
+    if (!settings.donbot.discord_channel_override_explicit) {
         settings.donbot.selected_discord_channel_id.clear();
     }
     if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
@@ -518,15 +525,6 @@ DonBotConfigurationController::handle_saved_success(ports::DonBotVerificationSuc
         (!delivery_policy_available || (!settings.donbot.discord_channel_override_explicit &&
                                         !selected_guild->discord_delivery.defaults_available))) {
         settings.donbot.discord_delivery_enabled = false;
-        settings.donbot.discord_channel_override_explicit = false;
-        settings.donbot.selected_discord_channel_id.clear();
-        save_sanitized_route = true;
-    }
-    if (!settings.donbot.discord_delivery_enabled &&
-        (settings.donbot.discord_channel_override_explicit ||
-         !settings.donbot.selected_discord_channel_id.empty())) {
-        settings.donbot.discord_channel_override_explicit = false;
-        settings.donbot.selected_discord_channel_id.clear();
         save_sanitized_route = true;
     }
     if (save_sanitized_route) {
@@ -558,6 +556,7 @@ void DonBotConfigurationController::publish_verified(ports::DonBotVerification i
     snapshot_.api_base_url = std::move(api_base_url);
     snapshot_.account_name = std::move(identity.account_name);
     snapshot_.discord_summary_delivery_v1 = identity.discord_summary_delivery_v1;
+    snapshot_.discord_aggregate_delivery_v1 = identity.discord_aggregate_delivery_v1;
     snapshot_.guilds = std::move(identity.guilds);
     snapshot_.selected_guild_id = std::move(selected_guild_id);
     snapshot_.diagnostic.clear();
@@ -567,6 +566,7 @@ void DonBotConfigurationController::publish_verified(ports::DonBotVerification i
 void DonBotConfigurationController::clear_identity() noexcept {
     snapshot_.account_name.reset();
     snapshot_.discord_summary_delivery_v1 = false;
+    snapshot_.discord_aggregate_delivery_v1 = false;
     snapshot_.guilds.clear();
     snapshot_.selected_guild_id.clear();
 }

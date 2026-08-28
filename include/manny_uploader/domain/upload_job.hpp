@@ -104,6 +104,7 @@ struct DonBotUploadReceipt {
     std::optional<std::uint64_t> upload_id;
     std::optional<std::uint64_t> fight_log_id;
     DonBotDiscordDeliveryReceipt discord_delivery;
+    std::optional<std::string> guild_id{std::nullopt};
 
     [[nodiscard]] friend bool operator==(const DonBotUploadReceipt&,
                                          const DonBotUploadReceipt&) = default;

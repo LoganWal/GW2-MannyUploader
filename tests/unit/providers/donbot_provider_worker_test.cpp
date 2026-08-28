@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
@@ -142,6 +143,14 @@ class FakeDonBotClient final : public providers::IDonBotClient {
                      const std::stop_token& stop_token) const override {
         return run(api_base_url, guild_id, api_key, std::string{permalink}, discord_delivery,
                    stop_token);
+    }
+
+    [[nodiscard]] std::expected<providers::DonBotAggregateDeliverySuccess, providers::DonBotError>
+    deliver_aggregate(std::span<const std::uint64_t>, std::string_view, std::string_view,
+                      const support::SecretValue&, const providers::DonBotDiscordDeliveryRequest&,
+                      const std::stop_token&) const override {
+        return std::unexpected(
+            upload_error(providers::DonBotDisposition::Failed, "unused aggregate delivery"));
     }
 
   private:
@@ -321,6 +330,9 @@ void creation_and_outcome_tests(TestSuite& suite) {
                                    result->donbot_upload_receipt->upload_id == 91);
             MANNY_CHECK(suite, result->donbot_upload_receipt &&
                                    result->donbot_upload_receipt->fight_log_id == 191);
+            MANNY_CHECK(suite, result->donbot_upload_receipt &&
+                                   result->donbot_upload_receipt->guild_id ==
+                                       std::optional<std::string>{"123456789012345678"});
         } else if (id == 12) {
             MANNY_CHECK(suite, result->outcome == ports::UploadOutcome::Retry);
             MANNY_CHECK(suite, result->retry_after == 12s);

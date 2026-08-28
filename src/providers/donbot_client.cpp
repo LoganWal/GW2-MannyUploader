@@ -32,6 +32,8 @@ struct ParsedDonBotGuild {
         std::optional<bool> defaultsAvailable;
         std::optional<bool> channelOverrideAllowed;
         std::optional<std::vector<std::string>> enabledMessageKinds;
+        std::optional<bool> aggregateEnabled;
+        std::optional<std::uint64_t> maxAggregateFightLogs;
         struct ParsedChannel {
             std::optional<std::string> channelId;
             std::optional<std::string> channelName;
@@ -68,6 +70,17 @@ struct DonBotPermalinkDeliveryRequest {
     std::optional<std::string> channelId;
 };
 
+struct DonBotAggregateDeliveryRequest {
+    std::string guildId;
+    std::vector<std::string> fightLogIds;
+    DonBotPermalinkDeliveryRequest discordDelivery;
+};
+
+struct ParsedDonBotAggregateDelivery {
+    std::optional<std::uint64_t> fightLogCount;
+    std::optional<ParsedDonBotDiscordDelivery> discordDelivery;
+};
+
 struct DonBotPermalinkImportRequest {
     std::string url;
     std::string guildId;
@@ -94,6 +107,7 @@ constexpr std::string_view guilds_path = "/api/upload/gw2/guilds";
 constexpr std::string_view tus_path = "/api/upload/tus";
 constexpr std::string_view permalink_import_path = "/api/upload/gw2/url";
 constexpr std::string_view progress_path = "/api/upload/stream/";
+constexpr std::string_view aggregate_delivery_path = "/api/upload/gw2/aggregate";
 constexpr std::size_t max_api_base_bytes = 2048;
 constexpr std::size_t max_display_name_bytes = 256;
 constexpr std::size_t max_guilds = 256;
@@ -101,6 +115,7 @@ constexpr std::size_t max_channels_per_guild = 256;
 constexpr std::size_t max_total_channels = 2048;
 constexpr std::size_t max_delivery_messages = 4;
 constexpr std::string_view discord_delivery_capability = "discord-summary-delivery-v1";
+constexpr std::string_view discord_aggregate_delivery_capability = "discord-aggregate-delivery-v1";
 constexpr std::array<std::string_view, 4> discord_delivery_message_kinds{
     "pve-summary",
     "wvw-summary",
@@ -485,9 +500,19 @@ decode_verification(const ports::HttpResponse& response) {
         parsed.capabilities &&
         std::ranges::find(*parsed.capabilities, discord_delivery_capability) !=
             parsed.capabilities->end();
+    const auto aggregate_capability_present =
+        parsed.capabilities &&
+        std::ranges::find(*parsed.capabilities, discord_aggregate_delivery_capability) !=
+            parsed.capabilities->end();
+    if (aggregate_capability_present && !capability_present) {
+        return std::unexpected(make_error(DonBotDisposition::Failed,
+                                          "DonBot returned an invalid aggregate capability",
+                                          std::nullopt, std::nullopt, response.status_code));
+    }
     DonBotVerification result{
         .account_name = std::move(*parsed.accountName),
         .discord_summary_delivery_v1 = capability_present,
+        .discord_aggregate_delivery_v1 = aggregate_capability_present,
         .guilds = {},
     };
     result.guilds.reserve(parsed.guilds->size());
@@ -522,6 +547,21 @@ decode_verification(const ports::HttpResponse& response) {
             delivery.enabled = *guild.discordDelivery->enabled;
             delivery.defaults_available = *guild.discordDelivery->defaultsAvailable;
             delivery.channel_override_allowed = *guild.discordDelivery->channelOverrideAllowed;
+            if (aggregate_capability_present) {
+                if (!guild.discordDelivery->aggregateEnabled ||
+                    !guild.discordDelivery->maxAggregateFightLogs ||
+                    *guild.discordDelivery->maxAggregateFightLogs < 2 ||
+                    *guild.discordDelivery->maxAggregateFightLogs >
+                        ports::max_donbot_aggregate_fight_logs) {
+                    return std::unexpected(
+                        make_error(DonBotDisposition::Failed,
+                                   "DonBot returned an invalid aggregate delivery policy",
+                                   std::nullopt, std::nullopt, response.status_code));
+                }
+                delivery.aggregate_enabled = *guild.discordDelivery->aggregateEnabled;
+                delivery.max_aggregate_fight_logs =
+                    static_cast<std::uint16_t>(*guild.discordDelivery->maxAggregateFightLogs);
+            }
             std::unordered_set<std::string> kinds;
             for (const auto& kind : *guild.discordDelivery->enabledMessageKinds) {
                 if (std::ranges::find(discord_delivery_message_kinds, kind) ==
@@ -571,13 +611,13 @@ struct ProcessedDonBotUpload {
 };
 
 [[nodiscard]] std::optional<domain::DonBotDiscordDeliveryReceipt>
-decode_delivery(const detail::ParsedDonBotDiscordDelivery& parsed) {
+decode_delivery(const detail::ParsedDonBotDiscordDelivery& parsed,
+                std::size_t maximum_messages = max_delivery_messages) {
     if (!parsed.requested || !parsed.outcome || !parsed.sent || !parsed.skipped || !parsed.failed ||
-        !parsed.ambiguous || *parsed.sent > max_delivery_messages ||
-        *parsed.skipped > max_delivery_messages || *parsed.failed > max_delivery_messages ||
-        *parsed.ambiguous > max_delivery_messages ||
-        *parsed.sent + *parsed.skipped + *parsed.failed + *parsed.ambiguous >
-            max_delivery_messages) {
+        !parsed.ambiguous || *parsed.sent > maximum_messages ||
+        *parsed.skipped > maximum_messages || *parsed.failed > maximum_messages ||
+        *parsed.ambiguous > maximum_messages ||
+        *parsed.sent + *parsed.skipped + *parsed.failed + *parsed.ambiguous > maximum_messages) {
         return std::nullopt;
     }
     auto outcome = domain::DonBotDiscordDeliveryOutcome::NotRequested;
@@ -1175,6 +1215,117 @@ DonBotClient::import_permalink(std::string_view dps_report_permalink, std::strin
     } catch (...) {
         return std::unexpected(
             make_error(DonBotDisposition::Failed, "The DonBot import failed unexpectedly"));
+    }
+}
+// NOLINTEND(bugprone-easily-swappable-parameters)
+
+// Ordered protocol arguments implement the existing client port.
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+std::expected<DonBotAggregateDeliverySuccess, DonBotError> DonBotClient::deliver_aggregate(
+    std::span<const std::uint64_t> fight_log_ids, std::string_view api_base_url,
+    std::string_view guild_id, const support::SecretValue& gw2_api_key,
+    const DonBotDiscordDeliveryRequest& discord_delivery, const std::stop_token& stop_token) const {
+    try {
+        if (stop_token.stop_requested()) {
+            return std::unexpected(
+                make_error(DonBotDisposition::Cancelled, "The DonBot request was cancelled"));
+        }
+        auto base = parse_base_url(api_base_url);
+        if (!base) {
+            return std::unexpected(std::move(base.error()));
+        }
+        if (!valid_positive_long(guild_id)) {
+            return std::unexpected(
+                make_error(DonBotDisposition::Failed, "The DonBot guild selection is invalid"));
+        }
+        if (!valid_api_key(gw2_api_key)) {
+            return std::unexpected(
+                make_error(DonBotDisposition::Failed, "The DonBot GW2 API key is invalid"));
+        }
+        if (!delivery_requested(discord_delivery) ||
+            !valid_discord_delivery_request(discord_delivery) || fight_log_ids.size() < 2 ||
+            fight_log_ids.size() > ports::max_donbot_aggregate_fight_logs) {
+            return std::unexpected(make_error(DonBotDisposition::Failed,
+                                              "The DonBot aggregate delivery request is invalid"));
+        }
+
+        std::unordered_set<std::uint64_t> unique_ids;
+        detail::DonBotAggregateDeliveryRequest request_body{
+            .guildId = std::string{guild_id},
+            .fightLogIds = {},
+            .discordDelivery =
+                detail::DonBotPermalinkDeliveryRequest{
+                    .mode = std::string{delivery_mode_name(discord_delivery.mode)},
+                    .channelId = discord_delivery.channel_id.empty()
+                                     ? std::nullopt
+                                     : std::optional<std::string>{discord_delivery.channel_id},
+                },
+        };
+        request_body.fightLogIds.reserve(fight_log_ids.size());
+        for (const auto fight_log_id : fight_log_ids) {
+            if (fight_log_id == 0 ||
+                fight_log_id >
+                    static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+                !unique_ids.insert(fight_log_id).second) {
+                return std::unexpected(make_error(
+                    DonBotDisposition::Failed, "The DonBot aggregate fight selection is invalid"));
+            }
+            request_body.fightLogIds.push_back(std::to_string(fight_log_id));
+        }
+
+        std::string document;
+        if (const auto error = glz::write_json(request_body, document); error) {
+            return std::unexpected(make_error(
+                DonBotDisposition::Failed, "The DonBot aggregate request could not be prepared"));
+        }
+        const auto body_bytes = std::as_bytes(std::span{document.data(), document.size()});
+        auto headers = common_headers(gw2_api_key);
+        headers.push_back(ports::HttpHeader{
+            .name = "Content-Type",
+            .value = "application/json",
+            .sensitivity = ports::HttpHeaderSensitivity::Public,
+        });
+        ports::HttpRequest request{
+            .method = ports::HttpMethod::Post,
+            .url = base->normalized + std::string{aggregate_delivery_path},
+            .headers = std::move(headers),
+            .body = http::make_memory_http_body_source(
+                std::vector<std::byte>{body_bytes.begin(), body_bytes.end()}),
+            .timeouts = upload_timeouts(),
+            .response_limits = small_response_limits(std::size_t{64} * 1024U),
+        };
+        auto response = http_client_.execute(std::move(request), stop_token);
+        if (!response) {
+            return std::unexpected(classify_transport_error(response.error(), false));
+        }
+        if (response->status_code != 200) {
+            return std::unexpected(classify_status(*response, false));
+        }
+
+        const auto response_document = std::string_view{
+            reinterpret_cast<const char*>(response->body.data()), response->body.size()};
+        detail::ParsedDonBotAggregateDelivery parsed;
+        if (const auto error = glz::read<ResponseReadOptions{}>(parsed, response_document);
+            error || !parsed.fightLogCount || *parsed.fightLogCount != fight_log_ids.size() ||
+            !parsed.discordDelivery) {
+            return std::unexpected(make_error(
+                DonBotDisposition::Failed, "DonBot returned an invalid aggregate delivery result",
+                std::nullopt, std::nullopt, response->status_code));
+        }
+        auto delivery =
+            decode_delivery(*parsed.discordDelivery, ports::max_donbot_aggregate_fight_logs);
+        if (!delivery || delivery->outcome == domain::DonBotDiscordDeliveryOutcome::NotRequested) {
+            return std::unexpected(make_error(
+                DonBotDisposition::Failed, "DonBot returned an invalid aggregate delivery result",
+                std::nullopt, std::nullopt, response->status_code));
+        }
+        return DonBotAggregateDeliverySuccess{
+            .fight_log_count = fight_log_ids.size(),
+            .discord_delivery = *delivery,
+        };
+    } catch (...) {
+        return std::unexpected(make_error(DonBotDisposition::Failed,
+                                          "The DonBot aggregate delivery failed unexpectedly"));
     }
 }
 // NOLINTEND(bugprone-easily-swappable-parameters)

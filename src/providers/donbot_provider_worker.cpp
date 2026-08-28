@@ -302,6 +302,7 @@ ports::UploadResult DonBotProviderWorker::process(const ports::UploadRequest& re
                            .upload_id = uploaded->upload_id,
                            .fight_log_id = uploaded->fight_log_id,
                            .discord_delivery = uploaded->discord_delivery,
+                           .guild_id = request.donbot_context->guild_id,
                        });
 }
 

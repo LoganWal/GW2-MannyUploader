@@ -53,8 +53,9 @@ the snapshot changes. Selection does not implicitly enable DonBot; the options p
 ordinary enable toggle separately after a durable verified selection exists.
 
 Changing the selected guild disables Discord delivery and clears its channel override. Disabling
-DonBot or Discord delivery also clears the override. Selecting the same guild preserves the current
-route. Enabling delivery requires DonBot uploads, negotiated `discord-summary-delivery-v1`, an
+DonBot also clears the override. Disabling automatic per-log Discord delivery preserves a still
+authorized route so an explicit aggregate can use it. Selecting the same guild preserves the current
+route. Enabling automatic delivery requires DonBot uploads, negotiated `discord-summary-delivery-v1`, an
 enabled guild policy, and an authorized route. Guild defaults are the initial route. A channel
 override is used only after an explicit channel selection and must match a channel returned for the
 selected guild. Selecting guild defaults clears both the explicit marker and channel ID. Saves
@@ -68,9 +69,9 @@ guild is retained only when it is in the returned authorized set. If it is no lo
 ordinary settings are first saved with DonBot disabled and the guild, Discord delivery, and channel
 selection cleared, then verified identity is published.
 
-Startup preserves Discord delivery only while the capability, guild policy, and explicitly selected
+Startup preserves the route only while the capability, guild policy, and explicitly selected
 channel remain authorized. A persisted channel ID without the explicit marker is stale, is cleared,
-and resolves to guild defaults. Revocation durably disables delivery and clears the channel before
+and resolves to guild defaults. Revocation durably disables automatic delivery and clears the channel before
 publishing the verified snapshot. Ordinary DonBot uploads remain enabled when the guild is still
 authorized.
 The provider starts with no Discord delivery route. Discovery waits while saved delivery

@@ -201,6 +201,7 @@ void verification_tests(TestSuite& suite) {
     MANNY_CHECK(suite, verified && verified->guilds.size() == 2);
     MANNY_CHECK(suite, verified && verified->guilds.front().guild_id == "123456789012345678");
     MANNY_CHECK(suite, verified && !verified->discord_summary_delivery_v1);
+    MANNY_CHECK(suite, verified && !verified->discord_aggregate_delivery_v1);
     MANNY_CHECK(suite, http.requests().size() == 1);
     if (!http.requests().empty()) {
         const auto& request = http.requests().front();
@@ -236,7 +237,7 @@ void verification_tests(TestSuite& suite) {
     SequencedHttpClient delivery_http;
     delivery_http.push(response(200, {}, R"json({
       "accountName":"Player.1234",
-      "capabilities":["future-capability","discord-summary-delivery-v1"],
+      "capabilities":["future-capability","discord-summary-delivery-v1","discord-aggregate-delivery-v1"],
       "guilds":[{
         "guildId":"123456789012345678",
         "guildName":"Raid Guild",
@@ -244,6 +245,8 @@ void verification_tests(TestSuite& suite) {
           "enabled":true,
           "defaultsAvailable":true,
           "channelOverrideAllowed":true,
+          "aggregateEnabled":true,
+          "maxAggregateFightLogs":50,
           "enabledMessageKinds":["pve-summary","wvw-summary","wvw-advanced","wvw-stream"],
           "channels":[
             {"channelId":"223456789012345678","channelName":"logs"},
@@ -256,6 +259,7 @@ void verification_tests(TestSuite& suite) {
     const auto delivery_verified = delivery_client.verify(providers::donbot_default_api_base, key);
     MANNY_CHECK(suite, delivery_verified.has_value());
     MANNY_CHECK(suite, delivery_verified && delivery_verified->discord_summary_delivery_v1);
+    MANNY_CHECK(suite, delivery_verified && delivery_verified->discord_aggregate_delivery_v1);
     MANNY_CHECK(suite, delivery_verified && delivery_verified->guilds.size() == 1);
     if (delivery_verified && !delivery_verified->guilds.empty()) {
         const auto& delivery = delivery_verified->guilds.front().discord_delivery;
@@ -263,6 +267,8 @@ void verification_tests(TestSuite& suite) {
                                delivery.channel_override_allowed);
         MANNY_CHECK(suite, delivery.pve_summary && delivery.wvw_summary && delivery.wvw_advanced &&
                                delivery.wvw_stream);
+        MANNY_CHECK(suite, delivery.aggregate_enabled);
+        MANNY_CHECK(suite, delivery.max_aggregate_fight_logs == 50);
         MANNY_CHECK(suite, delivery.channels.size() == 2);
         MANNY_CHECK(suite, delivery.channels.front().channel_name == "logs");
     }
@@ -292,6 +298,109 @@ void verification_tests(TestSuite& suite) {
             suite,
             !invalid_policy_client.verify(providers::donbot_default_api_base, key).has_value());
     }
+
+    constexpr std::array invalid_aggregate_policies{
+        std::string_view{
+            R"json({"accountName":"Player.1234","capabilities":["discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild"}]})json"},
+        std::string_view{
+            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1","discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary"],"aggregateEnabled":true,"maxAggregateFightLogs":1,"channels":[]}}]})json"},
+        std::string_view{
+            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1","discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary"],"aggregateEnabled":true,"maxAggregateFightLogs":101,"channels":[]}}]})json"},
+        std::string_view{
+            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1","discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary"],"channels":[]}}]})json"},
+    };
+    for (const auto document : invalid_aggregate_policies) {
+        SequencedHttpClient invalid_policy_http;
+        invalid_policy_http.push(response(200, {}, document));
+        providers::DonBotClient invalid_policy_client{invalid_policy_http};
+        MANNY_CHECK(
+            suite,
+            !invalid_policy_client.verify(providers::donbot_default_api_base, key).has_value());
+    }
+}
+
+void aggregate_delivery_tests(TestSuite& suite) {
+    const auto key = support::SecretValue::from_text("VALID-KEY");
+    constexpr std::array<std::uint64_t, 2> fight_ids{101, 202};
+    SequencedHttpClient http;
+    http.push(response(
+        200, {},
+        R"json({"fightLogCount":2,"discordDelivery":{"requested":true,"outcome":"sent","sent":2,"skipped":0,"failed":0,"ambiguous":0}})json"));
+    providers::DonBotClient client{http};
+    const auto delivered = client.deliver_aggregate(
+        fight_ids, "https://donbot-api.walmslo.com/", "123456789012345678", key,
+        providers::DonBotDiscordDeliveryRequest{
+            .mode = domain::DonBotDiscordDeliveryMode::ChannelOverride,
+            .channel_id = "223456789012345678",
+        });
+    MANNY_CHECK(suite, delivered.has_value());
+    MANNY_CHECK(suite, delivered && delivered->fight_log_count == 2);
+    MANNY_CHECK(suite, delivered && delivered->discord_delivery.outcome ==
+                                        domain::DonBotDiscordDeliveryOutcome::Sent);
+    MANNY_CHECK(suite, http.requests().size() == 1);
+    if (!http.requests().empty()) {
+        const auto& request = http.requests().front();
+        MANNY_CHECK(suite, request.method == ports::HttpMethod::Post);
+        MANNY_CHECK(suite,
+                    request.url == "https://donbot-api.walmslo.com/api/upload/gw2/aggregate");
+        MANNY_CHECK(
+            suite,
+            request.body ==
+                R"({"guildId":"123456789012345678","fightLogIds":["101","202"],"discordDelivery":{"mode":"channel_override","channelId":"223456789012345678"}})");
+        const auto* api_key = find_header(request, "X-GW2-API-Key");
+        MANNY_CHECK(suite, api_key != nullptr);
+        MANNY_CHECK(suite, api_key && api_key->value == "VALID-KEY");
+        MANNY_CHECK(suite,
+                    api_key && api_key->sensitivity == ports::HttpHeaderSensitivity::Sensitive);
+        MANNY_CHECK(suite, find_header(request, "Content-Type") != nullptr);
+        MANNY_CHECK(suite, request.response_limits.max_body_bytes == 64U * 1024U);
+    }
+
+    constexpr std::array<std::uint64_t, 1> one_fight{101};
+    MANNY_CHECK(
+        suite, !client
+                    .deliver_aggregate(one_fight, providers::donbot_default_api_base, "123", key,
+                                       providers::DonBotDiscordDeliveryRequest{
+                                           .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+                                           .channel_id = {},
+                                       })
+                    .has_value());
+    constexpr std::array<std::uint64_t, 2> duplicate_fights{101, 101};
+    MANNY_CHECK(suite, !client
+                            .deliver_aggregate(
+                                duplicate_fights, providers::donbot_default_api_base, "123", key,
+                                providers::DonBotDiscordDeliveryRequest{
+                                    .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+                                    .channel_id = {},
+                                })
+                            .has_value());
+    MANNY_CHECK(suite, http.requests().size() == 1);
+
+    SequencedHttpClient malformed_http;
+    malformed_http.push(response(
+        200, {},
+        R"json({"fightLogCount":1,"discordDelivery":{"requested":true,"outcome":"sent","sent":2,"skipped":0,"failed":0,"ambiguous":0}})json"));
+    providers::DonBotClient malformed_client{malformed_http};
+    const auto malformed = malformed_client.deliver_aggregate(
+        fight_ids, providers::donbot_default_api_base, "123", key,
+        providers::DonBotDiscordDeliveryRequest{
+            .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+            .channel_id = {},
+        });
+    MANNY_CHECK(suite, !malformed.has_value());
+    MANNY_CHECK(suite, malformed.error().http_status == 200);
+
+    SequencedHttpClient transport_http;
+    transport_http.push(std::unexpected(http_error(ports::HttpErrorCode::Timeout)));
+    providers::DonBotClient transport_client{transport_http};
+    const auto transport = transport_client.deliver_aggregate(
+        fight_ids, providers::donbot_default_api_base, "123", key,
+        providers::DonBotDiscordDeliveryRequest{
+            .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+            .channel_id = {},
+        });
+    MANNY_CHECK(suite, !transport.has_value());
+    MANNY_CHECK(suite, transport.error().http_error == ports::HttpErrorCode::Timeout);
 }
 
 void discord_delivery_upload_tests(TestSuite& suite, const domain::LogFileIdentity& file) {
@@ -816,6 +925,7 @@ void run_donbot_client_tests(TestSuite& suite) {
     verification_tests(suite);
     upload_success_tests(suite, file, payload);
     discord_delivery_upload_tests(suite, file);
+    aggregate_delivery_tests(suite);
     unsafe_location_tests(suite, file);
     protocol_response_tests(suite, file);
     failure_policy_tests(suite, file);

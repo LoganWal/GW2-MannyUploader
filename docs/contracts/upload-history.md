@@ -12,9 +12,11 @@ parsed encounter metadata including optional remaining boss health, public dps.r
 GW2Wingman permalink, DonBot upload/fight IDs, normalized Twitch receipt, and every provider's state,
 attempt count, and locally generated detail.
 
-The DonBot receipt also stores only a normalized Discord delivery outcome and bounded sent, skipped,
-failed, and ambiguous counts. It does not store the selected channel, Discord message IDs, message
-bodies, or raw delivery errors.
+The DonBot receipt also stores its optional canonical guild ID provenance plus only a normalized
+Discord delivery outcome and bounded sent, skipped, failed, and ambiguous counts. New completions
+always include the guild captured with the request. Existing documents without the additive field
+remain valid. The receipt does not store the selected channel, Discord message IDs, message bodies,
+or raw delivery errors.
 
 OAuth tokens, DonBot keys, Device Codes, request bodies, response documents, account secrets, and
 retry deadlines are never stored. The file is capped at 32 MiB before parsing and after serialization.
@@ -39,6 +41,11 @@ paths are the explicit user actions defined in [`recent-log-actions.md`](recent-
 
 DonBot Reupload deliberately omits Discord delivery intent. No retained, ambiguous, failed, or
 partially delivered Discord receipt is replayed by any existing action.
+
+An explicit DonBot aggregate delivery is session-only action state. It does not modify or persist
+per-log receipts. A retained fight is eligible only when its receipt includes guild provenance that
+matches the currently selected verified guild. Legacy receipts without provenance remain usable for
+view and clipboard links.
 
 An invalid previous history document is ignored with a visible recovery diagnostic rather than
 trusted as job state. The New selection cutoff still prevents pre-session files from being submitted

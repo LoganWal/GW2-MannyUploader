@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <fstream>
@@ -63,6 +64,7 @@ struct EncodedDonBotReceipt {
     std::uint16_t discord_skipped{};
     std::uint16_t discord_failed{};
     std::uint16_t discord_ambiguous{};
+    std::optional<std::string> guild_id;
 };
 
 struct EncodedTwitchReceipt {
@@ -125,6 +127,16 @@ struct WriteOptions : glz::opts {
                const auto byte = static_cast<unsigned char>(character);
                return byte < 0x20U && character != '\t';
            });
+}
+
+[[nodiscard]] bool valid_guild_id(std::string_view value) noexcept {
+    if (value.empty() || value.size() > 19 || value.front() == '0') {
+        return false;
+    }
+    std::uint64_t parsed{};
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    return result.ec == std::errc{} && result.ptr == value.data() + value.size() && parsed != 0 &&
+           parsed <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
 }
 
 [[nodiscard]] bool valid_discord_receipt(const EncodedDonBotReceipt& receipt) noexcept {
@@ -255,7 +267,11 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
         if ((encoded.donbot_upload_receipt->upload_id &&
              *encoded.donbot_upload_receipt->upload_id == 0) ||
             (encoded.donbot_upload_receipt->fight_log_id &&
-             *encoded.donbot_upload_receipt->fight_log_id == 0) ||
+             (*encoded.donbot_upload_receipt->fight_log_id == 0 ||
+              *encoded.donbot_upload_receipt->fight_log_id >
+                  static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))) ||
+            (encoded.donbot_upload_receipt->guild_id &&
+             !valid_guild_id(*encoded.donbot_upload_receipt->guild_id)) ||
             !valid_discord_receipt(*encoded.donbot_upload_receipt)) {
             return std::unexpected(make_error(UploadHistoryStoreErrorCode::ValidationFailed,
                                               "Upload history contains an invalid DonBot receipt",
@@ -273,6 +289,7 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
                     .failed = encoded.donbot_upload_receipt->discord_failed,
                     .ambiguous = encoded.donbot_upload_receipt->discord_ambiguous,
                 },
+            .guild_id = encoded.donbot_upload_receipt->guild_id,
         };
     }
     if (encoded.twitch_delivery_receipt) {
@@ -356,6 +373,7 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
             .discord_skipped = record.donbot_upload_receipt->discord_delivery.skipped,
             .discord_failed = record.donbot_upload_receipt->discord_delivery.failed,
             .discord_ambiguous = record.donbot_upload_receipt->discord_delivery.ambiguous,
+            .guild_id = record.donbot_upload_receipt->guild_id,
         };
     }
     if (record.twitch_delivery_receipt) {

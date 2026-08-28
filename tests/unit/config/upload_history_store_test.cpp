@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -126,6 +127,7 @@ class TempHistoryTree {
                         .outcome = domain::DonBotDiscordDeliveryOutcome::Sent,
                         .sent = 2,
                     },
+                .guild_id = "123456789012345678",
             },
         .twitch_delivery_receipt =
             domain::TwitchDeliveryReceipt{
@@ -174,6 +176,15 @@ void recovery_and_validation_tests(TestSuite& suite) {
     MANNY_CHECK(suite, recovered.has_value());
     MANNY_CHECK(suite, recovered->records().empty());
     MANNY_CHECK(suite, !recovered->recovery_diagnostic().empty());
+
+    auto invalid_fight_record = record(9, domain::ProviderState::Succeeded);
+    invalid_fight_record.donbot_upload_receipt->fight_log_id =
+        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1U;
+    MANNY_CHECK(suite, recovered->merge_and_save(std::array{invalid_fight_record}).has_value());
+    auto rejected_fight = config::UploadHistoryStore::create(tree.path());
+    MANNY_CHECK(suite, rejected_fight.has_value());
+    MANNY_CHECK(suite, rejected_fight->records().empty());
+    MANNY_CHECK(suite, !rejected_fight->recovery_diagnostic().empty());
 
     const auto invalid_path = config::UploadHistoryStore::create({});
     MANNY_CHECK(suite, !invalid_path.has_value());

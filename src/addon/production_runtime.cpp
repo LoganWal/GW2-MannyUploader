@@ -2,6 +2,7 @@
 
 #include "manny_uploader/application/application_pump.hpp"
 #include "manny_uploader/application/configuration_service.hpp"
+#include "manny_uploader/application/donbot_aggregate_delivery_controller.hpp"
 #include "manny_uploader/application/donbot_configuration_controller.hpp"
 #include "manny_uploader/application/log_ingestion_coordinator.hpp"
 #include "manny_uploader/application/log_selection.hpp"
@@ -20,6 +21,7 @@
 #include "manny_uploader/http/curl_http_client.hpp"
 #include "manny_uploader/ports/clock.hpp"
 #include "manny_uploader/ports/external_action_launcher.hpp"
+#include "manny_uploader/providers/donbot_aggregate_delivery_worker.hpp"
 #include "manny_uploader/providers/donbot_client.hpp"
 #include "manny_uploader/providers/donbot_provider_worker.hpp"
 #include "manny_uploader/providers/donbot_verification_worker.hpp"
@@ -32,6 +34,7 @@
 #include "manny_uploader/providers/wingman_client.hpp"
 #include "manny_uploader/providers/wingman_provider_worker.hpp"
 #include "manny_uploader/support/secret_value.hpp"
+#include "manny_uploader/ui/donbot_aggregate_selection.hpp"
 #include "manny_uploader/ui/nexus_options_model.hpp"
 
 #include <imgui.h>
@@ -51,6 +54,7 @@
 #include <ctime>
 #include <expected>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -213,6 +217,7 @@ struct RuntimeComponents {
     std::unique_ptr<providers::DpsReportProviderWorker> dps_report_worker;
     std::unique_ptr<providers::WingmanProviderWorker> wingman_worker;
     std::unique_ptr<providers::DonBotProviderWorker> donbot_worker;
+    std::unique_ptr<providers::DonBotAggregateDeliveryWorker> donbot_aggregate_worker;
     std::unique_ptr<providers::TwitchProviderWorker> twitch_worker;
     std::unique_ptr<providers::DonBotVerificationWorker> donbot_verification_worker;
     std::unique_ptr<providers::TwitchAuthenticationWorker> twitch_authentication_worker;
@@ -228,6 +233,7 @@ struct RuntimeComponents {
     std::unique_ptr<application::UploadCoordinator> upload_coordinator;
     std::unique_ptr<WindowsExternalActionLauncher> external_action_launcher;
     std::unique_ptr<application::RecentLogActionsController> recent_log_actions;
+    std::unique_ptr<application::DonBotAggregateDeliveryController> donbot_aggregate_controller;
     std::unique_ptr<application::LogIngestionCoordinator> ingestion_coordinator;
     std::unique_ptr<application::ApplicationPump> application_pump;
 };
@@ -246,6 +252,7 @@ struct RecentLogRow {
     std::string encounter;
     std::string dps_report_url;
     std::optional<std::uint64_t> donbot_fight_log_id;
+    std::optional<std::string> donbot_guild_id;
     std::optional<bool> encounter_success;
     bool report_available{};
     bool wingman_report_available{};
@@ -260,12 +267,14 @@ struct RuntimeSnapshot {
     application::RecentLogActionsSnapshot recent_log_actions;
     ui::NexusOptionsModel options_model;
     domain::ProviderSelection enabled_providers;
+    std::vector<std::uint64_t> retained_log_ids;
     std::vector<RecentLogRow> recent_logs;
     std::string dps_report_clipboard_text;
     std::string donbot_aggregate_url;
     std::string donbot_destination_status;
     std::size_t dps_report_url_count{};
     std::size_t donbot_fight_count{};
+    application::DonBotAggregateDeliverySnapshot donbot_aggregate;
     std::string runtime_diagnostic;
     bool log_root_available{};
     application::LogSelectionMode log_selection_mode{application::LogSelectionMode::New};
@@ -427,6 +436,13 @@ create_components(const AddonPaths& paths) {
         }
         result->donbot_worker = std::move(*donbot_worker);
 
+        auto donbot_aggregate = providers::DonBotAggregateDeliveryWorker::create(
+            *result->donbot_client, *result->provider_secrets);
+        if (!donbot_aggregate) {
+            return std::unexpected(runtime_error("Unable to start DonBot aggregate delivery"));
+        }
+        result->donbot_aggregate_worker = std::move(*donbot_aggregate);
+
         auto twitch_worker = providers::TwitchProviderWorker::create(
             *result->twitch_client, *result->twitch_session_owner,
             providers::TwitchProviderConfig{
@@ -535,6 +551,12 @@ create_components(const AddonPaths& paths) {
             return std::unexpected(runtime_error("Unable to initialize recent-log actions"));
         }
         result->recent_log_actions = std::move(*recent_log_actions);
+        auto aggregate_controller = application::DonBotAggregateDeliveryController::create(
+            *result->upload_coordinator, *result->configuration, *result->donbot_aggregate_worker);
+        if (!aggregate_controller) {
+            return std::unexpected(runtime_error("Unable to initialize DonBot aggregate delivery"));
+        }
+        result->donbot_aggregate_controller = std::move(*aggregate_controller);
         result->ingestion_coordinator = std::make_unique<application::LogIngestionCoordinator>(
             *result->upload_coordinator, *result->metadata_worker);
 
@@ -711,6 +733,7 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
     }
     if (job.donbot_upload_receipt) {
         row.donbot_fight_log_id = job.donbot_upload_receipt->fight_log_id;
+        row.donbot_guild_id = job.donbot_upload_receipt->guild_id;
     }
     for (std::size_t index = 0; index < row.providers.size(); ++index) {
         row.providers[index] = ProviderCell{
@@ -724,7 +747,7 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
     return row;
 }
 
-[[nodiscard]] RuntimeSnapshot publish_snapshot(const RuntimeComponents& components,
+[[nodiscard]] RuntimeSnapshot publish_snapshot(RuntimeComponents& components,
                                                std::string diagnostic, bool root_available,
                                                application::LogSelectionMode log_selection_mode,
                                                application::LogSelectionWindow log_selection_window,
@@ -736,12 +759,14 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
         .options_model = ui::build_nexus_options_model(options_snapshot),
         .enabled_providers =
             config::enabled_provider_selection(options_snapshot.configuration.settings),
+        .retained_log_ids = {},
         .recent_logs = {},
         .dps_report_clipboard_text = {},
         .donbot_aggregate_url = {},
         .donbot_destination_status = "Off",
         .dps_report_url_count = 0,
         .donbot_fight_count = 0,
+        .donbot_aggregate = components.donbot_aggregate_controller->snapshot(),
         .runtime_diagnostic = std::move(diagnostic),
         .log_root_available = root_available,
         .log_selection_mode = log_selection_mode,
@@ -770,6 +795,10 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
         }
     }
     auto jobs = components.upload_coordinator->snapshots();
+    snapshot.retained_log_ids.reserve(jobs.size());
+    for (const auto& job : jobs) {
+        snapshot.retained_log_ids.push_back(job.id.value);
+    }
     snapshot.recent_logs.reserve(jobs.size());
     for (auto iterator = jobs.rbegin(); iterator != jobs.rend(); ++iterator) {
         if (!application::log_matches_selection(iterator->file.last_write_time, log_selection_mode,
@@ -824,6 +853,7 @@ class ProductionRuntime final : public IAddonRuntime {
 
     void render_main() override {
         auto snapshot = snapshot_copy();
+        reconcile_aggregate_selection(snapshot);
         bool visible = window_visible_.load(std::memory_order_acquire);
         if (!visible) {
             return;
@@ -875,6 +905,35 @@ class ProductionRuntime final : public IAddonRuntime {
             render_main_destination_controls(snapshot);
             ImGui::Separator();
 
+            const auto selected_aggregate_rows = selected_aggregate_jobs(snapshot);
+            if (aggregate_available(snapshot)) {
+                ImGui::Text("%zu selected for DonBot aggregate", selected_aggregate_rows.size());
+                ImGui::SameLine();
+                const auto can_send =
+                    selected_aggregate_rows.size() >= 2 &&
+                    selected_aggregate_rows.size() <= aggregate_maximum(snapshot) &&
+                    snapshot.donbot_aggregate.state !=
+                        application::DonBotAggregateDeliveryState::Queued &&
+                    snapshot.donbot_aggregate.state !=
+                        application::DonBotAggregateDeliveryState::Sending;
+                if (!can_send) {
+                    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5F);
+                }
+                const auto send_clicked = ImGui::Button("Send selected logs via DonBot aggregate");
+                if (!can_send) {
+                    ImGui::PopStyleVar();
+                }
+                if (can_send && send_clicked) {
+                    send_aggregate(snapshot, selected_aggregate_rows);
+                }
+            }
+            if (!aggregate_submit_error_.empty()) {
+                ImGui::TextWrapped("Aggregate action failed: %s", aggregate_submit_error_.c_str());
+            } else if (snapshot.donbot_aggregate.state !=
+                       application::DonBotAggregateDeliveryState::Idle) {
+                ImGui::TextWrapped("%s", snapshot.donbot_aggregate.detail.c_str());
+            }
+
             if (!snapshot.dps_report_clipboard_text.empty() &&
                 ImGui::Button("Copy dps.report URLs")) {
                 ImGui::SetClipboardText(snapshot.dps_report_clipboard_text.c_str());
@@ -894,9 +953,10 @@ class ProductionRuntime final : public IAddonRuntime {
 
             if (snapshot.recent_logs.empty()) {
                 ImGui::TextUnformatted("No logs detected yet.");
-            } else if (ImGui::BeginTable("RecentLogs", 7,
+            } else if (ImGui::BeginTable("RecentLogs", 8,
                                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                              ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY)) {
+                ImGui::TableSetupColumn("Select");
                 ImGui::TableSetupColumn("Detected");
                 ImGui::TableSetupColumn("Encounter");
                 ImGui::TableSetupColumn("dps.report");
@@ -909,8 +969,22 @@ class ProductionRuntime final : public IAddonRuntime {
                     ImGui::PushID(static_cast<int>(row.id & 0x7fffffffU));
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
-                    ImGui::TextUnformatted(row.detected_at.c_str());
+                    const auto eligible = aggregate_row_eligible(snapshot, row);
+                    if (eligible) {
+                        bool selected = aggregate_selection_.selected(row.id);
+                        if (ImGui::Checkbox("##aggregate", &selected)) {
+                            aggregate_selection_.set_selected(row.id, selected);
+                        }
+                    } else {
+                        ImGui::TextDisabled("[ ]");
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip(
+                                "Waiting for a completed DonBot result for this server");
+                        }
+                    }
                     ImGui::TableSetColumnIndex(1);
+                    ImGui::TextUnformatted(row.detected_at.c_str());
+                    ImGui::TableSetColumnIndex(2);
                     if (row.encounter_success) {
                         const auto color = *row.encounter_success
                                                ? ImVec4{0.12F, 0.55F, 0.18F, 0.45F}
@@ -924,7 +998,7 @@ class ProductionRuntime final : public IAddonRuntime {
                         const bool enabled_after_detection =
                             cell.state == domain::ProviderState::Disabled &&
                             snapshot.enabled_providers[index];
-                        ImGui::TableSetColumnIndex(static_cast<int>(index + 2));
+                        ImGui::TableSetColumnIndex(static_cast<int>(index + 3));
                         ImGui::TextUnformatted(enabled_after_detection ? "On - not sent"
                                                                        : cell.status.c_str());
                         if (enabled_after_detection && ImGui::IsItemHovered()) {
@@ -975,7 +1049,7 @@ class ProductionRuntime final : public IAddonRuntime {
                             ImGui::PopID();
                         }
                     }
-                    ImGui::TableSetColumnIndex(6);
+                    ImGui::TableSetColumnIndex(7);
                     if (row.directory_available && ImGui::SmallButton("Folder")) {
                         submit_action(application::OpenLogDirectoryCommand{
                             .job_id = domain::UploadJobId{row.id}});
@@ -1201,6 +1275,80 @@ class ProductionRuntime final : public IAddonRuntime {
         owner_condition_.notify_all();
     }
 
+    [[nodiscard]] static const ports::DonBotGuild*
+    selected_donbot_guild(const RuntimeSnapshot& snapshot) {
+        const auto& selected = snapshot.options_snapshot.donbot.selected_guild_id;
+        const auto found = std::ranges::find(snapshot.options_snapshot.donbot.guilds, selected,
+                                             &ports::DonBotGuild::guild_id);
+        return found == snapshot.options_snapshot.donbot.guilds.end() ? nullptr : &*found;
+    }
+
+    [[nodiscard]] static bool aggregate_available(const RuntimeSnapshot& snapshot) {
+        const auto* guild = selected_donbot_guild(snapshot);
+        return snapshot.options_snapshot.configuration.settings.donbot.enabled &&
+               snapshot.options_snapshot.donbot.state ==
+                   application::DonBotConfigurationState::Verified &&
+               snapshot.options_snapshot.donbot.discord_aggregate_delivery_v1 && guild != nullptr &&
+               guild->discord_delivery.aggregate_enabled &&
+               application::authorized_donbot_route(
+                   snapshot.options_snapshot.configuration.settings,
+                   snapshot.options_snapshot.donbot)
+                       .mode != domain::DonBotDiscordDeliveryMode::None;
+    }
+
+    [[nodiscard]] static std::size_t aggregate_maximum(const RuntimeSnapshot& snapshot) {
+        const auto* guild = selected_donbot_guild(snapshot);
+        return guild == nullptr ? 0 : guild->discord_delivery.max_aggregate_fight_logs;
+    }
+
+    [[nodiscard]] static bool aggregate_row_eligible(const RuntimeSnapshot& snapshot,
+                                                     const RecentLogRow& row) {
+        return aggregate_available(snapshot) && row.donbot_fight_log_id.has_value() &&
+               *row.donbot_fight_log_id <=
+                   static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) &&
+               row.donbot_guild_id.has_value() &&
+               *row.donbot_guild_id ==
+                   snapshot.options_snapshot.configuration.settings.donbot.selected_guild_id;
+    }
+
+    void reconcile_aggregate_selection(const RuntimeSnapshot& snapshot) {
+        const auto identity = snapshot.options_snapshot.donbot.api_base_url + "\n" +
+                              snapshot.options_snapshot.donbot.account_name.value_or("") + "\n" +
+                              snapshot.options_snapshot.donbot.selected_guild_id;
+        std::vector<ui::DonBotAggregateCandidate> candidates;
+        candidates.reserve(snapshot.recent_logs.size());
+        for (const auto& row : snapshot.recent_logs) {
+            candidates.push_back(ui::DonBotAggregateCandidate{
+                .job_id = row.id,
+                .eligible = aggregate_row_eligible(snapshot, row),
+            });
+        }
+        aggregate_selection_.reconcile(identity, snapshot.retained_log_ids, candidates);
+    }
+
+    [[nodiscard]] std::vector<domain::UploadJobId>
+    selected_aggregate_jobs(const RuntimeSnapshot& snapshot) const {
+        std::vector<domain::UploadJobId> jobs;
+        for (const auto& row : snapshot.recent_logs) {
+            if (aggregate_selection_.selected(row.id) && aggregate_row_eligible(snapshot, row)) {
+                jobs.push_back(domain::UploadJobId{row.id});
+            }
+        }
+        return jobs;
+    }
+
+    void send_aggregate(const RuntimeSnapshot& snapshot,
+                        const std::vector<domain::UploadJobId>& job_ids) {
+        auto queued = components_->donbot_aggregate_controller->submit(
+            application::SendDonBotAggregateCommand{
+                .job_ids = job_ids,
+                .configuration_revision = snapshot.options_snapshot.configuration.revision,
+                .donbot_revision = snapshot.options_snapshot.donbot.revision,
+            });
+        aggregate_submit_error_ = queued ? std::string{} : queued.error().message;
+        owner_condition_.notify_all();
+    }
+
     void render_main_destination_controls(const RuntimeSnapshot& snapshot) {
         const auto& settings = snapshot.options_snapshot.configuration.settings;
         const auto& donbot = snapshot.options_snapshot.donbot;
@@ -1246,13 +1394,13 @@ class ProductionRuntime final : public IAddonRuntime {
             ImGui::SameLine();
             bool discord_delivery_enabled = settings.donbot.discord_delivery_enabled;
             if (model.donbot.discord_delivery_toggle_available) {
-                if (ImGui::Checkbox("DonBot Discord logs", &discord_delivery_enabled)) {
+                if (ImGui::Checkbox("Automatic DonBot Discord logs", &discord_delivery_enabled)) {
                     submit(application::SetDonBotDiscordDeliveryEnabledCommand{
                         .enabled = discord_delivery_enabled,
                     });
                 }
             } else {
-                ImGui::TextDisabled("%s DonBot Discord logs",
+                ImGui::TextDisabled("%s Automatic DonBot Discord logs",
                                     discord_delivery_enabled ? "[x]" : "[ ]");
             }
         }
@@ -1428,13 +1576,14 @@ class ProductionRuntime final : public IAddonRuntime {
                 bool delivery_enabled = snapshot.options_snapshot.configuration.settings.donbot
                                             .discord_delivery_enabled;
                 if (snapshot.options_model.donbot.discord_delivery_toggle_available) {
-                    if (ImGui::Checkbox("Post DonBot summaries to Discord", &delivery_enabled)) {
+                    if (ImGui::Checkbox("Automatically post DonBot summaries to Discord",
+                                        &delivery_enabled)) {
                         submit(application::SetDonBotDiscordDeliveryEnabledCommand{
                             .enabled = delivery_enabled,
                         });
                     }
                 } else {
-                    ImGui::TextDisabled("%s Post DonBot summaries to Discord",
+                    ImGui::TextDisabled("%s Automatically post DonBot summaries to Discord",
                                         delivery_enabled ? "[x]" : "[ ]");
                 }
 
@@ -1664,6 +1813,13 @@ class ProductionRuntime final : public IAddonRuntime {
                 }
 
                 const auto donbot_verification = components_->donbot_controller->snapshot();
+                auto aggregate_tick =
+                    components_->donbot_aggregate_controller->tick(donbot_verification);
+                if (!aggregate_tick &&
+                    aggregate_tick.error().code !=
+                        application::DonBotAggregateDeliveryErrorCode::ShuttingDown) {
+                    diagnostic = aggregate_tick.error().message;
+                }
                 const auto desired_donbot_config =
                     donbot_provider_config(configuration.settings, donbot_verification);
                 if (desired_donbot_config != components_->donbot_worker->config_snapshot()) {
@@ -1756,6 +1912,7 @@ class ProductionRuntime final : public IAddonRuntime {
 
         components_->recent_log_actions->shutdown();
         components_->options_controller->shutdown();
+        components_->donbot_aggregate_controller->shutdown();
         components_->application_pump->cancel_all();
         (void)components_->upload_history_store->merge_and_save(
             components_->upload_coordinator->history_records());
@@ -1775,6 +1932,8 @@ class ProductionRuntime final : public IAddonRuntime {
     std::atomic_bool window_visible_;
     std::atomic<application::LogSelectionMode> requested_log_selection_mode_{
         application::LogSelectionMode::New};
+    ui::DonBotAggregateSelection aggregate_selection_;
+    std::string aggregate_submit_error_;
 
     bool draft_initialized_{};
     application::NexusOrdinaryOptions draft_;

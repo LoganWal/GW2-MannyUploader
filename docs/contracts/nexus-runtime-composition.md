@@ -7,7 +7,8 @@ compatible ImGui context. One composition root owns, in dependency order:
 
 - the system clock, static-libcurl/Schannel transport, settings and upload-history stores, and
   protected-storage capability;
-- provider clients, Twitch session owner, upload/authentication/verification/test workers;
+- provider clients, Twitch session owner, upload/authentication/verification/test workers, and the
+  single-request DonBot aggregate worker;
 - DonBot, Twitch, options, and recent-log action controllers plus the Win32 external-action adapter;
 - EVTC reader/parser worker, log candidate source, upload/ingestion coordinators, and application
   pump; and
@@ -41,6 +42,11 @@ The provider starts with delivery disabled. When persisted delivery is enabled, 
 waits for saved verification, and only a current matching verified snapshot may activate its route.
 Verification failure leaves delivery disabled and releases discovery without using stale routing.
 
+The application owner also advances `DonBotAggregateDeliveryController`. The render callback queues
+only selected stable job IDs and displayed revisions. The controller re-resolves jobs, guild
+provenance, capability, bound, and route before it sends fight IDs to the dedicated worker. Worker
+results become session-only immutable snapshots and never alter upload history.
+
 Poll interval changes apply immediately. Log-directory, recursion, stability, history, candidate,
 parser-capacity, and per-provider parallelism changes also apply live on this owner thread. They do
 not replace the component graph:
@@ -65,8 +71,9 @@ immediate poll so the new behavior does not wait for the previous interval.
 ## Rendering
 
 The main callback copies one published snapshot and renders the bounded recent-log table, including
-detection time, per-provider state, aggregate-copy controls, and typed folder/retry/reupload/rechat
-actions. Beside those aggregate controls it exposes live dps.report, Detailed WvW, GW2Wingman,
+detection time, per-provider state, aggregate selection checkboxes, aggregate-copy controls, and
+typed folder/retry/reupload/rechat actions. Beside those aggregate controls it exposes the explicit
+`Send selected logs via DonBot aggregate` command plus live dps.report, Detailed WvW, GW2Wingman,
 DonBot, and DonBot Discord delivery toggles plus verified DonBot server and authorized Discord route
 dropdowns. Each control submits a narrow value command. The options callback edits adapter-owned
 bounded buffers and submits only value commands. Poll interval, stability observations, recent-log

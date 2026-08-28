@@ -1,14 +1,17 @@
 #pragma once
 
 #include "manny_uploader/domain/upload_job.hpp"
+#include "manny_uploader/ports/donbot_aggregate_delivery.hpp"
 #include "manny_uploader/ports/donbot_verifier.hpp"
 #include "manny_uploader/ports/http_client.hpp"
 #include "manny_uploader/support/secret_value.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <optional>
+#include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -25,6 +28,11 @@ using DonBotVerification = ports::DonBotVerification;
 struct DonBotUploadSuccess {
     std::optional<std::uint64_t> upload_id;
     std::optional<std::uint64_t> fight_log_id;
+    domain::DonBotDiscordDeliveryReceipt discord_delivery;
+};
+
+struct DonBotAggregateDeliverySuccess {
+    std::size_t fight_log_count{};
     domain::DonBotDiscordDeliveryReceipt discord_delivery;
 };
 
@@ -69,6 +77,12 @@ class IDonBotClient {
                      std::string_view guild_id, const support::SecretValue& gw2_api_key,
                      const DonBotDiscordDeliveryRequest& discord_delivery = {},
                      const std::stop_token& stop_token = {}) const = 0;
+
+    [[nodiscard]] virtual std::expected<DonBotAggregateDeliverySuccess, DonBotError>
+    deliver_aggregate(std::span<const std::uint64_t> fight_log_ids, std::string_view api_base_url,
+                      std::string_view guild_id, const support::SecretValue& gw2_api_key,
+                      const DonBotDiscordDeliveryRequest& discord_delivery,
+                      const std::stop_token& stop_token = {}) const = 0;
 };
 
 class DonBotClient final : public IDonBotClient {
@@ -90,6 +104,12 @@ class DonBotClient final : public IDonBotClient {
                      std::string_view guild_id, const support::SecretValue& gw2_api_key,
                      const DonBotDiscordDeliveryRequest& discord_delivery = {},
                      const std::stop_token& stop_token = {}) const override;
+
+    [[nodiscard]] std::expected<DonBotAggregateDeliverySuccess, DonBotError>
+    deliver_aggregate(std::span<const std::uint64_t> fight_log_ids, std::string_view api_base_url,
+                      std::string_view guild_id, const support::SecretValue& gw2_api_key,
+                      const DonBotDiscordDeliveryRequest& discord_delivery,
+                      const std::stop_token& stop_token = {}) const override;
 
   private:
     const ports::IHttpClient& http_client_;

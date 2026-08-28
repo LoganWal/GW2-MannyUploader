@@ -19,8 +19,9 @@ Current contracts:
   secret-free snapshots, durable write-through updates, errors, and shutdown.
 - [`nexus-options.md`](nexus-options.md): render-safe snapshots, bounded configuration commands,
   workflow-owned DonBot/Twitch controls, view-model state, redaction, and shutdown.
-- [`recent-log-actions.md`](recent-log-actions.md): render-safe open-report/open-folder commands,
-  explicit retry/reupload/rechat behavior, trusted-target validation, backpressure, and shutdown.
+- [`recent-log-actions.md`](recent-log-actions.md): render-safe open-report/open-folder and DonBot
+  aggregate commands, explicit retry/reupload/rechat behavior, trusted-target validation,
+  backpressure, and shutdown.
 - [`upload-history.md`](upload-history.md): bounded durable log identity and provider receipt state,
   restart normalization, discovery seeding, and no-automatic-replay policy.
 - [`http-transport.md`](http-transport.md): provider-independent requests, streaming bodies,
@@ -32,8 +33,8 @@ Current contracts:
 - [`wingman.md`](wingman.md): direct raw-EVTC compatibility upload, duplicate semantics, response
   validation, retry classification, compatibility risk, and deterministic provider tests.
 - [`donbot.md`](donbot.md): protected-key verification, authorized guild and Discord-route
-  discovery, strict TUS creation/location/PATCH behavior, normalized Discord delivery receipts,
-  `wingman=false`, and duplicate-safe retry policy.
+  discovery, strict TUS creation/location/PATCH behavior, normalized single and aggregate Discord
+  delivery, `wingman=false`, and duplicate-safe retry policy.
 - [`donbot-provider-worker.md`](donbot-provider-worker.md): configuration snapshotting, per-attempt
   protected-key loading, result mapping, and shared bounded-worker behavior.
 - [`donbot-configuration-workflow.md`](donbot-configuration-workflow.md): asynchronous key

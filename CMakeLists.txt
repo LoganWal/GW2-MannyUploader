@@ -33,6 +33,7 @@ target_sources(
         src/addon/addon_lifecycle.cpp
         src/application/application_pump.cpp
         src/application/configuration_service.cpp
+        src/application/donbot_aggregate_delivery_controller.cpp
         src/application/donbot_configuration_controller.cpp
         src/application/log_ingestion_coordinator.cpp
         src/application/nexus_options_controller.cpp
@@ -65,6 +66,7 @@ target_sources(
         src/providers/dps_report_client.cpp
         src/providers/dps_report_provider_worker.cpp
         src/providers/donbot_client.cpp
+        src/providers/donbot_aggregate_delivery_worker.cpp
         src/providers/donbot_provider_worker.cpp
         src/providers/donbot_verification_worker.cpp
         src/providers/twitch_client.cpp
@@ -77,6 +79,7 @@ target_sources(
         src/support/atomic_file.cpp
         src/support/secret_value.cpp
         src/support/utf8.cpp
+        src/ui/donbot_aggregate_selection.cpp
         src/ui/nexus_options_model.cpp
     PUBLIC
         FILE_SET HEADERS
@@ -85,6 +88,7 @@ target_sources(
             include/manny_uploader/addon/addon_lifecycle.hpp
             include/manny_uploader/application/application_pump.hpp
             include/manny_uploader/application/configuration_service.hpp
+            include/manny_uploader/application/donbot_aggregate_delivery_controller.hpp
             include/manny_uploader/application/donbot_configuration_controller.hpp
             include/manny_uploader/application/log_ingestion_coordinator.hpp
             include/manny_uploader/application/log_selection.hpp
@@ -112,6 +116,7 @@ target_sources(
             include/manny_uploader/http/multipart_form_data.hpp
             include/manny_uploader/ports/clock.hpp
             include/manny_uploader/ports/donbot_verifier.hpp
+            include/manny_uploader/ports/donbot_aggregate_delivery.hpp
             include/manny_uploader/ports/external_action_launcher.hpp
             include/manny_uploader/ports/http_client.hpp
             include/manny_uploader/ports/log_candidate_source.hpp
@@ -127,6 +132,7 @@ target_sources(
             include/manny_uploader/providers/dps_report_client.hpp
             include/manny_uploader/providers/dps_report_provider_worker.hpp
             include/manny_uploader/providers/donbot_client.hpp
+            include/manny_uploader/providers/donbot_aggregate_delivery_worker.hpp
             include/manny_uploader/providers/donbot_provider_worker.hpp
             include/manny_uploader/providers/donbot_verification_worker.hpp
             include/manny_uploader/providers/twitch_client.hpp
@@ -140,6 +146,7 @@ target_sources(
             include/manny_uploader/support/report_permalink.hpp
             include/manny_uploader/support/secret_value.hpp
             include/manny_uploader/support/utf8.hpp
+            include/manny_uploader/ui/donbot_aggregate_selection.hpp
             include/manny_uploader/ui/nexus_options_model.hpp
 )
 target_compile_features(manny_uploader_core PUBLIC cxx_std_23)

@@ -4,15 +4,19 @@ This contract defines GW2 Manny Uploader's DonBot integration. It covers API-key
 server-authorized guild discovery, permalink import when dps.report is enabled, one-shot TUS upload
 when dps.report is disabled, and the completion stream used to retain the DonBot fight ID.
 
-It also defines the optional `discord-summary-delivery-v1` extension. This extension asks DonBot to
-create its configured PvE or WvW Discord output after one accepted log. DonBot owns message
-rendering, authorization, routing, delivery, and duplicate suppression.
+It also defines the optional `discord-summary-delivery-v1` and
+`discord-aggregate-delivery-v1` extensions. The first asks DonBot to create configured Discord output
+after one accepted log. The second sends one explicit aggregate for a selected set of existing
+fights. DonBot owns message rendering, authorization, routing, delivery, and duplicate suppression.
 
 Verified 2026-08-20 against:
 
 - the current DonBot [`UploadEndpoints.cs`](https://github.com/LoganWal/GW2-DonBot/blob/main/DonBot.Api/Endpoints/UploadEndpoints.cs);
 - the live DonBot web configuration at <https://donbot.walmslo.com/config.js>; and
 - the [TUS 1.0 protocol](https://tus.io/protocols/resumable-upload).
+
+The aggregate extension is the capability-gated 2026-08-28 client/server coordination contract. It
+remains unavailable until a DonBot deployment advertises the matching capability and guild policy.
 
 The live web application currently publishes `https://donbot-api.walmslo.com` as its API base. The
 base remains ordinary configuration so self-hosted deployments can use the same integration. It must
@@ -248,6 +252,56 @@ Initial automatic work carries the configured delivery intent. Explicit Reupload
 rescan, configuration toggles, and automatic retry never replay a settled or ambiguous Discord
 delivery.
 
+## Discord aggregate delivery extension
+
+Verification advertises `discord-aggregate-delivery-v1` only alongside
+`discord-summary-delivery-v1`. Each guild's `discordDelivery` object then also contains
+`aggregateEnabled` and `maxAggregateFightLogs`. The maximum is an integer from 2 through 100. A
+missing capability, false guild flag, malformed bound, unavailable route, or unverified selection
+keeps the aggregate action unavailable.
+
+The explicit action sends 2 through the negotiated maximum unique positive signed-64-bit fight IDs:
+
+```text
+POST <api-base>/api/upload/gw2/aggregate
+Accept: application/json
+Content-Type: application/json
+X-GW2-API-Key: <protected key>
+```
+
+```json
+{
+  "guildId": "123456789012345678",
+  "fightLogIds": ["101", "102"],
+  "discordDelivery": {
+    "mode": "guild_defaults"
+  }
+}
+```
+
+`channel_override` instead includes the exact currently authorized `channelId`. The route is shared
+with automatic delivery but does not require automatic per-log delivery to be enabled. The key is a
+sensitive header. IDs are JSON strings, and the response body is capped at 64 KiB.
+
+Success is exactly `200` and contains `fightLogCount` equal to the request count plus a normalized
+requested Discord receipt. `not_requested` is invalid. Other outcomes and count consistency follow
+the summary receipt rules, with a maximum count of 100.
+
+MannyUploader records the guild ID used by each new DonBot upload receipt. Only selected jobs with a
+fight ID and matching current-guild provenance may enter an aggregate command. The application owner
+re-resolves stable job IDs, current configuration and verification revisions, capability, route,
+guild provenance, and duplicate fight IDs before dispatch. Legacy receipts without guild provenance
+remain usable for links but are not eligible for Discord aggregate delivery.
+
+One dedicated bounded worker loads the protected key immediately before the request and permits one
+queued or active operation. It performs no retry. Transport failure, `408`, `429`, `5xx`, or a
+malformed `200` is ambiguous because Discord messages may already have been sent. A later button
+press is a new explicit request. Aggregate results are session-only state and never change per-log
+provider status or receipts. Cancellation before client dispatch is cancelled. Cancellation reported
+after client dispatch is ambiguous. A valid `200` displays the normalized sent, skipped, failed, and
+ambiguous counts. An ambiguous count produces an ambiguous action state. A skipped, failed, or
+partial result with no sent messages produces a failed action state.
+
 ## Failure and retry policy
 
 Before TUS creation succeeds, cancellation is cancelled; transient transport errors, `408`, bounded
@@ -267,7 +321,8 @@ key, URL, file path, account, guild name, response body, raw server message, or 
 
 Fake-transport tests cover verification JSON and bounds, permalink import and idempotent responses,
 capability and channel policy, exact delivery JSON and TUS metadata, acknowledgements, normalized
-delivery outcomes, secret placement, all accepted location
+delivery outcomes, aggregate capability and bounds, exact aggregate JSON, no-retry ambiguity,
+secret placement, all accepted location
 forms, cross-origin and path-confusion rejection, exact metadata including `wingman=false`, streamed
 file bytes, both TUS response handshakes, optional upload IDs, cancellation, local validation,
 creation retry classification, and no-retry ambiguous PATCH failures. Default tests never contact

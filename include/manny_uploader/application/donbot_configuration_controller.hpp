@@ -24,6 +24,7 @@ struct DonBotConfigurationSnapshot {
     std::string api_base_url;
     std::optional<std::string> account_name;
     bool discord_summary_delivery_v1{};
+    bool discord_aggregate_delivery_v1{};
     std::vector<ports::DonBotGuild> guilds;
     std::string selected_guild_id;
     std::string diagnostic;
@@ -35,6 +36,10 @@ struct DonBotDeliveryAuthorization {
     domain::DonBotDiscordDeliveryMode mode{domain::DonBotDiscordDeliveryMode::None};
     std::string channel_id;
 };
+
+[[nodiscard]] DonBotDeliveryAuthorization
+authorized_donbot_route(const config::Settings& settings,
+                        const DonBotConfigurationSnapshot& snapshot);
 
 [[nodiscard]] DonBotDeliveryAuthorization
 authorized_donbot_delivery(const config::Settings& settings,

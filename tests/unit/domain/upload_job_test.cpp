@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -252,6 +253,22 @@ void donbot_receipt_tests(TestSuite& suite) {
     });
     MANNY_CHECK(suite, !invalid_partial.has_value());
 
+    auto invalid_guild = job.record_donbot_upload(domain::DonBotUploadReceipt{
+        .upload_id = 42,
+        .fight_log_id = 314,
+        .discord_delivery = {},
+        .guild_id = "not-a-guild",
+    });
+    MANNY_CHECK(suite, !invalid_guild.has_value());
+
+    auto invalid_fight_id = job.record_donbot_upload(domain::DonBotUploadReceipt{
+        .upload_id = 42,
+        .fight_log_id = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1U,
+        .discord_delivery = {},
+        .guild_id = "123",
+    });
+    MANNY_CHECK(suite, !invalid_fight_id.has_value());
+
     MANNY_CHECK(suite, job
                            .record_donbot_upload(domain::DonBotUploadReceipt{
                                .upload_id = 42,
@@ -262,10 +279,12 @@ void donbot_receipt_tests(TestSuite& suite) {
                                        .sent = 2,
                                        .skipped = 1,
                                    },
+                               .guild_id = "123",
                            })
                            .has_value());
     MANNY_CHECK(suite, job.donbot_upload_receipt().has_value());
     MANNY_CHECK(suite, job.donbot_upload_receipt()->discord_delivery.sent == 2);
+    MANNY_CHECK(suite, job.donbot_upload_receipt()->guild_id == std::optional<std::string>{"123"});
 }
 
 void manual_retry_tests(TestSuite& suite) {

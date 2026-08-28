@@ -9,6 +9,7 @@
 #include <expected>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
@@ -135,6 +136,13 @@ class FakeVerificationClient final : public providers::IDonBotClient {
     import_permalink(std::string_view, std::string_view, std::string_view,
                      const support::SecretValue&, const providers::DonBotDiscordDeliveryRequest&,
                      const std::stop_token&) const override {
+        return std::unexpected(client_error(providers::DonBotDisposition::Failed, "unused"));
+    }
+
+    [[nodiscard]] std::expected<providers::DonBotAggregateDeliverySuccess, providers::DonBotError>
+    deliver_aggregate(std::span<const std::uint64_t>, std::string_view, std::string_view,
+                      const support::SecretValue&, const providers::DonBotDiscordDeliveryRequest&,
+                      const std::stop_token&) const override {
         return std::unexpected(client_error(providers::DonBotDisposition::Failed, "unused"));
     }
 

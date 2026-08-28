@@ -58,12 +58,14 @@ the addon remains active through its keybind and options entry.
 
 The main window shows recent logs and each provider's state. Successful encounter cells are green.
 Failed encounter cells are red and include the remaining boss health when the EVTC recorded it.
-The controls above the table toggle dps.report, GW2Wingman, DonBot, and DonBot Discord delivery.
+The controls above the table toggle dps.report, GW2Wingman, DonBot, and automatic DonBot Discord delivery.
 The same row selects the verified DonBot server and either its default Discord route or an authorized
 channel.
 Completed rows can open their dps.report, GW2Wingman, and DonBot fight pages. `Copy dps.report URLs`
 copies the visible report links, while `Copy DonBot aggregate URL` copies one aggregate page for the
-visible DonBot fight IDs. Each row can open its source folder. `Reupload` deliberately submits that
+visible DonBot fight IDs. Eligible rows are selected by default and can be deselected. `Send selected
+logs via DonBot aggregate` asks DonBot to post one aggregate through the selected default or channel
+route. Each row can open its source folder. `Reupload` deliberately submits that
 log to dps.report, GW2Wingman, and DonBot again; `Rechat` deliberately sends its dps.report link to
 Twitch again. The status bar identifies the selected DonBot server while DonBot is enabled.
 
@@ -109,7 +111,8 @@ compatibility endpoint because Wingman's direct workflow is based on processed E
 2. Enter the Guild Wars 2 API key associated with the DonBot account and select `Verify DonBot`.
 3. Once verified, the API-key field is hidden. Select one authorized server from the dropdown.
 4. Enable uploads with the checkbox beside the server dropdown.
-5. If that server supports MannyUploader delivery, enable `Post DonBot summaries to Discord`.
+5. If that server supports MannyUploader delivery, enable `Post DonBot summaries to Discord` for
+   automatic per-log delivery.
 6. `Guild defaults` is selected initially. Choose an authorized Discord channel only when that
    server needs an explicit override.
 
@@ -120,8 +123,9 @@ Both routes disable DonBot's own Wingman submission, so enabling Wingman does no
 processing IDs are retained so the main window can compose its aggregate URL.
 
 DonBot creates the PvE or WvW summaries selected by the server. Advanced WvW and stream output are
-included only when enabled in DonBot. Delivery is off by default. Reupload processes the log again
-without reposting Discord messages.
+included only when enabled in DonBot. Automatic delivery is off by default. If the server advertises
+aggregate support, the main grid can explicitly send selected completed fights as one aggregate even
+while automatic delivery is off. Reupload processes the log again without reposting Discord messages.
 
 ### Twitch broadcaster chat
 

@@ -165,7 +165,7 @@ The standard-library-only discovery policy then:
 - suppresses exact path/size/write-time identities through a bounded oldest-first dedupe history.
 
 At composition time the dedupe history is seeded with every identity retained by the persistent
-upload-history adapter. This makes a New/Today rescan after restart observational only for unchanged
+upload-history adapter. This makes a New/Last 24 Hours rescan after restart observational only for unchanged
 logs; a different size or write time remains a new identity.
 
 The policy performs no filesystem reads and never sleeps. Scheduling observations, canonicalizing
@@ -351,6 +351,10 @@ callbacks. `DonBotConfigurationController` correlates the result, owns transient
 and publishes secret-free immutable snapshots. A newly verified endpoint is first persisted with
 DonBot disabled and no selection, then the protected key is replaced, and only then does verified
 identity become visible. Startup re-verifies the saved key; revoked selections are durably disabled.
+Enabling DonBot triggers an immediate saved-key refresh. The application owner repeats it every 5
+minutes while DonBot remains enabled and verified, and the options workflow also exposes an explicit
+refresh command. Refreshes preserve the last verified snapshot while in flight and use shorter
+verification-only HTTP timeouts so server-property discovery cannot inherit archive-upload limits.
 Guild selection and disconnect are also write-through, with disconnect disabling ordinary settings
 before protected-key erasure. The exact state and failure ordering is frozen in
 [`docs/contracts/donbot-configuration-workflow.md`](../contracts/donbot-configuration-workflow.md).

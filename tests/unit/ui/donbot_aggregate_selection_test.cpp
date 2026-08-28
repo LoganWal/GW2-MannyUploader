@@ -4,11 +4,18 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace manny_uploader::test {
 
 void run_donbot_aggregate_selection_tests(TestSuite& suite) {
+    MANNY_CHECK(suite, ui::donbot_aggregate_candidate_eligible(314));
+    MANNY_CHECK(suite, !ui::donbot_aggregate_candidate_eligible(std::nullopt));
+    MANNY_CHECK(suite, !ui::donbot_aggregate_candidate_eligible(0));
+    MANNY_CHECK(suite,
+                !ui::donbot_aggregate_candidate_eligible(
+                    static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1U));
     ui::DonBotAggregateSelection selection;
     constexpr std::array<std::uint64_t, 3> retained{1, 2, 3};
     constexpr std::array candidates{

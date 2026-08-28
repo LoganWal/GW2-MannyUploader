@@ -51,7 +51,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <expected>
 #include <filesystem>
 #include <limits>
@@ -78,6 +77,8 @@ inline constexpr char secrets_directory_name[] = "secrets";
 inline constexpr char default_log_directory_name[] = "arcdps.cbtlogs";
 inline constexpr std::size_t provider_queue_capacity = 500;
 inline constexpr std::size_t accepted_log_dedupe_capacity = 10'000;
+inline constexpr auto donbot_refresh_interval = 5min;
+inline constexpr auto rolling_log_cutoff_refresh_interval = 1min;
 
 [[nodiscard]] std::string effective_twitch_client_id(const config::Settings& settings) {
     if (!settings.twitch.client_id.empty()) {
@@ -111,21 +112,8 @@ donbot_provider_config(const config::Settings& settings,
 }
 
 [[nodiscard]] std::filesystem::file_time_type
-local_day_started_at(std::chrono::system_clock::time_point now) noexcept {
-    const auto timestamp = std::chrono::system_clock::to_time_t(now);
-    std::tm local{};
-    if (localtime_s(&local, &timestamp) != 0) {
-        return application::file_time_from_system(std::chrono::floor<std::chrono::days>(now));
-    }
-    local.tm_hour = 0;
-    local.tm_min = 0;
-    local.tm_sec = 0;
-    local.tm_isdst = -1;
-    const auto midnight = std::mktime(&local);
-    if (midnight == static_cast<std::time_t>(-1)) {
-        return application::file_time_from_system(std::chrono::floor<std::chrono::days>(now));
-    }
-    return application::file_time_from_system(std::chrono::system_clock::from_time_t(midnight));
+last_24_hours_started_at(std::chrono::system_clock::time_point now) noexcept {
+    return application::file_time_from_system(now - 24h);
 }
 
 class SystemClock final : public ports::IClock {
@@ -252,7 +240,6 @@ struct RecentLogRow {
     std::string encounter;
     std::string dps_report_url;
     std::optional<std::uint64_t> donbot_fight_log_id;
-    std::optional<std::string> donbot_guild_id;
     std::optional<bool> encounter_success;
     bool report_available{};
     bool wingman_report_available{};
@@ -733,7 +720,6 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
     }
     if (job.donbot_upload_receipt) {
         row.donbot_fight_log_id = job.donbot_upload_receipt->fight_log_id;
-        row.donbot_guild_id = job.donbot_upload_receipt->guild_id;
     }
     for (std::size_t index = 0; index < row.providers.size(); ++index) {
         row.providers[index] = ProviderCell{
@@ -776,22 +762,26 @@ apply_general_settings(RuntimeComponents& components, const config::GeneralSetti
         .revision = revision,
     };
     if (snapshot.enabled_providers[domain::provider_index(domain::Provider::DonBot)]) {
-        snapshot.donbot_destination_status = "On";
-        auto server_name = options_snapshot.configuration.settings.donbot.selected_guild_id;
-        for (const auto& guild : options_snapshot.donbot.guilds) {
-            if (guild.guild_id == server_name) {
-                server_name = guild.guild_name;
-                break;
+        if (options_snapshot.donbot.state == application::DonBotConfigurationState::Verifying) {
+            snapshot.donbot_destination_status = "Verifying";
+        } else {
+            snapshot.donbot_destination_status = "On";
+            auto server_name = options_snapshot.configuration.settings.donbot.selected_guild_id;
+            for (const auto& guild : options_snapshot.donbot.guilds) {
+                if (guild.guild_id == server_name) {
+                    server_name = guild.guild_name;
+                    break;
+                }
             }
-        }
-        if (!server_name.empty()) {
-            snapshot.donbot_destination_status += " (" + server_name + ")";
-        }
-        const auto& settings = options_snapshot.configuration.settings.donbot;
-        if (settings.discord_delivery_enabled) {
-            snapshot.donbot_destination_status += settings.discord_channel_override_explicit
-                                                      ? ", Discord channel override"
-                                                      : ", Discord defaults";
+            if (!server_name.empty()) {
+                snapshot.donbot_destination_status += " (" + server_name + ")";
+            }
+            const auto& settings = options_snapshot.configuration.settings.donbot;
+            if (settings.discord_delivery_enabled) {
+                snapshot.donbot_destination_status += settings.discord_channel_override_explicit
+                                                          ? ", Discord channel override"
+                                                          : ", Discord defaults";
+            }
         }
     }
     auto jobs = components.upload_coordinator->snapshots();
@@ -879,12 +869,13 @@ class ProductionRuntime final : public IAddonRuntime {
                 ImGui::SetTooltip("Includes logs completed after this addon load");
             }
             ImGui::SameLine();
-            if (ImGui::RadioButton("Show Today", snapshot.log_selection_mode ==
-                                                     application::LogSelectionMode::Today)) {
-                select_log_mode(application::LogSelectionMode::Today);
+            if (ImGui::RadioButton("Show Last 24 Hours",
+                                   snapshot.log_selection_mode ==
+                                       application::LogSelectionMode::Last24Hours)) {
+                select_log_mode(application::LogSelectionMode::Last24Hours);
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Includes all logs completed since local midnight");
+                ImGui::SetTooltip("Includes logs completed during the previous 24 hours");
             }
             ImGui::Text("Log directory: %s",
                         snapshot.options_model.ordinary.general.log_directory.c_str());
@@ -969,7 +960,7 @@ class ProductionRuntime final : public IAddonRuntime {
                     ImGui::PushID(static_cast<int>(row.id & 0x7fffffffU));
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
-                    const auto eligible = aggregate_row_eligible(snapshot, row);
+                    const auto eligible = aggregate_row_eligible(row);
                     if (eligible) {
                         bool selected = aggregate_selection_.selected(row.id);
                         if (ImGui::Checkbox("##aggregate", &selected)) {
@@ -978,8 +969,7 @@ class ProductionRuntime final : public IAddonRuntime {
                     } else {
                         ImGui::TextDisabled("[ ]");
                         if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip(
-                                "Waiting for a completed DonBot result for this server");
+                            ImGui::SetTooltip("Not logged to DonBot yet");
                         }
                     }
                     ImGui::TableSetColumnIndex(1);
@@ -1214,13 +1204,13 @@ class ProductionRuntime final : public IAddonRuntime {
   private:
     explicit ProductionRuntime(std::unique_ptr<RuntimeComponents> components)
         : components_{std::move(components)},
-          published_{publish_snapshot(
-              *components_, {}, false, application::LogSelectionMode::New,
-              application::LogSelectionWindow{
-                  .session_started_at = components_->session_started_at,
-                  .local_day_started_at = local_day_started_at(components_->clock->system_now()),
-              },
-              1)},
+          published_{publish_snapshot(*components_, {}, false, application::LogSelectionMode::New,
+                                      application::LogSelectionWindow{
+                                          .session_started_at = components_->session_started_at,
+                                          .last_24_hours_started_at = last_24_hours_started_at(
+                                              components_->clock->system_now()),
+                                      },
+                                      1)},
           window_visible_{published_.options_model.ordinary.general.window_visible} {}
 
     template <typename Command> void submit(Command command) {
@@ -1290,7 +1280,7 @@ class ProductionRuntime final : public IAddonRuntime {
                    application::DonBotConfigurationState::Verified &&
                snapshot.options_snapshot.donbot.discord_aggregate_delivery_v1 && guild != nullptr &&
                guild->discord_delivery.aggregate_enabled &&
-               application::authorized_donbot_route(
+               application::authorized_donbot_aggregate_route(
                    snapshot.options_snapshot.configuration.settings,
                    snapshot.options_snapshot.donbot)
                        .mode != domain::DonBotDiscordDeliveryMode::None;
@@ -1301,14 +1291,8 @@ class ProductionRuntime final : public IAddonRuntime {
         return guild == nullptr ? 0 : guild->discord_delivery.max_aggregate_fight_logs;
     }
 
-    [[nodiscard]] static bool aggregate_row_eligible(const RuntimeSnapshot& snapshot,
-                                                     const RecentLogRow& row) {
-        return aggregate_available(snapshot) && row.donbot_fight_log_id.has_value() &&
-               *row.donbot_fight_log_id <=
-                   static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) &&
-               row.donbot_guild_id.has_value() &&
-               *row.donbot_guild_id ==
-                   snapshot.options_snapshot.configuration.settings.donbot.selected_guild_id;
+    [[nodiscard]] static bool aggregate_row_eligible(const RecentLogRow& row) {
+        return ui::donbot_aggregate_candidate_eligible(row.donbot_fight_log_id);
     }
 
     void reconcile_aggregate_selection(const RuntimeSnapshot& snapshot) {
@@ -1320,7 +1304,7 @@ class ProductionRuntime final : public IAddonRuntime {
         for (const auto& row : snapshot.recent_logs) {
             candidates.push_back(ui::DonBotAggregateCandidate{
                 .job_id = row.id,
-                .eligible = aggregate_row_eligible(snapshot, row),
+                .eligible = aggregate_row_eligible(row),
             });
         }
         aggregate_selection_.reconcile(identity, snapshot.retained_log_ids, candidates);
@@ -1330,7 +1314,7 @@ class ProductionRuntime final : public IAddonRuntime {
     selected_aggregate_jobs(const RuntimeSnapshot& snapshot) const {
         std::vector<domain::UploadJobId> jobs;
         for (const auto& row : snapshot.recent_logs) {
-            if (aggregate_selection_.selected(row.id) && aggregate_row_eligible(snapshot, row)) {
+            if (aggregate_selection_.selected(row.id) && aggregate_row_eligible(row)) {
                 jobs.push_back(domain::UploadJobId{row.id});
             }
         }
@@ -1381,11 +1365,23 @@ class ProductionRuntime final : public IAddonRuntime {
         } else {
             ImGui::TextDisabled("%s GW2Wingman", wingman_enabled ? "[x]" : "[ ]");
         }
+        if (model.donbot.verification_in_progress) {
+            ImGui::PopID();
+            return;
+        }
         ImGui::SameLine();
         bool donbot_enabled = settings.donbot.enabled;
-        if (model.donbot.enable_toggle_available) {
-            if (ImGui::Checkbox("DonBot", &donbot_enabled)) {
+        const bool show_refreshing_donbot_toggle = donbot.refreshing && donbot_enabled;
+        if (model.donbot.enable_toggle_available || show_refreshing_donbot_toggle) {
+            if (show_refreshing_donbot_toggle) {
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha);
+            }
+            if (ImGui::Checkbox("DonBot", &donbot_enabled) &&
+                model.donbot.enable_toggle_available) {
                 submit(application::SetDonBotEnabledCommand{.enabled = donbot_enabled});
+            }
+            if (show_refreshing_donbot_toggle) {
+                ImGui::PopStyleVar();
             }
         } else {
             ImGui::TextDisabled("%s DonBot", donbot_enabled ? "[x]" : "[ ]");
@@ -1393,11 +1389,19 @@ class ProductionRuntime final : public IAddonRuntime {
         if (model.donbot.discord_delivery_visible) {
             ImGui::SameLine();
             bool discord_delivery_enabled = settings.donbot.discord_delivery_enabled;
-            if (model.donbot.discord_delivery_toggle_available) {
+            if (model.donbot.discord_delivery_toggle_available || donbot.refreshing) {
+                if (donbot.refreshing) {
+                    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha);
+                }
                 if (ImGui::Checkbox("Automatic DonBot Discord logs", &discord_delivery_enabled)) {
-                    submit(application::SetDonBotDiscordDeliveryEnabledCommand{
-                        .enabled = discord_delivery_enabled,
-                    });
+                    if (model.donbot.discord_delivery_toggle_available) {
+                        submit(application::SetDonBotDiscordDeliveryEnabledCommand{
+                            .enabled = discord_delivery_enabled,
+                        });
+                    }
+                }
+                if (donbot.refreshing) {
+                    ImGui::PopStyleVar();
                 }
             } else {
                 ImGui::TextDisabled("%s Automatic DonBot Discord logs",
@@ -1419,7 +1423,10 @@ class ProductionRuntime final : public IAddonRuntime {
                 break;
             }
         }
-        if (model.donbot.guild_selection_available) {
+        if (model.donbot.guild_selection_available || donbot.refreshing) {
+            if (donbot.refreshing) {
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha);
+            }
             ImGui::SetNextItemWidth(280.0F);
             const auto guild_preview = ui::escape_imgui_label_text(guild_name);
             if (ImGui::BeginCombo("DonBot server", guild_preview.c_str())) {
@@ -1427,7 +1434,8 @@ class ProductionRuntime final : public IAddonRuntime {
                     const bool selected = guild.guild_id == donbot.selected_guild_id;
                     const auto label = imgui_choice_label(guild.guild_name, "DonBotGuild");
                     ImGui::PushID(guild.guild_id.c_str());
-                    if (ImGui::Selectable(label.c_str(), selected)) {
+                    if (ImGui::Selectable(label.c_str(), selected) &&
+                        model.donbot.guild_selection_available) {
                         submit(application::SelectDonBotGuildCommand{.guild_id = guild.guild_id});
                     }
                     if (selected) {
@@ -1436,6 +1444,9 @@ class ProductionRuntime final : public IAddonRuntime {
                     ImGui::PopID();
                 }
                 ImGui::EndCombo();
+            }
+            if (donbot.refreshing) {
+                ImGui::PopStyleVar();
             }
         } else {
             ImGui::TextDisabled("DonBot server: %s", guild_name.c_str());
@@ -1454,13 +1465,17 @@ class ProductionRuntime final : public IAddonRuntime {
                     }
                 }
             }
-            if (model.donbot.discord_channel_selection_available) {
+            if (model.donbot.discord_channel_selection_available || donbot.refreshing) {
+                if (donbot.refreshing) {
+                    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha);
+                }
                 ImGui::SetNextItemWidth(280.0F);
                 const auto route_preview = ui::escape_imgui_label_text(route_name);
                 if (ImGui::BeginCombo("Discord log channel", route_preview.c_str())) {
                     if (selected_guild->discord_delivery.defaults_available) {
                         const bool selected = !settings.donbot.discord_channel_override_explicit;
-                        if (ImGui::Selectable("Guild defaults", selected)) {
+                        if (ImGui::Selectable("Guild defaults", selected) &&
+                            model.donbot.discord_channel_selection_available) {
                             submit(application::SelectDonBotDiscordChannelCommand{});
                         }
                         if (selected) {
@@ -1475,7 +1490,8 @@ class ProductionRuntime final : public IAddonRuntime {
                             const bool selected =
                                 settings.donbot.discord_channel_override_explicit &&
                                 channel.channel_id == settings.donbot.selected_discord_channel_id;
-                            if (ImGui::Selectable(label.c_str(), selected)) {
+                            if (ImGui::Selectable(label.c_str(), selected) &&
+                                model.donbot.discord_channel_selection_available) {
                                 submit(application::SelectDonBotDiscordChannelCommand{
                                     .channel_id = channel.channel_id,
                                 });
@@ -1487,6 +1503,9 @@ class ProductionRuntime final : public IAddonRuntime {
                         }
                     }
                     ImGui::EndCombo();
+                }
+                if (donbot.refreshing) {
+                    ImGui::PopStyleVar();
                 }
             } else {
                 ImGui::TextDisabled("Discord log channel: %s", route_name.c_str());
@@ -1507,6 +1526,10 @@ class ProductionRuntime final : public IAddonRuntime {
         if (!snapshot.options_model.donbot.diagnostic.empty()) {
             ImGui::TextWrapped("%s", snapshot.options_model.donbot.diagnostic.c_str());
         }
+        if (snapshot.options_model.donbot.verification_in_progress) {
+            ImGui::TextUnformatted("Checking DonBot account and server permissions...");
+            return;
+        }
         const bool verified = snapshot.options_snapshot.donbot.state ==
                                   application::DonBotConfigurationState::Verified &&
                               snapshot.options_snapshot.donbot.account_name.has_value();
@@ -1525,7 +1548,20 @@ class ProductionRuntime final : public IAddonRuntime {
             return;
         }
 
+        const bool refreshing = snapshot.options_snapshot.donbot.refreshing;
         const auto& selected_id = snapshot.options_snapshot.donbot.selected_guild_id;
+        if (snapshot.options_model.donbot.refresh_available || refreshing) {
+            if (refreshing) {
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha);
+            }
+            if (ImGui::Button("Refresh DonBot servers") &&
+                snapshot.options_model.donbot.refresh_available) {
+                submit(application::RefreshDonBotCommand{});
+            }
+            if (refreshing) {
+                ImGui::PopStyleVar();
+            }
+        }
         std::string selected_name = "Select a server";
         for (const auto& guild : snapshot.options_snapshot.donbot.guilds) {
             if (guild.guild_id == selected_id) {
@@ -1533,7 +1569,10 @@ class ProductionRuntime final : public IAddonRuntime {
                 break;
             }
         }
-        if (snapshot.options_model.donbot.guild_selection_available) {
+        if (snapshot.options_model.donbot.guild_selection_available || refreshing) {
+            if (refreshing) {
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha);
+            }
             ImGui::SetNextItemWidth(280.0F);
             const auto selected_preview = ui::escape_imgui_label_text(selected_name);
             if (ImGui::BeginCombo("Server##DonBotServer", selected_preview.c_str())) {
@@ -1541,7 +1580,8 @@ class ProductionRuntime final : public IAddonRuntime {
                     const bool selected = selected_id == guild.guild_id;
                     const auto label = imgui_choice_label(guild.guild_name, "DonBotGuild");
                     ImGui::PushID(guild.guild_id.c_str());
-                    if (ImGui::Selectable(label.c_str(), selected)) {
+                    if (ImGui::Selectable(label.c_str(), selected) &&
+                        snapshot.options_model.donbot.guild_selection_available) {
                         submit(application::SelectDonBotGuildCommand{.guild_id = guild.guild_id});
                     }
                     if (selected) {
@@ -1553,8 +1593,12 @@ class ProductionRuntime final : public IAddonRuntime {
             }
             ImGui::SameLine();
             bool enabled = snapshot.options_snapshot.configuration.settings.donbot.enabled;
-            if (ImGui::Checkbox("Enable uploads##DonBot", &enabled)) {
+            if (ImGui::Checkbox("Enable uploads##DonBot", &enabled) &&
+                snapshot.options_model.donbot.enable_toggle_available) {
                 submit(application::SetDonBotEnabledCommand{.enabled = enabled});
+            }
+            if (refreshing) {
+                ImGui::PopStyleVar();
             }
         }
         const ports::DonBotGuild* selected_guild = nullptr;
@@ -1573,21 +1617,38 @@ class ProductionRuntime final : public IAddonRuntime {
                 ImGui::TextWrapped(
                     "This server has not enabled MannyUploader Discord summaries in DonBot.");
             } else {
+                const bool has_summary_output = selected_guild->discord_delivery.pve_summary ||
+                                                selected_guild->discord_delivery.wvw_summary ||
+                                                selected_guild->discord_delivery.wvw_advanced ||
+                                                selected_guild->discord_delivery.wvw_stream;
+                if (!has_summary_output) {
+                    ImGui::TextWrapped(
+                        "This server has no Discord summary outputs enabled in DonBot.");
+                }
                 bool delivery_enabled = snapshot.options_snapshot.configuration.settings.donbot
                                             .discord_delivery_enabled;
-                if (snapshot.options_model.donbot.discord_delivery_toggle_available) {
+                if (snapshot.options_model.donbot.discord_delivery_toggle_available || refreshing) {
+                    if (refreshing) {
+                        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha);
+                    }
                     if (ImGui::Checkbox("Automatically post DonBot summaries to Discord",
                                         &delivery_enabled)) {
-                        submit(application::SetDonBotDiscordDeliveryEnabledCommand{
-                            .enabled = delivery_enabled,
-                        });
+                        if (snapshot.options_model.donbot.discord_delivery_toggle_available) {
+                            submit(application::SetDonBotDiscordDeliveryEnabledCommand{
+                                .enabled = delivery_enabled,
+                            });
+                        }
+                    }
+                    if (refreshing) {
+                        ImGui::PopStyleVar();
                     }
                 } else {
                     ImGui::TextDisabled("%s Automatically post DonBot summaries to Discord",
                                         delivery_enabled ? "[x]" : "[ ]");
                 }
 
-                if (snapshot.options_model.donbot.discord_channel_selection_available) {
+                if (snapshot.options_model.donbot.discord_channel_selection_available ||
+                    refreshing) {
                     const auto& channel_id = snapshot.options_snapshot.configuration.settings.donbot
                                                  .selected_discord_channel_id;
                     std::string route_name = selected_guild->discord_delivery.defaults_available
@@ -1602,13 +1663,17 @@ class ProductionRuntime final : public IAddonRuntime {
                             }
                         }
                     }
+                    if (refreshing) {
+                        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha);
+                    }
                     ImGui::SetNextItemWidth(280.0F);
                     const auto route_preview = ui::escape_imgui_label_text(route_name);
                     if (ImGui::BeginCombo("Route##DonBotDiscord", route_preview.c_str())) {
                         if (selected_guild->discord_delivery.defaults_available) {
                             const bool selected = !snapshot.options_snapshot.configuration.settings
                                                        .donbot.discord_channel_override_explicit;
-                            if (ImGui::Selectable("Guild defaults", selected)) {
+                            if (ImGui::Selectable("Guild defaults", selected) &&
+                                snapshot.options_model.donbot.discord_channel_selection_available) {
                                 submit(application::SelectDonBotDiscordChannelCommand{});
                             }
                             if (selected) {
@@ -1624,7 +1689,9 @@ class ProductionRuntime final : public IAddonRuntime {
                                     snapshot.options_snapshot.configuration.settings.donbot
                                         .discord_channel_override_explicit &&
                                     channel_id == channel.channel_id;
-                                if (ImGui::Selectable(label.c_str(), selected)) {
+                                if (ImGui::Selectable(label.c_str(), selected) &&
+                                    snapshot.options_model.donbot
+                                        .discord_channel_selection_available) {
                                     submit(application::SelectDonBotDiscordChannelCommand{
                                         .channel_id = channel.channel_id,
                                     });
@@ -1636,6 +1703,9 @@ class ProductionRuntime final : public IAddonRuntime {
                             }
                         }
                         ImGui::EndCombo();
+                    }
+                    if (refreshing) {
+                        ImGui::PopStyleVar();
                     }
                 }
 
@@ -1661,9 +1731,17 @@ class ProductionRuntime final : public IAddonRuntime {
         }
         ImGui::TextWrapped("Provider changes apply to newly detected logs. Existing delivery "
                            "history is never replayed automatically.");
-        if (snapshot.options_model.donbot.disconnect_available &&
-            ImGui::Button("Deverify DonBot")) {
-            submit(application::DisconnectDonBotCommand{});
+        if (snapshot.options_model.donbot.disconnect_available || refreshing) {
+            if (refreshing) {
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha);
+            }
+            if (ImGui::Button("Deverify DonBot") &&
+                snapshot.options_model.donbot.disconnect_available) {
+                submit(application::DisconnectDonBotCommand{});
+            }
+            if (refreshing) {
+                ImGui::PopStyleVar();
+            }
         }
     }
 
@@ -1744,10 +1822,12 @@ class ProductionRuntime final : public IAddonRuntime {
         bool root_available{};
         std::uint64_t revision{2};
         auto next_poll = components_->clock->steady_now();
+        auto next_donbot_refresh = next_poll + donbot_refresh_interval;
+        bool donbot_refresh_was_active{};
         auto applied_log_selection_mode = application::LogSelectionMode::New;
         auto log_selection_window = application::LogSelectionWindow{
             .session_started_at = components_->session_started_at,
-            .local_day_started_at = local_day_started_at(components_->clock->system_now()),
+            .last_24_hours_started_at = last_24_hours_started_at(components_->clock->system_now()),
         };
         auto applied_log_cutoff =
             application::log_selection_cutoff(applied_log_selection_mode, log_selection_window);
@@ -1812,7 +1892,25 @@ class ProductionRuntime final : public IAddonRuntime {
                         });
                 }
 
-                const auto donbot_verification = components_->donbot_controller->snapshot();
+                auto donbot_verification = components_->donbot_controller->snapshot();
+                const auto refresh_now = components_->clock->steady_now();
+                if (donbot_refresh_was_active && !donbot_verification.refreshing) {
+                    next_donbot_refresh = refresh_now + donbot_refresh_interval;
+                }
+                donbot_refresh_was_active = donbot_verification.refreshing;
+                if (configuration.settings.donbot.enabled &&
+                    donbot_verification.state == application::DonBotConfigurationState::Verified &&
+                    !donbot_verification.refreshing && refresh_now >= next_donbot_refresh) {
+                    auto refreshed = components_->donbot_controller->begin_saved_refresh();
+                    next_donbot_refresh = refresh_now + donbot_refresh_interval;
+                    if (!refreshed &&
+                        refreshed.error().code != application::DonBotConfigurationErrorCode::Busy) {
+                        diagnostic = refreshed.error().message;
+                    } else if (refreshed) {
+                        donbot_refresh_was_active = true;
+                        donbot_verification = components_->donbot_controller->snapshot();
+                    }
+                }
                 auto aggregate_tick =
                     components_->donbot_aggregate_controller->tick(donbot_verification);
                 if (!aggregate_tick &&
@@ -1832,14 +1930,18 @@ class ProductionRuntime final : public IAddonRuntime {
 
                 auto desired_window = application::LogSelectionWindow{
                     .session_started_at = components_->session_started_at,
-                    .local_day_started_at = local_day_started_at(components_->clock->system_now()),
+                    .last_24_hours_started_at =
+                        last_24_hours_started_at(components_->clock->system_now()),
                 };
                 const auto desired_mode =
                     requested_log_selection_mode_.load(std::memory_order_acquire);
                 const auto desired_cutoff =
                     application::log_selection_cutoff(desired_mode, desired_window);
-                if (desired_mode != applied_log_selection_mode ||
-                    desired_cutoff != applied_log_cutoff) {
+                const auto rolling_cutoff_age = desired_cutoff - applied_log_cutoff;
+                const auto rolling_cutoff_due =
+                    desired_mode == application::LogSelectionMode::Last24Hours &&
+                    rolling_cutoff_age >= rolling_log_cutoff_refresh_interval;
+                if (desired_mode != applied_log_selection_mode || rolling_cutoff_due) {
                     auto reconfigured = components_->candidate_source->reconfigure(
                         std::filesystem::path{configuration.settings.general.log_directory},
                         configuration.settings.general.watch_subdirectories,

@@ -57,6 +57,7 @@ Workflow-owned values use dedicated commands:
 - enable or disable Detailed WvW parsing for new dps.report uploads.
 - enable or disable GW2Wingman.
 - verify a candidate DonBot endpoint/key.
+- refresh the current DonBot server settings with the protected saved key.
 - select a guild returned by the current verified DonBot identity.
 - enable or disable DonBot.
 - enable or disable DonBot Discord summaries.
@@ -73,6 +74,11 @@ the selected guild remains in the verified authorized-guild set. Twitch can be e
 the authentication workflow is connected. Final settings validation still runs inside
 `ConfigurationService`, so enabling Twitch also requires dps.report and at least one post-result
 policy.
+
+Enabling DonBot queues an immediate saved-key refresh. Verified options also expose an explicit
+`Refresh DonBot servers` command. While that request is active, the current server choices and policy
+remain visible with a refreshing status, and DonBot mutation controls are disabled until the result
+is applied.
 
 Automatic Discord summary delivery can be enabled only while DonBot uploads are enabled and the selected guild
 advertises `discord-summary-delivery-v1`. Guild defaults are selected initially. Route commands
@@ -123,9 +129,10 @@ pending.
 `build_nexus_options_model` is a pure mapping used to test status text and control availability
 without ImGui. It disables credential-dependent controls when protected storage is unavailable,
 exposes verified/connected account labels, and disables every mutating control once command
-acceptance stops. DonBot delivery controls require an enabled upload destination and verified guild
-policy. The test-message control is enabled only for a connected broadcaster while no test request
-is being sent.
+acceptance stops. While account verification is active, the main window replaces all DonBot controls
+with one verification label and the Nexus options page hides the endpoint and API-key form. DonBot
+delivery controls require an enabled upload destination and verified guild policy. The test-message
+control is enabled only for a connected broadcaster while no test request is being sent.
 
 ## Shutdown
 

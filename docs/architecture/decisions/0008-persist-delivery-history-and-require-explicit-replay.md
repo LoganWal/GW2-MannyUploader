@@ -25,7 +25,7 @@ uses bounded JSON and atomic replacement in the Nexus addon data directory.
 
 ## Consequences
 
-- Disabling/re-enabling providers, switching New/Today, and restarting the game do not replay a
+- Disabling/re-enabling providers, switching New/Last 24 Hours, and restarting the game do not replay a
   retained unchanged log.
 - A changed file identity remains eligible after normal stability checks.
 - Users retain a deliberate way to repeat uploads or chat without weakening automatic suppression.

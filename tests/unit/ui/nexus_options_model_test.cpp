@@ -72,6 +72,7 @@ void disconnected_model_tests(TestSuite& suite) {
     const auto model = ui::build_nexus_options_model(snapshot());
     MANNY_CHECK(suite, model.donbot.status_text == "Not verified");
     MANNY_CHECK(suite, model.donbot.verify_available);
+    MANNY_CHECK(suite, !model.donbot.verification_in_progress);
     MANNY_CHECK(suite, !model.donbot.configuration_visible);
     MANNY_CHECK(suite, !model.donbot.discord_delivery_visible);
     MANNY_CHECK(suite, !model.donbot.guild_selection_available);
@@ -106,6 +107,7 @@ void connected_model_tests(TestSuite& suite) {
                 .enabled = true,
                 .defaults_available = true,
                 .channel_override_allowed = true,
+                .pve_summary = true,
                 .channels = {{.channel_id = "223", .channel_name = "logs"}},
             },
     }};
@@ -129,6 +131,8 @@ void connected_model_tests(TestSuite& suite) {
     MANNY_CHECK(suite, model.donbot.configuration_visible);
     MANNY_CHECK(suite, model.donbot.guild_selection_available);
     MANNY_CHECK(suite, model.donbot.enable_toggle_available);
+    MANNY_CHECK(suite, model.donbot.refresh_available);
+    MANNY_CHECK(suite, !model.donbot.verification_in_progress);
     MANNY_CHECK(suite, model.donbot.discord_delivery_visible);
     MANNY_CHECK(suite, model.donbot.discord_delivery_toggle_available);
     MANNY_CHECK(suite, model.donbot.discord_channel_selection_visible);
@@ -141,6 +145,29 @@ void connected_model_tests(TestSuite& suite) {
     MANNY_CHECK(suite, model.twitch.test_message_available);
     MANNY_CHECK(suite, model.command_pending);
     MANNY_CHECK(suite, model.last_error == "Safe visible diagnostic");
+
+    state.donbot.refreshing = true;
+    const auto refreshing = ui::build_nexus_options_model(state);
+    MANNY_CHECK(suite, refreshing.donbot.status_text ==
+                           "Verified as Player.1234 (refreshing server settings)");
+    MANNY_CHECK(suite, !refreshing.donbot.guild_selection_available);
+    MANNY_CHECK(suite, !refreshing.donbot.enable_toggle_available);
+    MANNY_CHECK(suite, !refreshing.donbot.refresh_available);
+    MANNY_CHECK(suite, !refreshing.donbot.discord_delivery_toggle_available);
+    MANNY_CHECK(suite, !refreshing.donbot.discord_channel_selection_available);
+    MANNY_CHECK(suite, !refreshing.donbot.disconnect_available);
+    state.donbot.refreshing = false;
+
+    state.donbot.state = application::DonBotConfigurationState::Verifying;
+    state.donbot.account_name.reset();
+    const auto verifying_account = ui::build_nexus_options_model(state);
+    MANNY_CHECK(suite, verifying_account.donbot.status_text == "Verifying DonBot account");
+    MANNY_CHECK(suite, verifying_account.donbot.verification_in_progress);
+    MANNY_CHECK(suite, !verifying_account.donbot.verify_available);
+    MANNY_CHECK(suite, !verifying_account.donbot.guild_selection_available);
+    MANNY_CHECK(suite, !verifying_account.donbot.discord_delivery_toggle_available);
+    state.donbot.state = application::DonBotConfigurationState::Verified;
+    state.donbot.account_name = "Player.1234";
 
     state.configuration.settings.donbot.discord_delivery_enabled = true;
     const auto delivery = ui::build_nexus_options_model(state);
@@ -168,6 +195,14 @@ void connected_model_tests(TestSuite& suite) {
     MANNY_CHECK(suite, discord_disabled.donbot.discord_delivery_status_text ==
                            "Discord summaries are disabled in this server's DonBot settings");
     state.donbot.guilds.front().discord_delivery.enabled = true;
+
+    state.donbot.guilds.front().discord_delivery.pve_summary = false;
+    const auto no_summary_outputs = ui::build_nexus_options_model(state);
+    MANNY_CHECK(suite, !no_summary_outputs.donbot.discord_delivery_visible);
+    MANNY_CHECK(suite,
+                no_summary_outputs.donbot.discord_delivery_status_text ==
+                    "No Discord summary outputs are enabled in this server's DonBot settings");
+    state.donbot.guilds.front().discord_delivery.pve_summary = true;
 
     state.twitch_test_message.state = application::TwitchTestMessageState::Sending;
     state.twitch_test_message.diagnostic = "Sending a Twitch test message";

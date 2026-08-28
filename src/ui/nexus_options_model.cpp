@@ -18,6 +18,9 @@ namespace {
 }
 
 [[nodiscard]] std::string donbot_status(const application::DonBotConfigurationSnapshot& snapshot) {
+    if (snapshot.refreshing && snapshot.account_name) {
+        return "Verified as " + *snapshot.account_name + " (refreshing server settings)";
+    }
     switch (snapshot.state) {
     case application::DonBotConfigurationState::Unverified:
         return "Not verified";
@@ -92,22 +95,39 @@ NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnaps
     const auto active = snapshot.accepting_commands && !snapshot.shutting_down;
     const auto donbot_idle =
         snapshot.donbot.state != application::DonBotConfigurationState::Verifying &&
-        snapshot.donbot.state != application::DonBotConfigurationState::ShuttingDown;
+        snapshot.donbot.state != application::DonBotConfigurationState::ShuttingDown &&
+        !snapshot.donbot.refreshing;
     const auto donbot_verified =
         snapshot.donbot.state == application::DonBotConfigurationState::Verified &&
         snapshot.donbot.account_name.has_value();
     const auto selected_guild = std::ranges::find(
         snapshot.donbot.guilds, snapshot.donbot.selected_guild_id, &ports::DonBotGuild::guild_id);
+    const auto summary_message_kind_available = selected_guild != snapshot.donbot.guilds.end() &&
+                                                (selected_guild->discord_delivery.pve_summary ||
+                                                 selected_guild->discord_delivery.wvw_summary ||
+                                                 selected_guild->discord_delivery.wvw_advanced ||
+                                                 selected_guild->discord_delivery.wvw_stream);
     const auto discord_delivery_available =
         donbot_verified && snapshot.donbot.discord_summary_delivery_v1 &&
-        selected_guild != snapshot.donbot.guilds.end() && selected_guild->discord_delivery.enabled;
+        selected_guild != snapshot.donbot.guilds.end() &&
+        selected_guild->discord_delivery.enabled && summary_message_kind_available;
     const auto discord_route_available =
         discord_delivery_available && (selected_guild->discord_delivery.defaults_available ||
                                        (selected_guild->discord_delivery.channel_override_allowed &&
                                         !selected_guild->discord_delivery.channels.empty()));
+    const auto aggregate_route_available =
+        donbot_verified && snapshot.donbot.discord_aggregate_delivery_v1 &&
+        selected_guild != snapshot.donbot.guilds.end() &&
+        selected_guild->discord_delivery.enabled &&
+        selected_guild->discord_delivery.aggregate_enabled &&
+        (selected_guild->discord_delivery.aggregate_defaults_available ||
+         (selected_guild->discord_delivery.channel_override_allowed &&
+          !selected_guild->discord_delivery.channels.empty()));
     const auto discord_delivery_visible =
         snapshot.configuration.settings.donbot.enabled && discord_route_available;
-    const auto discord_channel_selection_visible = discord_delivery_visible;
+    const auto discord_channel_selection_visible =
+        snapshot.configuration.settings.donbot.enabled &&
+        (discord_route_available || aggregate_route_available);
     std::string discord_delivery_status_text;
     if (snapshot.configuration.settings.donbot.enabled && !discord_delivery_visible) {
         if (!donbot_verified) {
@@ -120,6 +140,9 @@ NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnaps
         } else if (!selected_guild->discord_delivery.enabled) {
             discord_delivery_status_text =
                 "Discord summaries are disabled in this server's DonBot settings";
+        } else if (!summary_message_kind_available) {
+            discord_delivery_status_text =
+                "No Discord summary outputs are enabled in this server's DonBot settings";
         } else {
             discord_delivery_status_text = "No authorized Discord log destination is available";
         }
@@ -138,16 +161,22 @@ NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnaps
                 .diagnostic = snapshot.donbot.diagnostic,
                 .discord_delivery_status_text = discord_delivery_status_text,
                 .verify_available = active && storage_available && donbot_idle && !donbot_verified,
+                .verification_in_progress =
+                    snapshot.donbot.state == application::DonBotConfigurationState::Verifying,
                 .configuration_visible = snapshot.configuration.settings.donbot.enabled,
                 .guild_selection_available =
-                    active && donbot_verified && !snapshot.donbot.guilds.empty(),
+                    active && donbot_idle && donbot_verified && !snapshot.donbot.guilds.empty(),
                 .enable_toggle_available =
-                    active && (snapshot.configuration.settings.donbot.enabled ||
-                               (donbot_verified && !snapshot.donbot.selected_guild_id.empty())),
+                    active && donbot_idle &&
+                    (snapshot.configuration.settings.donbot.enabled ||
+                     (donbot_verified && !snapshot.donbot.selected_guild_id.empty())),
+                .refresh_available = active && storage_available && donbot_idle && donbot_verified,
                 .discord_delivery_visible = discord_delivery_visible,
-                .discord_delivery_toggle_available = active && discord_delivery_visible,
+                .discord_delivery_toggle_available =
+                    active && donbot_idle && discord_delivery_visible,
                 .discord_channel_selection_visible = discord_channel_selection_visible,
-                .discord_channel_selection_available = active && discord_channel_selection_visible,
+                .discord_channel_selection_available =
+                    active && donbot_idle && discord_channel_selection_visible,
                 .disconnect_available =
                     active && donbot_idle &&
                     (snapshot.donbot.state != application::DonBotConfigurationState::Unverified ||

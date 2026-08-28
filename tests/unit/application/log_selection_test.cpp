@@ -17,27 +17,27 @@ void run_log_selection_tests(TestSuite& suite) {
                            file_anchor - std::chrono::minutes{15});
 
     const auto session_started_at = std::filesystem::file_time_type{} + std::chrono::hours{18};
-    const auto local_day_started_at = std::filesystem::file_time_type{};
+    const auto last_24_hours_started_at = std::filesystem::file_time_type{};
     const auto window = application::LogSelectionWindow{
         .session_started_at = session_started_at,
-        .local_day_started_at = local_day_started_at,
+        .last_24_hours_started_at = last_24_hours_started_at,
     };
 
     MANNY_CHECK(suite, application::log_selection_cutoff(application::LogSelectionMode::New,
                                                          window) == session_started_at);
-    MANNY_CHECK(suite, application::log_selection_cutoff(application::LogSelectionMode::Today,
-                                                         window) == local_day_started_at);
+    MANNY_CHECK(suite, application::log_selection_cutoff(application::LogSelectionMode::Last24Hours,
+                                                         window) == last_24_hours_started_at);
     MANNY_CHECK(suite,
                 !application::log_matches_selection(session_started_at - std::chrono::seconds{1},
                                                     application::LogSelectionMode::New, window));
     MANNY_CHECK(suite, application::log_matches_selection(
                            session_started_at, application::LogSelectionMode::New, window));
-    MANNY_CHECK(suite,
-                application::log_matches_selection(session_started_at - std::chrono::hours{1},
-                                                   application::LogSelectionMode::Today, window));
-    MANNY_CHECK(suite,
-                !application::log_matches_selection(local_day_started_at - std::chrono::seconds{1},
-                                                    application::LogSelectionMode::Today, window));
+    MANNY_CHECK(suite, application::log_matches_selection(
+                           session_started_at - std::chrono::hours{1},
+                           application::LogSelectionMode::Last24Hours, window));
+    MANNY_CHECK(suite, !application::log_matches_selection(
+                           last_24_hours_started_at - std::chrono::seconds{1},
+                           application::LogSelectionMode::Last24Hours, window));
 }
 
 } // namespace manny_uploader::test

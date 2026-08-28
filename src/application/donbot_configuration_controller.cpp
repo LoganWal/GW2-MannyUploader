@@ -67,6 +67,11 @@ namespace {
                                });
 }
 
+[[nodiscard]] bool
+has_summary_message_kind(const ports::DonBotDiscordDeliveryPolicy& policy) noexcept {
+    return policy.pve_summary || policy.wvw_summary || policy.wvw_advanced || policy.wvw_stream;
+}
+
 } // namespace
 
 std::expected<DonBotConfigurationController, DonBotConfigurationError>
@@ -95,6 +100,7 @@ DonBotConfigurationController::create(ConfigurationService& configuration,
             .guilds = {},
             .selected_guild_id = {},
             .diagnostic = {},
+            .refreshing = false,
             .revision = 1,
             .shutting_down = false,
         },
@@ -144,7 +150,25 @@ authorized_donbot_delivery(const config::Settings& settings,
     if (!settings.donbot.discord_delivery_enabled) {
         return {};
     }
+    const auto* guild = find_guild(snapshot.guilds, settings.donbot.selected_guild_id);
+    if (guild == nullptr || !has_summary_message_kind(guild->discord_delivery)) {
+        return {};
+    }
     return authorized_donbot_route(settings, snapshot);
+}
+
+DonBotDeliveryAuthorization
+authorized_donbot_aggregate_route(const config::Settings& settings,
+                                  const DonBotConfigurationSnapshot& snapshot) {
+    auto authorization = authorized_donbot_route(settings, snapshot);
+    if (authorization.mode != domain::DonBotDiscordDeliveryMode::GuildDefaults) {
+        return authorization;
+    }
+    const auto* guild = find_guild(snapshot.guilds, settings.donbot.selected_guild_id);
+    if (guild == nullptr || !guild->discord_delivery.aggregate_defaults_available) {
+        return {};
+    }
+    return authorization;
 }
 
 std::expected<void, DonBotConfigurationError>
@@ -174,6 +198,32 @@ DonBotConfigurationController::begin_saved_verification() {
     return dispatch(std::move(base_url), std::move(*api_key), VerificationSource::Saved);
 }
 
+std::expected<void, DonBotConfigurationError> DonBotConfigurationController::begin_saved_refresh() {
+    if (snapshot_.shutting_down || configuration_.is_shutting_down()) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::ShuttingDown,
+                                          "DonBot configuration is shutting down"));
+    }
+    if (in_flight_) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::Busy,
+                                          "DonBot verification is already in progress"));
+    }
+    if (snapshot_.state != DonBotConfigurationState::Verified || !snapshot_.account_name) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::NotVerified,
+                                          "Verify DonBot before refreshing server settings"));
+    }
+
+    auto api_key = configuration_.load_secret(ports::SecretId::DonBotGw2ApiKey);
+    if (!api_key) {
+        return std::unexpected(publish_error_for(
+            from_configuration_error(DonBotConfigurationErrorCode::SecretLoadFailed,
+                                     "The saved DonBot API key could not be loaded",
+                                     api_key.error()),
+            VerificationSource::Refresh));
+    }
+    auto base_url = configuration_.snapshot().settings.donbot.api_base_url;
+    return dispatch(std::move(base_url), std::move(*api_key), VerificationSource::Refresh);
+}
+
 std::expected<bool, DonBotConfigurationError> DonBotConfigurationController::poll() {
     if (snapshot_.shutting_down) {
         return std::unexpected(make_error(DonBotConfigurationErrorCode::ShuttingDown,
@@ -191,6 +241,10 @@ DonBotConfigurationController::select_guild(std::string guild_id) {
     if (snapshot_.shutting_down || configuration_.is_shutting_down()) {
         return std::unexpected(make_error(DonBotConfigurationErrorCode::ShuttingDown,
                                           "DonBot configuration is shutting down"));
+    }
+    if (in_flight_) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::Busy,
+                                          "DonBot server settings are refreshing"));
     }
     if (snapshot_.state != DonBotConfigurationState::Verified || !snapshot_.account_name) {
         return std::unexpected(make_error(DonBotConfigurationErrorCode::NotVerified,
@@ -234,6 +288,10 @@ DonBotConfigurationController::set_discord_delivery_enabled(bool enabled) {
         return std::unexpected(make_error(DonBotConfigurationErrorCode::ShuttingDown,
                                           "DonBot configuration is shutting down"));
     }
+    if (in_flight_) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::Busy,
+                                          "DonBot server settings are refreshing"));
+    }
     auto settings = configuration_.snapshot().settings;
     if (normalize_base_url(settings.donbot.api_base_url) != snapshot_.api_base_url) {
         return std::unexpected(
@@ -241,9 +299,11 @@ DonBotConfigurationController::set_discord_delivery_enabled(bool enabled) {
                                      "DonBot settings changed after verification; verify again")));
     }
     const auto* guild = find_guild(snapshot_.guilds, settings.donbot.selected_guild_id);
-    if (enabled && (snapshot_.state != DonBotConfigurationState::Verified ||
-                    !snapshot_.discord_summary_delivery_v1 || guild == nullptr ||
-                    !guild->discord_delivery.enabled || !settings.donbot.enabled)) {
+    if (enabled &&
+        (snapshot_.state != DonBotConfigurationState::Verified ||
+         !snapshot_.discord_summary_delivery_v1 || guild == nullptr ||
+         !guild->discord_delivery.enabled || !has_summary_message_kind(guild->discord_delivery) ||
+         !settings.donbot.enabled)) {
         return std::unexpected(
             make_error(DonBotConfigurationErrorCode::DeliveryUnavailable,
                        "The selected DonBot server does not allow MannyUploader Discord delivery"));
@@ -277,6 +337,10 @@ DonBotConfigurationController::select_discord_channel(std::string channel_id) {
     if (snapshot_.shutting_down || configuration_.is_shutting_down()) {
         return std::unexpected(make_error(DonBotConfigurationErrorCode::ShuttingDown,
                                           "DonBot configuration is shutting down"));
+    }
+    if (in_flight_) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::Busy,
+                                          "DonBot server settings are refreshing"));
     }
     const auto settings_snapshot = configuration_.snapshot();
     if (normalize_base_url(settings_snapshot.settings.donbot.api_base_url) !=
@@ -387,13 +451,15 @@ DonBotConfigurationController::dispatch(std::string api_base_url, support::Secre
     const auto current = configuration_.snapshot();
     if (!valid_base_url(current.settings, api_base_url) || api_key.empty()) {
         return std::unexpected(
-            publish_error(make_error(DonBotConfigurationErrorCode::InvalidConfiguration,
-                                     "The DonBot API endpoint or API key is invalid")));
+            publish_error_for(make_error(DonBotConfigurationErrorCode::InvalidConfiguration,
+                                         "The DonBot API endpoint or API key is invalid"),
+                              source));
     }
     if (next_request_id_ == std::numeric_limits<std::uint64_t>::max()) {
         return std::unexpected(
-            publish_error(make_error(DonBotConfigurationErrorCode::InvalidConfiguration,
-                                     "No more DonBot verification requests can be created")));
+            publish_error_for(make_error(DonBotConfigurationErrorCode::InvalidConfiguration,
+                                         "No more DonBot verification requests can be created"),
+                              source));
     }
 
     const auto request_id = next_request_id_++;
@@ -409,13 +475,18 @@ DonBotConfigurationController::dispatch(std::string api_base_url, support::Secre
     });
     if (!queued) {
         return std::unexpected(
-            publish_error(make_error(DonBotConfigurationErrorCode::DispatchFailed,
-                                     "DonBot verification could not be started")));
+            publish_error_for(make_error(DonBotConfigurationErrorCode::DispatchFailed,
+                                         "DonBot verification could not be started"),
+                              source));
     }
 
     in_flight_.emplace(std::move(pending));
-    clear_identity();
-    snapshot_.state = DonBotConfigurationState::Verifying;
+    if (source == VerificationSource::Refresh) {
+        snapshot_.refreshing = true;
+    } else {
+        clear_identity();
+        snapshot_.state = DonBotConfigurationState::Verifying;
+    }
     snapshot_.api_base_url = std::move(api_base_url);
     snapshot_.diagnostic.clear();
     advance_revision();
@@ -439,7 +510,7 @@ DonBotConfigurationController::handle_result(ports::DonBotVerificationResult res
                                 failure.detail.empty() ? "DonBot verification failed"
                                                        : std::move(failure.detail));
         error.verification_error = failure.code;
-        return std::unexpected(publish_error(std::move(error)));
+        return std::unexpected(publish_error_for(std::move(error), request.source));
     }
 
     if (request.source == VerificationSource::Candidate) {
@@ -480,9 +551,10 @@ DonBotConfigurationController::handle_saved_success(ports::DonBotVerificationSuc
                                                     const InFlightVerification& request) {
     auto settings = configuration_.snapshot().settings;
     if (normalize_base_url(settings.donbot.api_base_url) != request.api_base_url) {
-        return std::unexpected(
-            publish_error(make_error(DonBotConfigurationErrorCode::StaleVerification,
-                                     "DonBot settings changed after verification; verify again")));
+        return std::unexpected(publish_error_for(
+            make_error(DonBotConfigurationErrorCode::StaleVerification,
+                       "DonBot settings changed after verification; verify again"),
+            request.source));
     }
 
     auto selected_guild_id = settings.donbot.selected_guild_id;
@@ -493,9 +565,11 @@ DonBotConfigurationController::handle_saved_success(ports::DonBotVerificationSuc
         settings.donbot.discord_channel_override_explicit = false;
         settings.donbot.selected_discord_channel_id.clear();
         if (auto saved = configuration_.save_settings(settings); !saved) {
-            return std::unexpected(publish_error(from_configuration_error(
-                DonBotConfigurationErrorCode::SettingsSaveFailed,
-                "An unauthorized DonBot guild selection could not be disabled", saved.error())));
+            return std::unexpected(publish_error_for(
+                from_configuration_error(
+                    DonBotConfigurationErrorCode::SettingsSaveFailed,
+                    "An unauthorized DonBot guild selection could not be disabled", saved.error()),
+                request.source));
         }
         selected_guild_id.clear();
     }
@@ -508,11 +582,13 @@ DonBotConfigurationController::handle_saved_success(ports::DonBotVerificationSuc
         save_sanitized_route = true;
     }
 
-    const auto delivery_policy_available = success.identity.discord_summary_delivery_v1 &&
-                                           selected_guild != nullptr &&
-                                           selected_guild->discord_delivery.enabled;
+    const auto route_policy_available = success.identity.discord_summary_delivery_v1 &&
+                                        selected_guild != nullptr &&
+                                        selected_guild->discord_delivery.enabled;
+    const auto delivery_policy_available =
+        route_policy_available && has_summary_message_kind(selected_guild->discord_delivery);
     const auto explicit_override_valid =
-        delivery_policy_available && settings.donbot.discord_channel_override_explicit &&
+        route_policy_available && settings.donbot.discord_channel_override_explicit &&
         selected_guild->discord_delivery.channel_override_allowed &&
         contains_channel(*selected_guild, settings.donbot.selected_discord_channel_id);
     if (settings.donbot.discord_channel_override_explicit && !explicit_override_valid) {
@@ -529,9 +605,11 @@ DonBotConfigurationController::handle_saved_success(ports::DonBotVerificationSuc
     }
     if (save_sanitized_route) {
         if (auto saved = configuration_.save_settings(settings); !saved) {
-            return std::unexpected(publish_error(from_configuration_error(
-                DonBotConfigurationErrorCode::SettingsSaveFailed,
-                "An unauthorized DonBot Discord route could not be disabled", saved.error())));
+            return std::unexpected(publish_error_for(
+                from_configuration_error(
+                    DonBotConfigurationErrorCode::SettingsSaveFailed,
+                    "An unauthorized DonBot Discord route could not be disabled", saved.error()),
+                request.source));
         }
     }
 
@@ -549,6 +627,18 @@ DonBotConfigurationController::publish_error(DonBotConfigurationError error) {
     return error;
 }
 
+DonBotConfigurationError
+DonBotConfigurationController::publish_error_for(DonBotConfigurationError error,
+                                                 VerificationSource source) {
+    if (source != VerificationSource::Refresh) {
+        return publish_error(std::move(error));
+    }
+    snapshot_.refreshing = false;
+    snapshot_.diagnostic = error.message;
+    advance_revision();
+    return error;
+}
+
 void DonBotConfigurationController::publish_verified(ports::DonBotVerification identity,
                                                      std::string api_base_url,
                                                      std::string selected_guild_id) {
@@ -560,6 +650,7 @@ void DonBotConfigurationController::publish_verified(ports::DonBotVerification i
     snapshot_.guilds = std::move(identity.guilds);
     snapshot_.selected_guild_id = std::move(selected_guild_id);
     snapshot_.diagnostic.clear();
+    snapshot_.refreshing = false;
     advance_revision();
 }
 
@@ -569,6 +660,7 @@ void DonBotConfigurationController::clear_identity() noexcept {
     snapshot_.discord_aggregate_delivery_v1 = false;
     snapshot_.guilds.clear();
     snapshot_.selected_guild_id.clear();
+    snapshot_.refreshing = false;
 }
 
 void DonBotConfigurationController::advance_revision() noexcept {

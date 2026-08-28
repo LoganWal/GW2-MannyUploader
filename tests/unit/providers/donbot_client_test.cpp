@@ -211,7 +211,9 @@ void verification_tests(TestSuite& suite) {
         MANNY_CHECK(suite, find_header(request, "X-GW2-API-Key") == nullptr);
         MANNY_CHECK(suite, find_header(request, "Content-Type") != nullptr);
         MANNY_CHECK(suite, request.body == R"({"apiKey":"AAAA-BBBB-CCCC-DDDD"})");
-        MANNY_CHECK(suite, request.timeouts.operation == std::chrono::minutes{15});
+        MANNY_CHECK(suite, request.timeouts.connect == std::chrono::seconds{5});
+        MANNY_CHECK(suite, request.timeouts.operation == std::chrono::seconds{30});
+        MANNY_CHECK(suite, request.timeouts.stalled_transfer == std::chrono::seconds{30});
         MANNY_CHECK(suite, request.response_limits.max_body_bytes == 256U * 1024U);
     }
 
@@ -246,6 +248,7 @@ void verification_tests(TestSuite& suite) {
           "defaultsAvailable":true,
           "channelOverrideAllowed":true,
           "aggregateEnabled":true,
+          "aggregateDefaultsAvailable":true,
           "maxAggregateFightLogs":50,
           "enabledMessageKinds":["pve-summary","wvw-summary","wvw-advanced","wvw-stream"],
           "channels":[
@@ -268,6 +271,7 @@ void verification_tests(TestSuite& suite) {
         MANNY_CHECK(suite, delivery.pve_summary && delivery.wvw_summary && delivery.wvw_advanced &&
                                delivery.wvw_stream);
         MANNY_CHECK(suite, delivery.aggregate_enabled);
+        MANNY_CHECK(suite, delivery.aggregate_defaults_available);
         MANNY_CHECK(suite, delivery.max_aggregate_fight_logs == 50);
         MANNY_CHECK(suite, delivery.channels.size() == 2);
         MANNY_CHECK(suite, delivery.channels.front().channel_name == "logs");
@@ -287,8 +291,6 @@ void verification_tests(TestSuite& suite) {
             R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["future-summary"],"channels":[]}}]})json"},
         std::string_view{
             R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary","wvw-summary","wvw-advanced","wvw-stream","future-summary"],"channels":[]}}]})json"},
-        std::string_view{
-            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":[],"channels":[]}}]})json"},
     };
     for (const auto document : invalid_delivery_policies) {
         SequencedHttpClient invalid_policy_http;
@@ -299,13 +301,28 @@ void verification_tests(TestSuite& suite) {
             !invalid_policy_client.verify(providers::donbot_default_api_base, key).has_value());
     }
 
+    SequencedHttpClient empty_outputs_http;
+    empty_outputs_http.push(response(
+        200, {},
+        R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":false,"channelOverrideAllowed":false,"enabledMessageKinds":[],"channels":[]}}]})json"));
+    providers::DonBotClient empty_outputs_client{empty_outputs_http};
+    const auto empty_outputs = empty_outputs_client.verify(providers::donbot_default_api_base, key);
+    MANNY_CHECK(suite, empty_outputs.has_value());
+    MANNY_CHECK(suite, empty_outputs && empty_outputs->guilds.size() == 1);
+    MANNY_CHECK(suite, empty_outputs && empty_outputs->guilds.front().discord_delivery.enabled);
+    MANNY_CHECK(suite, empty_outputs &&
+                           !empty_outputs->guilds.front().discord_delivery.pve_summary &&
+                           !empty_outputs->guilds.front().discord_delivery.wvw_summary &&
+                           !empty_outputs->guilds.front().discord_delivery.wvw_advanced &&
+                           !empty_outputs->guilds.front().discord_delivery.wvw_stream);
+
     constexpr std::array invalid_aggregate_policies{
         std::string_view{
             R"json({"accountName":"Player.1234","capabilities":["discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild"}]})json"},
         std::string_view{
-            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1","discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary"],"aggregateEnabled":true,"maxAggregateFightLogs":1,"channels":[]}}]})json"},
+            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1","discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary"],"aggregateEnabled":true,"aggregateDefaultsAvailable":true,"maxAggregateFightLogs":1,"channels":[]}}]})json"},
         std::string_view{
-            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1","discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary"],"aggregateEnabled":true,"maxAggregateFightLogs":101,"channels":[]}}]})json"},
+            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1","discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary"],"aggregateEnabled":true,"aggregateDefaultsAvailable":true,"maxAggregateFightLogs":101,"channels":[]}}]})json"},
         std::string_view{
             R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1","discord-aggregate-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary"],"channels":[]}}]})json"},
     };

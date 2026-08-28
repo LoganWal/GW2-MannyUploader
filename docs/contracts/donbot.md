@@ -64,6 +64,10 @@ that account must be linked to a DonBot/Discord identity, and the returned list 
 guilds in which that Discord user is a member. The addon never treats a locally entered guild ID as
 authorization.
 
+Verification uses a 5-second connection timeout and a 30-second operation and stalled-transfer
+timeout. These shorter limits apply only to guild and server-property discovery. Archive uploads keep
+their longer transfer limits.
+
 ## dps.report permalink import
 
 When the same job enables dps.report, DonBot waits for its successful result and sends:
@@ -195,7 +199,9 @@ includes a bounded `discordDelivery` object with `enabled`, `defaultsAvailable`,
 64-bit decimal `channelId` and a bounded display `channelName`.
 
 The v1 message-kind list contains at most those four exact values. Unknown or duplicate values are
-rejected. An enabled delivery policy must advertise at least one message kind.
+rejected. An enabled policy may temporarily advertise no message kinds when the server permission is
+enabled before any usable log output is configured. Verification still succeeds, but automatic
+summary delivery remains unavailable until a later refresh advertises at least one message kind.
 
 At most 256 channels per guild and 2,048 channels across the response are accepted. Channel IDs must
 be unique within a guild. The existing 256 KiB verification bound applies. Channel names and enabled
@@ -256,9 +262,10 @@ delivery.
 
 Verification advertises `discord-aggregate-delivery-v1` only alongside
 `discord-summary-delivery-v1`. Each guild's `discordDelivery` object then also contains
-`aggregateEnabled` and `maxAggregateFightLogs`. The maximum is an integer from 2 through 100. A
-missing capability, false guild flag, malformed bound, unavailable route, or unverified selection
-keeps the aggregate action unavailable.
+`aggregateEnabled`, `aggregateDefaultsAvailable`, and `maxAggregateFightLogs`. The maximum is an
+integer from 2 through 100. Guild-default aggregate routing is available only when
+`aggregateDefaultsAvailable` is true. A missing capability, false guild flag, malformed bound,
+unavailable route, or unverified selection keeps the aggregate action unavailable.
 
 The explicit action sends 2 through the negotiated maximum unique positive signed-64-bit fight IDs:
 
@@ -287,11 +294,13 @@ Success is exactly `200` and contains `fightLogCount` equal to the request count
 requested Discord receipt. `not_requested` is invalid. Other outcomes and count consistency follow
 the summary receipt rules, with a maximum count of 100.
 
-MannyUploader records the guild ID used by each new DonBot upload receipt. Only selected jobs with a
-fight ID and matching current-guild provenance may enter an aggregate command. The application owner
-re-resolves stable job IDs, current configuration and verification revisions, capability, route,
-guild provenance, and duplicate fight IDs before dispatch. Legacy receipts without guild provenance
-remain usable for links but are not eligible for Discord aggregate delivery.
+MannyUploader records the guild ID used by each new DonBot upload receipt as ordinary historical
+provenance. Any selected job with a valid completed DonBot fight ID may enter an aggregate command,
+including legacy receipts without guild provenance and receipts originally uploaded through another
+guild. The application owner re-resolves stable job IDs, current configuration and verification
+revisions, capability, route, valid fight IDs, and duplicate fight IDs before dispatch. DonBot
+authorizes the linked user's requested target guild and channel. Stored fight guild provenance does
+not have to match that target.
 
 One dedicated bounded worker loads the protected key immediately before the request and permits one
 queued or active operation. It performs no retry. Transport failure, `408`, `429`, `5xx`, or a

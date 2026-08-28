@@ -70,7 +70,7 @@ log to dps.report, GW2Wingman, and DonBot again; `Rechat` deliberately sends its
 Twitch again. The status bar identifies the selected DonBot server while DonBot is enabled.
 
 `Show New` is the safe startup default and accepts only logs completed after the addon loaded.
-`Show Today` includes logs completed since local midnight plus new logs that arrive afterward. Upload
+`Show Last 24 Hours` includes logs completed during the rolling previous 24 hours. Upload
 history is persisted across game restarts, so switching modes or disabling and re-enabling a provider
 does not resubmit an already-seen log. Only the explicit `Reupload` and `Rechat` actions replay work.
 
@@ -115,6 +115,10 @@ compatibility endpoint because Wingman's direct workflow is based on processed E
    automatic per-log delivery.
 6. `Guild defaults` is selected initially. Choose an authorized Discord channel only when that
    server needs an explicit override.
+
+MannyUploader refreshes DonBot server permissions and delivery settings when uploads are enabled and
+then every 5 minutes. `Refresh DonBot servers` requests an immediate update. The current dropdown
+stays visible while the refresh runs.
 
 The key is protected separately from ordinary JSON. With dps.report enabled, DonBot imports its
 permalink for the selected server. With dps.report disabled, DonBot uploads the archive through TUS.
@@ -203,7 +207,8 @@ both existing files are invalid, startup fails closed instead of silently discar
 - Confirm arcdps creates compressed `.zevtc` files.
 - Compare the configured directory with the newest log's location.
 - Enable subdirectory watching if arcdps creates encounter-specific folders.
-- Use `Show New` for logs completed after addon load or `Show Today` for the current local day.
+- Use `Show New` for logs completed after addon load or `Show Last 24 Hours` for the rolling previous
+  24 hours.
 
 ### DonBot or Twitch cannot be enabled
 

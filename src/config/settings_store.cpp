@@ -154,8 +154,7 @@ decode_settings(std::string_view document, const std::filesystem::path& path) {
 
     // Older settings persisted a channel ID without recording whether the user explicitly chose
     // it. Treat those IDs as stale so loading an older file cannot silently override guild routes.
-    if (!settings.donbot.enabled || !settings.donbot.discord_delivery_enabled ||
-        !settings.donbot.discord_channel_override_explicit) {
+    if (!settings.donbot.enabled || !settings.donbot.discord_channel_override_explicit) {
         settings.donbot.discord_channel_override_explicit = false;
         settings.donbot.selected_discord_channel_id.clear();
     }

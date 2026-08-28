@@ -19,6 +19,7 @@ only:
 - normalized API base;
 - transient verified account name and authorized guild list;
 - negotiated Discord delivery capability, guild policy, message kinds, and authorized channels
+- whether a saved-key refresh is active;
 - the durably selected guild ID;
 - safe diagnostic, revision, and shutdown state.
 
@@ -30,6 +31,19 @@ marker, and selected channel ID are ordinary persisted configuration.
 Only one verification may be active. Results are correlated by monotonically increasing request ID;
 an unmatched result is discarded as stale without ending the current request. Shutdown clears queued
 commands/results and transient identity, requests cooperative cancellation, and rejects later calls.
+During candidate or saved-key verification, the main window exposes one concise DonBot verification
+label instead of stale server and delivery controls. Nexus options hides the endpoint and API-key
+form until verification succeeds or fails. A server-property refresh remains distinct and retains
+the last verified controls while temporarily disabling mutations.
+
+Saved-key refresh is a new verification request, not an automatic retry of a failed request. Enabling
+DonBot starts one immediately. While DonBot remains enabled and verified, the application owner starts
+another at most once every 5 minutes. The user may also request an immediate refresh. A refresh keeps
+the current verified identity, guild list, selected guild, and delivery policy visible while the
+request is active, but temporarily rejects configuration mutations. Success applies the same
+authorization and route-revocation rules as startup verification. Failure clears the refreshing flag,
+preserves the last verified snapshot and durable settings, and publishes a safe diagnostic. A later
+scheduled or explicit refresh may recover without reloading the addon.
 
 ## Candidate-key persistence ordering
 
@@ -96,4 +110,5 @@ and the failure is visible. Disconnect cannot race active verification.
 Owned-fake tests cover success and secret-free snapshots, URL normalization, exact save-before-store
 and save-before-erase ordering, no persistence before verification, authorized selection, settings
 and secret failures, saved-key startup, revoked guilds, stale IDs and settings, queue rejection,
-cancellation, exception containment, backpressure, and idempotent joined shutdown.
+cancellation, exception containment, backpressure, nondestructive saved-key refresh, and idempotent
+joined shutdown.

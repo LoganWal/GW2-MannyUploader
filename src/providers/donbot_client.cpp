@@ -33,6 +33,7 @@ struct ParsedDonBotGuild {
         std::optional<bool> channelOverrideAllowed;
         std::optional<std::vector<std::string>> enabledMessageKinds;
         std::optional<bool> aggregateEnabled;
+        std::optional<bool> aggregateDefaultsAvailable;
         std::optional<std::uint64_t> maxAggregateFightLogs;
         struct ParsedChannel {
             std::optional<std::string> channelId;
@@ -536,8 +537,6 @@ decode_verification(const ports::HttpResponse& response) {
                 !guild.discordDelivery->enabledMessageKinds || !guild.discordDelivery->channels ||
                 guild.discordDelivery->enabledMessageKinds->size() >
                     discord_delivery_message_kinds.size() ||
-                (*guild.discordDelivery->enabled &&
-                 guild.discordDelivery->enabledMessageKinds->empty()) ||
                 guild.discordDelivery->channels->size() > max_channels_per_guild ||
                 total_channels > max_total_channels - guild.discordDelivery->channels->size()) {
                 return std::unexpected(make_error(
@@ -549,6 +548,7 @@ decode_verification(const ports::HttpResponse& response) {
             delivery.channel_override_allowed = *guild.discordDelivery->channelOverrideAllowed;
             if (aggregate_capability_present) {
                 if (!guild.discordDelivery->aggregateEnabled ||
+                    !guild.discordDelivery->aggregateDefaultsAvailable ||
                     !guild.discordDelivery->maxAggregateFightLogs ||
                     *guild.discordDelivery->maxAggregateFightLogs < 2 ||
                     *guild.discordDelivery->maxAggregateFightLogs >
@@ -559,6 +559,8 @@ decode_verification(const ports::HttpResponse& response) {
                                    std::nullopt, std::nullopt, response.status_code));
                 }
                 delivery.aggregate_enabled = *guild.discordDelivery->aggregateEnabled;
+                delivery.aggregate_defaults_available =
+                    *guild.discordDelivery->aggregateDefaultsAvailable;
                 delivery.max_aggregate_fight_logs =
                     static_cast<std::uint16_t>(*guild.discordDelivery->maxAggregateFightLogs);
             }
@@ -763,6 +765,7 @@ decode_progress(const ports::HttpResponse& response, bool require_delivery) {
 }
 
 [[nodiscard]] ports::HttpTimeouts upload_timeouts();
+[[nodiscard]] ports::HttpTimeouts verification_timeouts();
 [[nodiscard]] ports::HttpResponseLimits small_response_limits(std::size_t body_bytes);
 
 [[nodiscard]] std::expected<ProcessedDonBotUpload, DonBotError>
@@ -810,6 +813,14 @@ wait_for_processing(const ports::IHttpClient& http_client, const ParsedBaseUrl& 
         .connect = 10s,
         .operation = 15min,
         .stalled_transfer = 15min,
+    };
+}
+
+[[nodiscard]] ports::HttpTimeouts verification_timeouts() {
+    return ports::HttpTimeouts{
+        .connect = 5s,
+        .operation = 30s,
+        .stalled_transfer = 30s,
     };
 }
 
@@ -866,7 +877,7 @@ DonBotClient::verify(std::string_view api_base_url, const support::SecretValue& 
             },
         };
         request.body = std::move(*body);
-        request.timeouts = upload_timeouts();
+        request.timeouts = verification_timeouts();
         request.response_limits = small_response_limits(std::size_t{256} * 1024U);
 
         auto response = http_client_.execute(std::move(request), stop_token);

@@ -1,9 +1,15 @@
 #include "manny_uploader/ui/donbot_aggregate_selection.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <unordered_set>
 
 namespace manny_uploader::ui {
+
+bool donbot_aggregate_candidate_eligible(std::optional<std::uint64_t> fight_log_id) noexcept {
+    return fight_log_id.has_value() && *fight_log_id != 0 &&
+           *fight_log_id <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+}
 
 void DonBotAggregateSelection::reconcile(
     std::string_view identity, std::span<const std::uint64_t> retained_job_ids,

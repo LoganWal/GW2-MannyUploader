@@ -27,6 +27,7 @@ struct DonBotDiscordDeliveryPolicy {
     bool wvw_advanced{};
     bool wvw_stream{};
     bool aggregate_enabled{};
+    bool aggregate_defaults_available{};
     std::uint16_t max_aggregate_fight_logs{};
     std::vector<DonBotChannel> channels;
 

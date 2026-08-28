@@ -160,7 +160,7 @@ DonBotAggregateDeliveryController::dispatch(const SendDonBotAggregateCommand& co
     }
     const auto& settings = configuration.settings.donbot;
     const auto* guild = find_selected_guild(donbot);
-    const auto route = authorized_donbot_route(configuration.settings, donbot);
+    const auto route = authorized_donbot_aggregate_route(configuration.settings, donbot);
     if (!settings.enabled || donbot.state != DonBotConfigurationState::Verified ||
         !donbot.discord_aggregate_delivery_v1 || guild == nullptr ||
         !guild->discord_delivery.aggregate_enabled ||
@@ -183,11 +183,9 @@ DonBotAggregateDeliveryController::dispatch(const SendDonBotAggregateCommand& co
         if (!found->donbot_upload_receipt || !found->donbot_upload_receipt->fight_log_id ||
             *found->donbot_upload_receipt->fight_log_id >
                 static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
-            found->donbot_upload_receipt->guild_id !=
-                std::optional<std::string>{settings.selected_guild_id} ||
             !unique_fights.insert(*found->donbot_upload_receipt->fight_log_id).second) {
             return make_error(DonBotAggregateDeliveryErrorCode::IneligibleJob,
-                              "A selected log is not eligible for this DonBot server");
+                              "A selected log does not have a valid completed DonBot result");
         }
         fight_log_ids.push_back(*found->donbot_upload_receipt->fight_log_id);
     }

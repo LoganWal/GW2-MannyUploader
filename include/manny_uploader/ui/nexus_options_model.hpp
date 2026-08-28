@@ -15,9 +15,11 @@ struct DonBotOptionsModel {
     std::string diagnostic;
     std::string discord_delivery_status_text;
     bool verify_available{};
+    bool verification_in_progress{};
     bool configuration_visible{};
     bool guild_selection_available{};
     bool enable_toggle_available{};
+    bool refresh_available{};
     bool discord_delivery_visible{};
     bool discord_delivery_toggle_available{};
     bool discord_channel_selection_visible{};

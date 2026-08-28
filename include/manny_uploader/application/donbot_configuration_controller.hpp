@@ -28,6 +28,7 @@ struct DonBotConfigurationSnapshot {
     std::vector<ports::DonBotGuild> guilds;
     std::string selected_guild_id;
     std::string diagnostic;
+    bool refreshing{};
     std::uint64_t revision;
     bool shutting_down;
 };
@@ -40,6 +41,10 @@ struct DonBotDeliveryAuthorization {
 [[nodiscard]] DonBotDeliveryAuthorization
 authorized_donbot_route(const config::Settings& settings,
                         const DonBotConfigurationSnapshot& snapshot);
+
+[[nodiscard]] DonBotDeliveryAuthorization
+authorized_donbot_aggregate_route(const config::Settings& settings,
+                                  const DonBotConfigurationSnapshot& snapshot);
 
 [[nodiscard]] DonBotDeliveryAuthorization
 authorized_donbot_delivery(const config::Settings& settings,
@@ -85,6 +90,7 @@ class DonBotConfigurationController {
     [[nodiscard]] std::expected<void, DonBotConfigurationError>
     begin_verification(std::string api_base_url, support::SecretValue api_key);
     [[nodiscard]] std::expected<void, DonBotConfigurationError> begin_saved_verification();
+    [[nodiscard]] std::expected<void, DonBotConfigurationError> begin_saved_refresh();
     [[nodiscard]] std::expected<bool, DonBotConfigurationError> poll();
     [[nodiscard]] std::expected<void, DonBotConfigurationError> select_guild(std::string guild_id);
     [[nodiscard]] std::expected<void, DonBotConfigurationError>
@@ -100,6 +106,7 @@ class DonBotConfigurationController {
     enum class VerificationSource : std::uint8_t {
         Candidate,
         Saved,
+        Refresh,
     };
 
     struct InFlightVerification {
@@ -123,6 +130,8 @@ class DonBotConfigurationController {
     handle_saved_success(ports::DonBotVerificationSuccess success,
                          const InFlightVerification& request);
     [[nodiscard]] DonBotConfigurationError publish_error(DonBotConfigurationError error);
+    [[nodiscard]] DonBotConfigurationError publish_error_for(DonBotConfigurationError error,
+                                                             VerificationSource source);
     void publish_verified(ports::DonBotVerification identity, std::string api_base_url,
                           std::string selected_guild_id);
     void clear_identity() noexcept;

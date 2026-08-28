@@ -21,9 +21,9 @@ Supported commands are:
 The adjacent DonBot aggregate action has its own bounded controller because it targets several jobs
 and one provider-specific delivery operation. ImGui submits 2 through 100 stable job IDs plus the
 displayed configuration and DonBot verification revisions. The application owner re-resolves every
-job and requires a unique fight ID with matching current-guild provenance, then re-resolves the
-current authorized default or channel route before dispatch. Stale revisions or changed eligibility
-fail without contacting DonBot.
+job and requires a unique valid completed DonBot fight ID, then re-resolves the current authorized
+default or channel route before dispatch. Stale revisions or changed eligibility fail without
+contacting DonBot.
 
 Commands carry a stable non-zero `UploadJobId`, and retry also carries a known provider ID. A stale
 job, full queue, invalid command, failed launch, invalid state, or shutdown produces a local generic
@@ -79,15 +79,18 @@ For WvW encounter ID `1`, the replay keeps GW2Wingman skipped and fans out only 
 `Rechat` requires a retained dps.report result and an idle Twitch state. It clears the prior Twitch
 receipt and queues one user-initiated chat attempt. That flag deliberately bypasses both confirmed
 and ambiguous entries in the process-local Twitch ledger. These are the only controls that replay a
-settled log; enabling a provider, switching New/Today mode, or restarting the game never does so.
+settled log; enabling a provider, switching New/Last 24 Hours mode, or restarting the game never does
+so.
 
 `Send selected logs via DonBot aggregate` is also an explicit external delivery, but it does not
 reupload, rechat, or mutate any job. Newly eligible visible rows are selected once by default. A
 deselection remains while that job is retained. Selection resets when the verified DonBot identity,
-endpoint, or guild changes. Temporary provider, capability, or route unavailability does not reset
-positive selection intent or a prior deselection. An ineligible row is shown unchecked and disabled
-while its retained intent remains inactive. The action requires at least two selected rows and
-respects the lower of the server-advertised bound and the client bound of 100.
+endpoint, or guild changes. A row is eligible for selection whenever it retains a valid completed
+DonBot fight ID. Temporary provider, capability, or route unavailability does not disable its
+checkbox or reset positive selection intent or a prior deselection. Current verification,
+capability, route, and count bounds gate the send action. A row without a valid retained fight ID is
+shown unchecked and disabled. The action requires at least two selected rows and respects the lower
+of the server-advertised bound and the client bound of 100.
 
 ## Shutdown and verification
 

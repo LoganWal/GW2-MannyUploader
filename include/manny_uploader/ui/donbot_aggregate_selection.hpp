@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -13,6 +14,9 @@ struct DonBotAggregateCandidate {
     std::uint64_t job_id{};
     bool eligible{};
 };
+
+[[nodiscard]] bool
+donbot_aggregate_candidate_eligible(std::optional<std::uint64_t> fight_log_id) noexcept;
 
 class DonBotAggregateSelection {
   public:

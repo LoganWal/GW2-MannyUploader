@@ -116,6 +116,7 @@ struct Fixture {
                             .channel_override_allowed = true,
                             .pve_summary = true,
                             .aggregate_enabled = true,
+                            .aggregate_defaults_available = true,
                             .max_aggregate_fight_logs = 50,
                             .channels = {},
                         },
@@ -171,7 +172,8 @@ void dispatch_and_result_tests(TestSuite& suite) {
                          domain::EncounterMetadata{.boss_id = 2, .pov_account = {}}, providers);
     MANNY_CHECK(suite, first.has_value() && second.has_value());
     MANNY_CHECK(suite, uploads->handle_result(donbot_success(*first, 101)).has_value());
-    MANNY_CHECK(suite, uploads->handle_result(donbot_success(*second, 202)).has_value());
+    MANNY_CHECK(suite,
+                uploads->handle_result(donbot_success(*second, 202, std::nullopt)).has_value());
 
     auto controller = application::DonBotAggregateDeliveryController::create(
         *uploads, *configuration, fixture.aggregate);

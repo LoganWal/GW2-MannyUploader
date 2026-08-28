@@ -59,6 +59,8 @@ struct SetDonBotEnabledCommand {
     bool enabled;
 };
 
+struct RefreshDonBotCommand {};
+
 struct SetDonBotDiscordDeliveryEnabledCommand {
     bool enabled;
 };
@@ -84,10 +86,11 @@ struct DismissNexusOptionsErrorCommand {};
 using NexusOptionsCommand =
     std::variant<SaveOrdinaryOptionsCommand, SetWindowVisibleCommand, SetDpsReportEnabledCommand,
                  SetDpsReportDetailedWvwCommand, SetWingmanEnabledCommand, VerifyDonBotCommand,
-                 SelectDonBotGuildCommand, SetDonBotEnabledCommand, DisconnectDonBotCommand,
-                 SetDonBotDiscordDeliveryEnabledCommand, SelectDonBotDiscordChannelCommand,
-                 ConnectTwitchCommand, SetTwitchEnabledCommand, DisconnectTwitchCommand,
-                 SendTwitchTestMessageCommand, DismissNexusOptionsErrorCommand>;
+                 SelectDonBotGuildCommand, SetDonBotEnabledCommand, RefreshDonBotCommand,
+                 DisconnectDonBotCommand, SetDonBotDiscordDeliveryEnabledCommand,
+                 SelectDonBotDiscordChannelCommand, ConnectTwitchCommand, SetTwitchEnabledCommand,
+                 DisconnectTwitchCommand, SendTwitchTestMessageCommand,
+                 DismissNexusOptionsErrorCommand>;
 
 enum class TwitchTestMessageState : std::uint8_t {
     Idle,

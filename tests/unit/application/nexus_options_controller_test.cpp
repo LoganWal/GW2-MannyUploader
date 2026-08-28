@@ -680,8 +680,28 @@ void donbot_workflow_tests(TestSuite& suite) {
         fixture.options->submit(application::SetDonBotEnabledCommand{.enabled = true}).has_value());
     MANNY_CHECK(suite, fixture.events.empty());
     MANNY_CHECK(suite, fixture.options->tick().has_value());
-    MANNY_CHECK(suite, fixture.events == std::vector<std::string>({"settings.save"}));
+    MANNY_CHECK(suite, fixture.events == std::vector<std::string>(
+                                             {"settings.save", "secret.load", "donbot.enqueue"}));
     MANNY_CHECK(suite, fixture.configuration->snapshot().settings.donbot.enabled);
+    const auto refreshing = fixture.options->snapshot().donbot;
+    MANNY_CHECK(suite, refreshing.refreshing);
+    MANNY_CHECK(suite, refreshing.state == application::DonBotConfigurationState::Verified);
+    MANNY_CHECK(suite, refreshing.account_name == std::optional<std::string>{"Player.1234"});
+    MANNY_CHECK(suite, refreshing.guilds.size() == 1);
+    fixture.donbot_verifier.succeed_next();
+    fixture.events.clear();
+    MANNY_CHECK(suite, fixture.options->tick()->donbot_progressed);
+    MANNY_CHECK(suite, !fixture.options->snapshot().donbot.refreshing);
+
+    fixture.events.clear();
+    MANNY_CHECK(suite, fixture.options->submit(application::RefreshDonBotCommand{}).has_value());
+    MANNY_CHECK(suite, fixture.options->tick().has_value());
+    MANNY_CHECK(suite,
+                fixture.events == std::vector<std::string>({"secret.load", "donbot.enqueue"}));
+    MANNY_CHECK(suite, fixture.options->snapshot().donbot.refreshing);
+    fixture.donbot_verifier.succeed_next();
+    fixture.events.clear();
+    MANNY_CHECK(suite, fixture.options->tick()->donbot_progressed);
 
     fixture.events.clear();
     MANNY_CHECK(suite,

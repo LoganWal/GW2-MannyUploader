@@ -194,6 +194,15 @@ void partial_and_strict_json_tests(TestSuite& suite) {
     MANNY_CHECK(suite, loaded->settings.donbot.selected_discord_channel_id.empty());
     MANNY_CHECK(suite, !loaded->settings.twitch.enabled);
 
+    tree.write(
+        path,
+        R"({"schema_version":1,"general":{"log_directory":"D:/logs"},"donbot":{"enabled":true,"selected_guild_id":"123","discord_delivery_enabled":false,"discord_channel_override_explicit":true,"selected_discord_channel_id":"223"}})");
+    loaded = store.load();
+    MANNY_CHECK(suite, loaded.has_value());
+    MANNY_CHECK(suite, !loaded->settings.donbot.discord_delivery_enabled);
+    MANNY_CHECK(suite, loaded->settings.donbot.discord_channel_override_explicit);
+    MANNY_CHECK(suite, loaded->settings.donbot.selected_discord_channel_id == "223");
+
     const std::vector<std::string> invalid_documents{
         R"({"general":{"log_directory":"D:/logs"}})",
         R"({"schema_version":2,"general":{"log_directory":"D:/logs"}})",

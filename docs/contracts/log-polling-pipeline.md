@@ -37,7 +37,8 @@ Directory symlinks and file symlinks are not followed. This keeps candidates wit
 tree and avoids traversal cycles.
 
 The candidate limit applies only after the cutoff filter. This permits a large historical archive
-while bounding the active New/Today window. Exceeding the eligible limit returns `ResourceLimit` and
+while bounding the active New/Last 24 Hours window. Exceeding the eligible limit returns
+`ResourceLimit` and
 preserves the last successfully reconciled state.
 
 The application owner may replace the root, recursion option, candidate limit, and cutoff in place. The
@@ -64,12 +65,13 @@ failure cannot establish cutoff eligibility and is likewise reported without an 
 
 ## Session log selection
 
-Production starts in `Show New` with the addon-load file-clock time as its cutoff. `Show Today` uses
-local calendar midnight and refreshes the cutoff if the local day changes. Both modes continue to
-include later files. Switching modes reconfigures the source and clears pending stability samples but
-preserves exact-identity deduplication, active jobs, and provider work. The recent-log view applies
-the same cutoff, so logs outside the selected session window are hidden without cancelling work that
-already started.
+Production starts in `Show New` with the addon-load file-clock time as its cutoff. `Show Last 24
+Hours` uses the current system time minus 24 hours. Its display cutoff advances with the application
+owner, and its discovery cutoff advances at most once per minute to avoid continuously clearing file
+stability samples. Both modes continue to include later files. Switching modes reconfigures the
+source and clears pending stability samples but preserves exact-identity deduplication, active jobs,
+and provider work. The recent-log view applies the rolling cutoff, so logs outside the selected
+window are hidden without cancelling work that already started.
 
 ## Native Windows notification front end
 

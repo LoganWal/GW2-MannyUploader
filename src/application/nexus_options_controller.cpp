@@ -144,6 +144,8 @@ struct NexusOptionsController::State {
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(const SetDonBotEnabledCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
+    execute(const RefreshDonBotCommand& command);
+    [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(const SetDonBotDiscordDeliveryEnabledCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(SelectDonBotDiscordChannelCommand& command);
@@ -281,7 +283,25 @@ NexusOptionsController::State::execute(const SetDonBotEnabledCommand& command) {
         settings.donbot.discord_channel_override_explicit = false;
         settings.donbot.selected_discord_channel_id.clear();
     }
-    return save_settings(std::move(settings));
+    if (auto saved = save_settings(std::move(settings)); !saved) {
+        return saved;
+    }
+    if (command.enabled) {
+        auto refreshed = donbot.begin_saved_refresh();
+        if (!refreshed && refreshed.error().code != DonBotConfigurationErrorCode::Busy) {
+            return std::unexpected(from_donbot_error(refreshed.error()));
+        }
+    }
+    return {};
+}
+
+std::expected<void, NexusOptionsError>
+NexusOptionsController::State::execute([[maybe_unused]] const RefreshDonBotCommand& command) {
+    auto refreshed = donbot.begin_saved_refresh();
+    if (!refreshed) {
+        return std::unexpected(from_donbot_error(refreshed.error()));
+    }
+    return {};
 }
 
 std::expected<void, NexusOptionsError>

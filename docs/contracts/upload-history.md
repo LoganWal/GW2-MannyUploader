@@ -35,7 +35,7 @@ that was `Waiting`, `Active`, or `RetryScheduled` at shutdown becomes `Failed` w
 session detail and no retry deadline. Settled states and receipts remain visible.
 
 Consequently, changing provider enablement, re-enabling the addon, restarting the game, or switching
-between New and Today does not upload or chat an unchanged retained identity again. A file with a
+between New and Last 24 Hours does not upload or chat an unchanged retained identity again. A file with a
 different size or write time is a new identity and follows normal stability checks. The only replay
 paths are the explicit user actions defined in [`recent-log-actions.md`](recent-log-actions.md).
 
@@ -43,9 +43,9 @@ DonBot Reupload deliberately omits Discord delivery intent. No retained, ambiguo
 partially delivered Discord receipt is replayed by any existing action.
 
 An explicit DonBot aggregate delivery is session-only action state. It does not modify or persist
-per-log receipts. A retained fight is eligible only when its receipt includes guild provenance that
-matches the currently selected verified guild. Legacy receipts without provenance remain usable for
-view and clipboard links.
+per-log receipts. Aggregate selection requires only a valid completed DonBot fight ID. Guild
+provenance does not gate selection, so legacy receipts without provenance remain eligible and are not
+rewritten solely to add a guild.
 
 An invalid previous history document is ignored with a visible recovery diagnostic rather than
 trusted as job state. The New selection cutoff still prevents pre-session files from being submitted

@@ -258,6 +258,7 @@ struct Fixture {
                 .wvw_advanced = true,
                 .wvw_stream = false,
                 .aggregate_enabled = true,
+                .aggregate_defaults_available = true,
                 .max_aggregate_fight_logs = 50,
                 .channels =
                     {
@@ -427,7 +428,7 @@ void discord_delivery_selection_tests(TestSuite& suite) {
     MANNY_CHECK(suite, application::authorized_donbot_delivery(
                            fixture.configuration->snapshot().settings, controller.snapshot())
                                .mode == domain::DonBotDiscordDeliveryMode::None);
-    const auto aggregate_route = application::authorized_donbot_route(
+    const auto aggregate_route = application::authorized_donbot_aggregate_route(
         fixture.configuration->snapshot().settings, controller.snapshot());
     MANNY_CHECK(suite, aggregate_route.mode == domain::DonBotDiscordDeliveryMode::ChannelOverride);
     MANNY_CHECK(suite, aggregate_route.channel_id == "223");
@@ -448,6 +449,13 @@ void discord_delivery_selection_tests(TestSuite& suite) {
         fixture.configuration->snapshot().settings, controller.snapshot());
     MANNY_CHECK(suite, restored_defaults.mode == domain::DonBotDiscordDeliveryMode::GuildDefaults);
     MANNY_CHECK(suite, restored_defaults.channel_id.empty());
+    auto aggregate_defaults_unavailable = controller.snapshot();
+    aggregate_defaults_unavailable.guilds.front().discord_delivery.aggregate_defaults_available =
+        false;
+    MANNY_CHECK(suite,
+                application::authorized_donbot_aggregate_route(
+                    fixture.configuration->snapshot().settings, aggregate_defaults_unavailable)
+                        .mode == domain::DonBotDiscordDeliveryMode::None);
 
     MANNY_CHECK(suite, controller.select_discord_channel("223").has_value());
     MANNY_CHECK(suite, controller.select_guild("123").has_value());
@@ -629,6 +637,35 @@ void saved_verification_tests(TestSuite& suite) {
         auto initial = settings();
         initial.donbot.enabled = true;
         initial.donbot.selected_guild_id = "123";
+        initial.donbot.discord_delivery_enabled = false;
+        initial.donbot.discord_channel_override_explicit = true;
+        initial.donbot.selected_discord_channel_id = "223";
+        Fixture fixture{initial};
+        MANNY_CHECK(suite, fixture.controller->begin_saved_verification().has_value());
+        auto aggregate_only = delivery_guild();
+        aggregate_only.discord_delivery.pve_summary = false;
+        aggregate_only.discord_delivery.wvw_summary = false;
+        aggregate_only.discord_delivery.wvw_advanced = false;
+        aggregate_only.discord_delivery.wvw_stream = false;
+        fixture.verifier.succeed_next("Player.1234", {std::move(aggregate_only)}, true, true);
+        fixture.events.clear();
+        MANNY_CHECK(suite, fixture.controller->poll().has_value());
+        MANNY_CHECK(suite, fixture.events.empty());
+        const auto preserved = fixture.configuration->snapshot().settings.donbot;
+        MANNY_CHECK(suite, !preserved.discord_delivery_enabled);
+        MANNY_CHECK(suite, preserved.discord_channel_override_explicit);
+        MANNY_CHECK(suite, preserved.selected_discord_channel_id == "223");
+        const auto aggregate_route = application::authorized_donbot_aggregate_route(
+            fixture.configuration->snapshot().settings, fixture.controller->snapshot());
+        MANNY_CHECK(suite,
+                    aggregate_route.mode == domain::DonBotDiscordDeliveryMode::ChannelOverride);
+        MANNY_CHECK(suite, aggregate_route.channel_id == "223");
+    }
+
+    {
+        auto initial = settings();
+        initial.donbot.enabled = true;
+        initial.donbot.selected_guild_id = "123";
         initial.donbot.discord_delivery_enabled = true;
         initial.donbot.discord_channel_override_explicit = true;
         initial.donbot.selected_discord_channel_id = "223";
@@ -643,6 +680,49 @@ void saved_verification_tests(TestSuite& suite) {
         MANNY_CHECK(suite, !revoked.discord_delivery_enabled);
         MANNY_CHECK(suite, !revoked.discord_channel_override_explicit);
         MANNY_CHECK(suite, revoked.selected_discord_channel_id.empty());
+    }
+
+    {
+        auto initial = settings();
+        initial.donbot.enabled = true;
+        initial.donbot.selected_guild_id = "123";
+        Fixture fixture{initial, "PERSISTED-KEY"};
+        MANNY_CHECK(suite, fixture.controller->begin_saved_verification().has_value());
+        fixture.verifier.succeed_next();
+        MANNY_CHECK(suite, fixture.controller->poll().has_value());
+
+        fixture.events.clear();
+        MANNY_CHECK(suite, fixture.controller->begin_saved_refresh().has_value());
+        MANNY_CHECK(suite, fixture.events ==
+                               std::vector<std::string>({"secret.load", "verifier.enqueue"}));
+        const auto refreshing = fixture.controller->snapshot();
+        MANNY_CHECK(suite, refreshing.refreshing);
+        MANNY_CHECK(suite, refreshing.state == application::DonBotConfigurationState::Verified);
+        MANNY_CHECK(suite, refreshing.account_name == std::optional<std::string>{"Player.1234"});
+        MANNY_CHECK(suite, refreshing.guilds.size() == 2);
+        MANNY_CHECK(suite, refreshing.selected_guild_id == "123");
+        MANNY_CHECK(suite, !fixture.controller->select_guild("456").has_value());
+
+        fixture.verifier.succeed_next("Player.1234", {delivery_guild()}, true, true);
+        fixture.events.clear();
+        MANNY_CHECK(suite, fixture.controller->poll().has_value());
+        const auto refreshed = fixture.controller->snapshot();
+        MANNY_CHECK(suite, !refreshed.refreshing);
+        MANNY_CHECK(suite, refreshed.discord_summary_delivery_v1);
+        MANNY_CHECK(suite, refreshed.discord_aggregate_delivery_v1);
+        MANNY_CHECK(suite, refreshed.guilds.front().discord_delivery.aggregate_enabled);
+
+        MANNY_CHECK(suite, fixture.controller->begin_saved_refresh().has_value());
+        fixture.verifier.fail_next(ports::DonBotVerificationFailureCode::Failed,
+                                   "DonBot refresh unavailable");
+        const auto failed = fixture.controller->poll();
+        MANNY_CHECK(suite, !failed.has_value());
+        const auto preserved = fixture.controller->snapshot();
+        MANNY_CHECK(suite, preserved.state == application::DonBotConfigurationState::Verified);
+        MANNY_CHECK(suite, !preserved.refreshing);
+        MANNY_CHECK(suite, preserved.account_name == std::optional<std::string>{"Player.1234"});
+        MANNY_CHECK(suite, preserved.guilds.size() == 1);
+        MANNY_CHECK(suite, preserved.diagnostic == "DonBot refresh unavailable");
     }
 
     {

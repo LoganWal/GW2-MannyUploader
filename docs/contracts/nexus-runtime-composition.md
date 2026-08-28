@@ -41,6 +41,10 @@ render the same server, delivery toggle, route selector, and enabled message-kin
 The provider starts with delivery disabled. When persisted delivery is enabled, initial discovery
 waits for saved verification, and only a current matching verified snapshot may activate its route.
 Verification failure leaves delivery disabled and releases discovery without using stale routing.
+While DonBot is enabled and verified, the application owner refreshes server authorization and
+delivery properties every 5 minutes. Enabling DonBot starts the refresh immediately. Refresh work
+runs through the existing verification worker, preserves the last verified snapshot while in flight,
+and never performs HTTP or protected-storage I/O in a render callback.
 
 The application owner also advances `DonBotAggregateDeliveryController`. The render callback queues
 only selected stable job IDs and displayed revisions. The controller re-resolves jobs, guild

@@ -15,10 +15,12 @@ capacity must be non-zero and defaults to eight; parallelism defaults to one and
 [`async-provider-workers.md`](async-provider-workers.md).
 
 Each accepted request must have a non-zero job ID and attempt, the dps.report provider ID, a non-empty
-stable file path, and no previous dps.report result. Full, stopping, or malformed requests are rejected
-synchronously with generic diagnostics. Up to the configured number execute concurrently away from
-Nexus callbacks. Results preserve job ID and provider ID so the coordinator can reject stale or
-mismatched completion.
+stable file path, and no previous dps.report result or provider context. The worker snapshots its
+current Detailed WvW option into the accepted request before queueing it. Later configuration changes
+affect new requests without retargeting queued work. Full, stopping, or malformed requests are
+rejected synchronously with generic diagnostics. Up to the configured number execute concurrently
+away from Nexus callbacks. Results preserve job ID and provider ID so the coordinator can reject
+stale or mismatched completion.
 
 Provider threads block when the result queue is full. Taking a result releases that
 backpressure. It never creates detached tasks, unbounded queues, or one thread per upload.
@@ -76,6 +78,7 @@ before borrowed dependencies can be destroyed.
 Tests use fake client and protected-store ports and assert:
 
 - invalid capacity and request rejection;
+- live Detailed WvW configuration and per-request capture;
 - FIFO stable-ID success and exact outcome mapping;
 - token load before upload and replacement store before success publication;
 - missing, failed, throwing, and unavailable protected storage behavior;

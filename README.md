@@ -92,7 +92,10 @@ settled rows by default.
 ### dps.report
 
 `Upload to dps.report` is enabled by default. Its result supplies the report link shown in the recent
-log table and is required before Twitch posting can be enabled.
+log table and is required before Twitch posting can be enabled. `Detailed WvW reports` is off by
+default and can be changed above the recent-log table or in Nexus options. New dps.report uploads
+capture the current choice. dps.report warns that detailed WvW processing can fail for logs larger
+than 50 MB.
 
 ### Direct GW2Wingman
 
@@ -107,7 +110,8 @@ compatibility endpoint because Wingman's direct workflow is based on processed E
 3. Once verified, the API-key field is hidden. Select one authorized server from the dropdown.
 4. Enable uploads with the checkbox beside the server dropdown.
 5. If that server supports MannyUploader delivery, enable `Post DonBot summaries to Discord`.
-6. Use the server's DonBot defaults or select one authorized Discord channel.
+6. `Guild defaults` is selected initially. Choose an authorized Discord channel only when that
+   server needs an explicit override.
 
 The key is protected separately from ordinary JSON. With dps.report enabled, DonBot imports its
 permalink for the selected server. With dps.report disabled, DonBot uploads the archive through TUS.

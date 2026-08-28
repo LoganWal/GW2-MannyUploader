@@ -514,6 +514,7 @@ void destination_toggle_tests(TestSuite& suite) {
     initial.donbot.enabled = true;
     initial.donbot.selected_guild_id = "123";
     initial.donbot.discord_delivery_enabled = true;
+    initial.donbot.discord_channel_override_explicit = true;
     initial.donbot.selected_discord_channel_id = "223";
     initial.twitch.enabled = true;
     MANNY_CHECK(suite, fixture.configuration->save_settings(initial).has_value());
@@ -524,6 +525,9 @@ void destination_toggle_tests(TestSuite& suite) {
     MANNY_CHECK(suite,
                 fixture.options->submit(application::SetDpsReportEnabledCommand{.enabled = false})
                     .has_value());
+    MANNY_CHECK(
+        suite, fixture.options->submit(application::SetDpsReportDetailedWvwCommand{.enabled = true})
+                   .has_value());
     MANNY_CHECK(suite,
                 fixture.options->submit(application::SetWingmanEnabledCommand{.enabled = false})
                     .has_value());
@@ -533,18 +537,31 @@ void destination_toggle_tests(TestSuite& suite) {
                            })
                            .has_value());
     const auto updated = fixture.options->tick();
-    MANNY_CHECK(suite, updated && updated->commands_processed == 3);
-    MANNY_CHECK(suite, fixture.events == std::vector<std::string>(3, "settings.save"));
+    MANNY_CHECK(suite, updated && updated->commands_processed == 4);
+    MANNY_CHECK(suite, fixture.events == std::vector<std::string>(4, "settings.save"));
 
     const auto saved = fixture.configuration->snapshot().settings;
     MANNY_CHECK(suite, !saved.dps_report.enabled);
+    MANNY_CHECK(suite, saved.dps_report.detailed_wvw);
     MANNY_CHECK(suite, !saved.wingman.enabled);
     MANNY_CHECK(suite, !saved.twitch.enabled);
     MANNY_CHECK(suite, saved.donbot.enabled);
     MANNY_CHECK(suite, saved.donbot.discord_delivery_enabled);
+    MANNY_CHECK(suite, saved.donbot.discord_channel_override_explicit);
     MANNY_CHECK(suite, saved.donbot.selected_guild_id == "123");
     MANNY_CHECK(suite, saved.donbot.selected_discord_channel_id == "223");
     MANNY_CHECK(suite, saved.general.recent_log_limit == 75);
+
+    fixture.events.clear();
+    MANNY_CHECK(suite,
+                fixture.options->submit(application::SetDonBotEnabledCommand{.enabled = false})
+                    .has_value());
+    MANNY_CHECK(suite, fixture.options->tick().has_value());
+    const auto disabled = fixture.configuration->snapshot().settings.donbot;
+    MANNY_CHECK(suite, !disabled.enabled);
+    MANNY_CHECK(suite, !disabled.discord_delivery_enabled);
+    MANNY_CHECK(suite, !disabled.discord_channel_override_explicit);
+    MANNY_CHECK(suite, disabled.selected_discord_channel_id.empty());
 }
 
 void workflow_owned_settings_tests(TestSuite& suite) {
@@ -682,6 +699,8 @@ void donbot_workflow_tests(TestSuite& suite) {
             .has_value());
     MANNY_CHECK(suite, fixture.options->tick().has_value());
     MANNY_CHECK(suite, fixture.events == std::vector<std::string>({"settings.save"}));
+    MANNY_CHECK(
+        suite, fixture.configuration->snapshot().settings.donbot.discord_channel_override_explicit);
     MANNY_CHECK(suite,
                 fixture.configuration->snapshot().settings.donbot.selected_discord_channel_id ==
                     "223");

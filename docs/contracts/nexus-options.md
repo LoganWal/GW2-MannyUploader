@@ -37,25 +37,30 @@ values to the existing components. No render callback performs this reconfigurat
 parse/upload inputs are not rewritten. The public Twitch Client ID can change only while disconnected
 or in error; no secret is needed for Device Code authorization.
 A dedicated `SetWindowVisibleCommand` updates only the persisted window visibility bit. Dedicated
-dps.report and GW2Wingman commands update only their destination state. Disabling dps.report also
-disables Twitch posting because Twitch requires a same-job permalink. It does not disconnect or erase
-the Twitch session. The options checkbox, window close button, Nexus input bind, and quick-access
-shortcut all use the narrow visibility path so they cannot replay a stale ordinary-options draft over
-unrelated settings.
+dps.report, Detailed WvW, and GW2Wingman commands update only their respective setting. Disabling
+dps.report also disables Twitch posting because Twitch requires a same-job permalink. It does not
+disconnect or erase the Twitch session. The options checkbox, window close button, Nexus input bind,
+and quick-access shortcut all use the narrow visibility path so they cannot replay a stale
+ordinary-options draft over unrelated settings.
 
-The dps.report and GW2Wingman narrow toggles appear in both the main window and Nexus options. DonBot
-upload, Discord delivery, guild, and channel controls appear in the main window as well as their
-verified options workflow.
+The dps.report, Detailed WvW, and GW2Wingman narrow toggles appear in both the main window and Nexus
+options. DonBot upload, Discord delivery, guild, and channel controls appear in the main window as
+well as their verified options workflow. The main-window guild and Discord route row is hidden while
+DonBot is not selected as an upload destination. The Discord route appears when the selected guild
+advertises a usable delivery policy, so a required channel override can be chosen before Discord
+summaries are enabled. When the selected guild does not advertise a usable delivery policy, the main
+window shows a concise reason instead of disabled checkbox and channel controls.
 
 Workflow-owned values use dedicated commands:
 
 - enable or disable dps.report.
+- enable or disable Detailed WvW parsing for new dps.report uploads.
 - enable or disable GW2Wingman.
 - verify a candidate DonBot endpoint/key.
 - select a guild returned by the current verified DonBot identity.
 - enable or disable DonBot.
 - enable or disable DonBot Discord summaries.
-- select DonBot server defaults or an authorized Discord channel.
+- select DonBot guild defaults or an authorized Discord channel.
 - disconnect DonBot and erase its protected key.
 - begin broadcaster-owned Twitch Device Code authentication.
 - enable or disable Twitch posting.
@@ -70,9 +75,10 @@ the authentication workflow is connected. Final settings validation still runs i
 policy.
 
 Discord summary delivery can be enabled only while DonBot uploads are enabled and the selected guild
-advertises `discord-summary-delivery-v1`. Route commands accept empty for server defaults or an exact
-channel ID from the current verified guild. These workflow-owned values are excluded from stale
-ordinary-options drafts.
+advertises `discord-summary-delivery-v1`. Guild defaults are selected initially. Route commands
+accept empty for guild defaults or an exact channel ID from the current verified guild. Only an
+explicit channel command sets the persisted override marker. These workflow-owned values are
+excluded from stale ordinary-options drafts.
 
 There is no command or settings field for a Twitch channel, broadcaster ID, sender ID, raw token, or
 client secret. The ordinary Client ID identifies the public application; the Twitch workflow's

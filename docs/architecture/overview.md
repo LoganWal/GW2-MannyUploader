@@ -318,8 +318,9 @@ and disable DonBot's own Wingman submission. A TUS `Location` is accepted only b
 creation path at the exact same HTTPS origin before the same key can be sent in PATCH.
 
 Capability `discord-summary-delivery-v1` extends verification with guild-owned default routing,
-enabled message kinds, and authorized channel overrides. New jobs may carry server defaults or one
-verified channel into either DonBot upload path. Both paths require explicit acceptance, and
+enabled message kinds, and authorized channel overrides. New jobs carry guild defaults unless the
+user explicitly selects one verified channel for either DonBot upload path. Both paths require
+explicit acceptance, and
 completion returns only normalized delivery counts.
 
 The client requires exact `201` creation and `204` completion handshakes, including protocol version
@@ -328,8 +329,10 @@ links. Once creation succeeds, an ambiguous PATCH or processing failure is not a
 because starting a new upload could create a duplicate record. The complete wire and retry rules are
 frozen in [`docs/contracts/donbot.md`](../contracts/donbot.md).
 
-`DonBotProviderWorker` copies the ordinary API base, guild selection, Discord delivery mode, and
-optional channel into each accepted request,
+`DpsReportProviderWorker` captures the current Detailed WvW choice into each accepted request, so a
+live settings change affects new uploads without rewriting queued work. `DonBotProviderWorker` copies
+the ordinary API base, guild selection, Discord delivery mode, and optional channel into each
+accepted request,
 while loading the protected API key only when that attempt reaches the worker. Options changes
 therefore affect new work without retargeting queued work, and credentials never enter coordinator
 requests. See

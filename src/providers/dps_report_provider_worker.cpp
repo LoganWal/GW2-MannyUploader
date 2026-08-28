@@ -47,7 +47,8 @@ bounded_retry_delay(std::optional<std::chrono::seconds> delay) noexcept {
 
 std::expected<std::unique_ptr<DpsReportProviderWorker>, DpsReportProviderWorkerError>
 DpsReportProviderWorker::create(const IDpsReportClient& client, ports::ISecretStore* secret_store,
-                                std::size_t queue_capacity, std::size_t parallelism) {
+                                std::size_t queue_capacity, std::size_t parallelism,
+                                DpsReportProviderConfig config) {
     if (queue_capacity == 0) {
         return std::unexpected(
             make_worker_error(DpsReportProviderWorkerErrorCode::InvalidCapacity,
@@ -56,7 +57,7 @@ DpsReportProviderWorker::create(const IDpsReportClient& client, ports::ISecretSt
 
     try {
         auto provider = std::unique_ptr<DpsReportProviderWorker>{
-            new DpsReportProviderWorker{client, secret_store}};
+            new DpsReportProviderWorker{client, secret_store, config}};
         auto worker = AsyncUploadWorker::create(domain::Provider::DpsReport, *provider,
                                                 "The dps.report worker failed unexpectedly",
                                                 queue_capacity, parallelism);
@@ -75,8 +76,9 @@ DpsReportProviderWorker::create(const IDpsReportClient& client, ports::ISecretSt
 }
 
 DpsReportProviderWorker::DpsReportProviderWorker(const IDpsReportClient& client,
-                                                 ports::ISecretStore* secret_store)
-    : client_{client}, secret_store_{secret_store} {}
+                                                 ports::ISecretStore* secret_store,
+                                                 DpsReportProviderConfig config)
+    : client_{client}, secret_store_{secret_store}, detailed_wvw_{config.detailed_wvw} {}
 
 DpsReportProviderWorker::~DpsReportProviderWorker() {
     cancel_pending();
@@ -88,11 +90,15 @@ domain::Provider DpsReportProviderWorker::provider() const noexcept {
 
 std::expected<void, ports::DispatchError>
 DpsReportProviderWorker::enqueue(ports::UploadRequest request) {
-    if (request.dps_report_result.has_value() || request.donbot_context.has_value() ||
-        request.twitch_context.has_value()) {
+    if (request.dps_report_result.has_value() || request.dps_report_context.has_value() ||
+        request.donbot_context.has_value() || request.twitch_context.has_value()) {
         return std::unexpected(
             ports::DispatchError{.message = "dps.report upload request is invalid"});
     }
+    const auto config = config_snapshot();
+    request.dps_report_context = ports::DpsReportUploadContext{
+        .detailed_wvw = config.detailed_wvw,
+    };
     return worker_->enqueue(std::move(request));
 }
 
@@ -104,6 +110,16 @@ void DpsReportProviderWorker::cancel_pending() noexcept {
     if (worker_) {
         worker_->cancel_pending();
     }
+}
+
+void DpsReportProviderWorker::update_config(DpsReportProviderConfig config) noexcept {
+    detailed_wvw_.store(config.detailed_wvw, std::memory_order_release);
+}
+
+DpsReportProviderConfig DpsReportProviderWorker::config_snapshot() const noexcept {
+    return DpsReportProviderConfig{
+        .detailed_wvw = detailed_wvw_.load(std::memory_order_acquire),
+    };
 }
 
 std::optional<ports::UploadResult>
@@ -134,6 +150,10 @@ std::size_t DpsReportProviderWorker::parallelism() const noexcept {
 
 ports::UploadResult DpsReportProviderWorker::process(const ports::UploadRequest& request,
                                                      const std::stop_token& stop_token) const {
+    if (!request.dps_report_context.has_value()) {
+        return make_result(request.job_id, ports::UploadOutcome::Failed,
+                           "The dps.report upload configuration is unavailable");
+    }
     std::optional<support::SecretValue> current_token;
     if (secret_store_ != nullptr) {
         auto loaded = secret_store_->load(ports::SecretId::DpsReportUserToken);
@@ -145,8 +165,9 @@ ports::UploadResult DpsReportProviderWorker::process(const ports::UploadRequest&
         }
     }
 
-    auto uploaded =
-        client_.upload(request.file, current_token ? &*current_token : nullptr, stop_token);
+    auto uploaded = client_.upload(
+        request.file, current_token ? &*current_token : nullptr, stop_token,
+        DpsReportUploadOptions{.detailed_wvw = request.dps_report_context->detailed_wvw});
     if (!uploaded) {
         switch (uploaded.error().disposition) {
         case DpsReportUploadDisposition::Retry:

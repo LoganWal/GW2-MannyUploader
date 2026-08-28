@@ -2,6 +2,7 @@
 
 #include "manny_uploader/http/body_sources.hpp"
 #include "manny_uploader/http/multipart_form_data.hpp"
+#include "manny_uploader/support/report_permalink.hpp"
 #include "manny_uploader/support/utf8.hpp"
 
 #include <glaze/json.hpp>
@@ -86,25 +87,6 @@ make_error(DpsReportUploadDisposition disposition, std::string detail,
                const auto byte = static_cast<unsigned char>(character);
                return byte < 0x20U || byte == 0x7fU;
            });
-}
-
-[[nodiscard]] bool valid_permalink(std::string_view value) noexcept {
-    if (value.empty() || value.size() > 2048 || !value.starts_with("https://") ||
-        value.contains('@') || value.contains('#') || value.contains('?') ||
-        !std::ranges::all_of(value, [](char character) {
-            const auto byte = static_cast<unsigned char>(character);
-            return byte >= 0x21U && byte <= 0x7eU;
-        })) {
-        return false;
-    }
-
-    constexpr std::size_t scheme_size = 8;
-    const auto path_start = value.find('/', scheme_size);
-    if (path_start == std::string_view::npos || path_start + 1 >= value.size()) {
-        return false;
-    }
-    const auto authority = value.substr(scheme_size, path_start - scheme_size);
-    return authority == "dps.report" || authority == "b.dps.report";
 }
 
 [[nodiscard]] std::string encounter_mode(const ParsedEncounter& encounter) {
@@ -220,11 +202,17 @@ decode_success(const ports::HttpResponse& response, const support::SecretValue* 
                                           "dps.report returned invalid JSON", std::nullopt,
                                           std::nullopt, response.status_code));
     }
-    if (!parsed.permalink || !valid_permalink(*parsed.permalink) || !parsed.encounter ||
-        !parsed.encounter->success || !parsed.encounter->bossId || !parsed.encounter->boss ||
-        *parsed.encounter->bossId < 0 ||
+    if (!parsed.permalink || !parsed.encounter || !parsed.encounter->success ||
+        !parsed.encounter->bossId || !parsed.encounter->boss || *parsed.encounter->bossId < 0 ||
         std::cmp_greater(*parsed.encounter->bossId, std::numeric_limits<std::uint16_t>::max()) ||
         !safe_encounter_name(*parsed.encounter->boss)) {
+        return std::unexpected(make_error(DpsReportUploadDisposition::Failed,
+                                          "dps.report returned an incomplete response",
+                                          std::nullopt, std::nullopt, response.status_code));
+    }
+    const auto permalink_origin = support::report_permalink_origin(*parsed.permalink);
+    if (!permalink_origin || (*permalink_origin == support::ReportPermalinkOrigin::WvwReport &&
+                              *parsed.encounter->bossId != domain::wvw_boss_id)) {
         return std::unexpected(make_error(DpsReportUploadDisposition::Failed,
                                           "dps.report returned an incomplete response",
                                           std::nullopt, std::nullopt, response.status_code));
@@ -315,7 +303,7 @@ DpsReportClient::DpsReportClient(const ports::IHttpClient& http_client) noexcept
 
 std::expected<DpsReportUploadSuccess, DpsReportUploadError>
 DpsReportClient::upload(const domain::LogFileIdentity& file, const support::SecretValue* user_token,
-                        const std::stop_token& stop_token) const {
+                        const std::stop_token& stop_token, DpsReportUploadOptions options) const {
     try {
         if (stop_token.stop_requested()) {
             return std::unexpected(make_error(DpsReportUploadDisposition::Cancelled,
@@ -328,7 +316,8 @@ DpsReportClient::upload(const domain::LogFileIdentity& file, const support::Secr
 
         ports::HttpRequest request;
         request.method = ports::HttpMethod::Post;
-        request.url = std::string{dps_report_upload_url};
+        request.url = std::string{options.detailed_wvw ? dps_report_detailed_wvw_upload_url
+                                                       : dps_report_upload_url};
         request.headers = {
             ports::HttpHeader{
                 .name = "Accept",

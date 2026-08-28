@@ -78,7 +78,8 @@ domain::Provider WingmanProviderWorker::provider() const noexcept {
 
 std::expected<void, ports::DispatchError>
 WingmanProviderWorker::enqueue(ports::UploadRequest request) {
-    if (request.donbot_context.has_value() || request.twitch_context.has_value()) {
+    if (request.dps_report_context.has_value() || request.donbot_context.has_value() ||
+        request.twitch_context.has_value()) {
         return std::unexpected(
             ports::DispatchError{.message = "GW2Wingman upload request is invalid"});
     }

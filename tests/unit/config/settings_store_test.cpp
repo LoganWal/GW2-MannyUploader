@@ -129,11 +129,13 @@ void round_trip_tests(TestSuite& suite) {
     settings.general.parallel_uploads_per_provider = 10;
     settings.general.max_candidates = 10'000;
     settings.dps_report.enabled = true;
+    settings.dps_report.detailed_wvw = true;
     settings.wingman.enabled = false;
     settings.donbot.enabled = true;
     settings.donbot.api_base_url = "https://donbot.example/v1/";
     settings.donbot.selected_guild_id = "123456789012345678";
     settings.donbot.discord_delivery_enabled = true;
+    settings.donbot.discord_channel_override_explicit = true;
     settings.donbot.selected_discord_channel_id = "223456789012345678";
     settings.twitch.enabled = true;
     settings.twitch.client_id = "abc123publicclient";
@@ -151,6 +153,8 @@ void round_trip_tests(TestSuite& suite) {
     MANNY_CHECK(suite, document.ends_with('\n'));
     MANNY_CHECK(suite, document.find("\n  \"general\"") != std::string::npos);
     MANNY_CHECK(suite, document.find("\"schema_version\": 1") != std::string::npos);
+    MANNY_CHECK(suite,
+                document.find("\"discord_channel_override_explicit\": true") != std::string::npos);
     MANNY_CHECK(suite, document.find("— Uploaded") != std::string::npos);
     MANNY_CHECK(suite, document.find("access_token") == std::string::npos);
     MANNY_CHECK(suite, document.find("refresh_token") == std::string::npos);
@@ -174,8 +178,19 @@ void partial_and_strict_json_tests(TestSuite& suite) {
     MANNY_CHECK(suite, loaded->settings.general.log_directory == "D:/Guild Wars 2/logs");
     MANNY_CHECK(suite, loaded->settings.general.poll_interval_ms == 1000);
     MANNY_CHECK(suite, loaded->settings.dps_report.enabled);
+    MANNY_CHECK(suite, !loaded->settings.dps_report.detailed_wvw);
     MANNY_CHECK(suite, loaded->settings.wingman.enabled);
     MANNY_CHECK(suite, !loaded->settings.donbot.discord_delivery_enabled);
+    MANNY_CHECK(suite, !loaded->settings.donbot.discord_channel_override_explicit);
+    MANNY_CHECK(suite, loaded->settings.donbot.selected_discord_channel_id.empty());
+
+    tree.write(
+        path,
+        R"({"schema_version":1,"general":{"log_directory":"D:/logs"},"donbot":{"enabled":true,"selected_guild_id":"123","discord_delivery_enabled":true,"selected_discord_channel_id":"223"}})");
+    loaded = store.load();
+    MANNY_CHECK(suite, loaded.has_value());
+    MANNY_CHECK(suite, loaded->settings.donbot.discord_delivery_enabled);
+    MANNY_CHECK(suite, !loaded->settings.donbot.discord_channel_override_explicit);
     MANNY_CHECK(suite, loaded->settings.donbot.selected_discord_channel_id.empty());
     MANNY_CHECK(suite, !loaded->settings.twitch.enabled);
 

@@ -64,6 +64,7 @@ upload_error(providers::DonBotDisposition disposition, std::string detail,
             },
         .metadata = domain::EncounterMetadata{.boss_id = 123, .pov_account = "Player.1234"},
         .dps_report_result = std::nullopt,
+        .dps_report_context = std::nullopt,
         .donbot_context = std::nullopt,
         .attempt = 1,
     };

@@ -20,6 +20,7 @@ enum class Provider : std::uint8_t {
 };
 
 inline constexpr std::size_t provider_count = 4;
+inline constexpr std::uint16_t wvw_boss_id = 1;
 using ProviderSelection = std::array<bool, provider_count>;
 
 enum class ProviderState : std::uint8_t {

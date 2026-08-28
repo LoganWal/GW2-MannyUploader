@@ -4,7 +4,7 @@ This is an independently written version-1 contract for uploading a completed ar
 dps.report. It is based on the public dps.report API documentation and observable response shapes, not
 on implementation code from the previous uploader.
 
-Verified 2026-08-20 against:
+Verified 2026-08-28 against:
 
 - <https://dps.report/api>
 - <https://dps.report/>
@@ -14,7 +14,7 @@ Verified 2026-08-20 against:
 Send one synchronous request from a provider worker, never a Nexus render or options callback:
 
 ```text
-POST https://dps.report/uploadContent?json=1&generator=ei
+POST https://dps.report/uploadContent?json=1&generator=ei[&detailedwvw=true]
 Accept: application/json
 Content-Type: multipart/form-data; boundary=<generated boundary>
 ```
@@ -35,6 +35,10 @@ missing, non-regular, differently sized, or differently timestamped file. The so
 last-write time before returning its final bytes. Multipart framing and the file are pulled
 incrementally and the complete body is never assembled in memory.
 
+The optional `detailedwvw=true` query parameter is present only when the accepted request captured
+Detailed WvW as enabled. The setting defaults to false. dps.report documents that detailed WvW can
+fail for particularly long logs and warns that files larger than 50 MB cannot be parsed with it.
+
 The request uses a 10-second connect timeout and 15-minute operation and stalled-transfer timeouts.
 The unusually long stall allowance follows the API warning that report generation holds the request
 open and can take up to 15 minutes under exceptional load. Response headers are capped at 64 KiB and
@@ -50,10 +54,16 @@ and tests. The HTTP-only alternate is rejected by the production transport.
 Every 2xx response must be JSON. Unknown fields are ignored for forward compatibility, but these are
 required with the documented types:
 
-- non-empty `permalink` using HTTPS and the `dps.report` or `b.dps.report` authority;
+- non-empty `permalink` using HTTPS and the `dps.report`, `b.dps.report`, or `wvw.report`
+  authority;
 - `encounter.success` boolean;
 - `encounter.bossId` integer in the unsigned 16-bit range; and
 - non-empty UTF-8 `encounter.boss` of at most 256 bytes.
+
+The `wvw.report` authority is accepted only when `encounter.bossId` is `1`. This is the dedicated
+report origin returned for WvW logs. A PvE response cannot opt into that origin by changing only its
+permalink. Every trusted origin rejects credentials, query, fragment, backslash, double quote,
+control, non-ASCII, empty-path, and oversized values.
 
 Optional mode fields are interpreted in this order:
 
@@ -101,11 +111,12 @@ A bounded provider worker may impose a maximum attempt count above this classifi
 The client is tested with an injected fake `IHttpClient`; the default suite never uploads a log. Tests
 assert:
 
-- exact method, endpoint, public headers, timeouts, and limits;
+- exact method, normal and detailed-WvW endpoints, public headers, timeouts, and limits;
 - token absence from URL/headers and presence only in multipart body;
 - streamed multipart framing and exact file bytes;
 - file identity changes, early EOF, cancellation, and multipart length validation;
 - success, success-with-warning, mode formatting, and optional token return;
-- missing/wrong/oversized fields, malformed JSON, and untrusted permalinks;
+- missing/wrong/oversized fields, malformed JSON, untrusted permalinks, and a `wvw.report`
+  permalink paired with a non-WvW boss ID;
 - every HTTP and transport classification, including bounded `Retry-After`; and
 - no token, response body, server error text, URL query, or source path in returned errors.

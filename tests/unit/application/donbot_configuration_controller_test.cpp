@@ -266,7 +266,13 @@ struct Fixture {
 
 void candidate_success_and_selection_tests(TestSuite& suite) {
     constexpr std::string_view marker = "PRIVATE-CANDIDATE-KEY";
-    Fixture fixture;
+    auto initial_settings = settings();
+    initial_settings.donbot.enabled = true;
+    initial_settings.donbot.selected_guild_id = "123";
+    initial_settings.donbot.discord_delivery_enabled = true;
+    initial_settings.donbot.discord_channel_override_explicit = true;
+    initial_settings.donbot.selected_discord_channel_id = "223";
+    Fixture fixture{initial_settings};
     auto& controller = *fixture.controller;
     const auto initial = controller.snapshot();
     MANNY_CHECK(suite, initial.state == application::DonBotConfigurationState::Unverified);
@@ -298,6 +304,9 @@ void candidate_success_and_selection_tests(TestSuite& suite) {
     const auto persisted = fixture.configuration->snapshot().settings.donbot;
     MANNY_CHECK(suite, !persisted.enabled);
     MANNY_CHECK(suite, persisted.selected_guild_id.empty());
+    MANNY_CHECK(suite, !persisted.discord_delivery_enabled);
+    MANNY_CHECK(suite, !persisted.discord_channel_override_explicit);
+    MANNY_CHECK(suite, persisted.selected_discord_channel_id.empty());
     MANNY_CHECK(suite, persisted.api_base_url == "https://new-donbot.example/root");
 
     auto verified = controller.snapshot();
@@ -393,10 +402,21 @@ void discord_delivery_selection_tests(TestSuite& suite) {
     MANNY_CHECK(suite, fixture.configuration->save_settings(std::move(settings)).has_value());
     MANNY_CHECK(suite, controller.set_discord_delivery_enabled(true).has_value());
     MANNY_CHECK(suite, fixture.configuration->snapshot().settings.donbot.discord_delivery_enabled);
+    const auto default_delivery = application::authorized_donbot_delivery(
+        fixture.configuration->snapshot().settings, controller.snapshot());
+    MANNY_CHECK(suite, default_delivery.mode == domain::DonBotDiscordDeliveryMode::GuildDefaults);
+    MANNY_CHECK(suite, default_delivery.channel_id.empty());
     MANNY_CHECK(suite, controller.select_discord_channel("223").has_value());
+    MANNY_CHECK(
+        suite, fixture.configuration->snapshot().settings.donbot.discord_channel_override_explicit);
     MANNY_CHECK(suite,
                 fixture.configuration->snapshot().settings.donbot.selected_discord_channel_id ==
                     "223");
+    const auto override_delivery = application::authorized_donbot_delivery(
+        fixture.configuration->snapshot().settings, controller.snapshot());
+    MANNY_CHECK(suite,
+                override_delivery.mode == domain::DonBotDiscordDeliveryMode::ChannelOverride);
+    MANNY_CHECK(suite, override_delivery.channel_id == "223");
 
     const auto unknown = controller.select_discord_channel("999");
     MANNY_CHECK(suite, !unknown.has_value());
@@ -405,7 +425,14 @@ void discord_delivery_selection_tests(TestSuite& suite) {
     MANNY_CHECK(suite, controller.select_discord_channel({}).has_value());
     MANNY_CHECK(
         suite,
+        !fixture.configuration->snapshot().settings.donbot.discord_channel_override_explicit);
+    MANNY_CHECK(
+        suite,
         fixture.configuration->snapshot().settings.donbot.selected_discord_channel_id.empty());
+    const auto restored_defaults = application::authorized_donbot_delivery(
+        fixture.configuration->snapshot().settings, controller.snapshot());
+    MANNY_CHECK(suite, restored_defaults.mode == domain::DonBotDiscordDeliveryMode::GuildDefaults);
+    MANNY_CHECK(suite, restored_defaults.channel_id.empty());
 
     MANNY_CHECK(suite, controller.select_discord_channel("223").has_value());
     MANNY_CHECK(suite, controller.select_guild("123").has_value());
@@ -416,6 +443,9 @@ void discord_delivery_selection_tests(TestSuite& suite) {
 
     MANNY_CHECK(suite, controller.select_guild("456").has_value());
     MANNY_CHECK(suite, !fixture.configuration->snapshot().settings.donbot.discord_delivery_enabled);
+    MANNY_CHECK(
+        suite,
+        !fixture.configuration->snapshot().settings.donbot.discord_channel_override_explicit);
     MANNY_CHECK(
         suite,
         fixture.configuration->snapshot().settings.donbot.selected_discord_channel_id.empty());
@@ -445,6 +475,7 @@ void persistence_failure_tests(TestSuite& suite) {
         initial.donbot.enabled = true;
         initial.donbot.selected_guild_id = "999";
         initial.donbot.discord_delivery_enabled = true;
+        initial.donbot.discord_channel_override_explicit = true;
         initial.donbot.selected_discord_channel_id = "223";
         Fixture fixture{initial};
         fixture.secret_observer->fail_store = true;
@@ -498,6 +529,7 @@ void saved_verification_tests(TestSuite& suite) {
         initial.donbot.enabled = true;
         initial.donbot.selected_guild_id = "999";
         initial.donbot.discord_delivery_enabled = true;
+        initial.donbot.discord_channel_override_explicit = true;
         initial.donbot.selected_discord_channel_id = "223";
         Fixture fixture{initial};
         MANNY_CHECK(suite, fixture.controller->begin_saved_verification().has_value());
@@ -520,6 +552,30 @@ void saved_verification_tests(TestSuite& suite) {
         initial.donbot.discord_delivery_enabled = true;
         initial.donbot.selected_discord_channel_id = "223";
         Fixture fixture{initial};
+        MANNY_CHECK(suite, fixture.controller->begin_saved_verification().has_value());
+        fixture.verifier.succeed_next("Player.1234", {delivery_guild()}, true);
+        fixture.events.clear();
+        MANNY_CHECK(suite, fixture.controller->poll().has_value());
+        MANNY_CHECK(suite, fixture.events == std::vector<std::string>({"settings.save"}));
+        const auto sanitized = fixture.configuration->snapshot().settings.donbot;
+        MANNY_CHECK(suite, sanitized.enabled);
+        MANNY_CHECK(suite, sanitized.discord_delivery_enabled);
+        MANNY_CHECK(suite, !sanitized.discord_channel_override_explicit);
+        MANNY_CHECK(suite, sanitized.selected_discord_channel_id.empty());
+        const auto authorized = application::authorized_donbot_delivery(
+            fixture.configuration->snapshot().settings, fixture.controller->snapshot());
+        MANNY_CHECK(suite, authorized.mode == domain::DonBotDiscordDeliveryMode::GuildDefaults);
+        MANNY_CHECK(suite, authorized.channel_id.empty());
+    }
+
+    {
+        auto initial = settings();
+        initial.donbot.enabled = true;
+        initial.donbot.selected_guild_id = "123";
+        initial.donbot.discord_delivery_enabled = true;
+        initial.donbot.discord_channel_override_explicit = true;
+        initial.donbot.selected_discord_channel_id = "223";
+        Fixture fixture{initial};
         MANNY_CHECK(
             suite,
             application::authorized_donbot_delivery(initial, fixture.controller->snapshot()).mode ==
@@ -536,6 +592,7 @@ void saved_verification_tests(TestSuite& suite) {
         const auto preserved = fixture.configuration->snapshot().settings.donbot;
         MANNY_CHECK(suite, preserved.enabled);
         MANNY_CHECK(suite, preserved.discord_delivery_enabled);
+        MANNY_CHECK(suite, preserved.discord_channel_override_explicit);
         MANNY_CHECK(suite, preserved.selected_discord_channel_id == "223");
         const auto authorized = application::authorized_donbot_delivery(
             fixture.configuration->snapshot().settings, fixture.controller->snapshot());
@@ -558,6 +615,7 @@ void saved_verification_tests(TestSuite& suite) {
         initial.donbot.enabled = true;
         initial.donbot.selected_guild_id = "123";
         initial.donbot.discord_delivery_enabled = true;
+        initial.donbot.discord_channel_override_explicit = true;
         initial.donbot.selected_discord_channel_id = "223";
         Fixture fixture{initial};
         MANNY_CHECK(suite, fixture.controller->begin_saved_verification().has_value());
@@ -568,6 +626,7 @@ void saved_verification_tests(TestSuite& suite) {
         const auto revoked = fixture.configuration->snapshot().settings.donbot;
         MANNY_CHECK(suite, revoked.enabled);
         MANNY_CHECK(suite, !revoked.discord_delivery_enabled);
+        MANNY_CHECK(suite, !revoked.discord_channel_override_explicit);
         MANNY_CHECK(suite, revoked.selected_discord_channel_id.empty());
     }
 

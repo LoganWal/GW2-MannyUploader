@@ -223,6 +223,13 @@ void request_and_success_tests(TestSuite& suite, const domain::LogFileIdentity& 
     }
     MANNY_CHECK(suite, !token.empty());
 
+    FakeHttpClient detailed_http{json_response(valid_response)};
+    providers::DpsReportClient detailed_client{detailed_http};
+    const auto detailed = detailed_client.upload(
+        file, nullptr, {}, providers::DpsReportUploadOptions{.detailed_wvw = true});
+    MANNY_CHECK(suite, detailed.has_value());
+    MANNY_CHECK(suite, detailed_http.url == providers::dps_report_detailed_wvw_upload_url);
+
     FakeHttpClient no_token_http{json_response(R"json({
       "permalink":"https://dps.report/no-token-report",
       "encounter":{"success":false,"bossId":1,"boss":"Golem"}
@@ -236,6 +243,16 @@ void request_and_success_tests(TestSuite& suite, const domain::LogFileIdentity& 
         MANNY_CHECK(suite, no_token->report.mode.empty());
         MANNY_CHECK(suite, !no_token->replacement_user_token.has_value());
     }
+
+    FakeHttpClient wvw_http{json_response(R"json({
+      "permalink":"https://wvw.report/KKNj-20260318-212757_wvw",
+      "encounter":{"success":true,"bossId":1,"boss":"World vs World"}
+    })json")};
+    providers::DpsReportClient wvw_client{wvw_http};
+    const auto wvw = wvw_client.upload(file);
+    MANNY_CHECK(suite, wvw.has_value());
+    MANNY_CHECK(suite,
+                wvw && wvw->report.permalink == "https://wvw.report/KKNj-20260318-212757_wvw");
 }
 
 void response_variant_tests(TestSuite& suite, const domain::LogFileIdentity& file) {
@@ -302,7 +319,7 @@ void response_variant_tests(TestSuite& suite, const domain::LogFileIdentity& fil
 }
 
 void invalid_response_tests(TestSuite& suite, const domain::LogFileIdentity& file) {
-    constexpr std::array<std::string_view, 16> documents{
+    constexpr std::array<std::string_view, 19> documents{
         "not-json",
         R"json({})json",
         R"json({"permalink":"https://dps.report/missing-encounter"})json",
@@ -319,6 +336,9 @@ void invalid_response_tests(TestSuite& suite, const domain::LogFileIdentity& fil
         R"json({"permalink":"https://dps.report/negative","encounter":{"success":true,"bossId":-1,"boss":"Boss"}})json",
         R"json({"permalink":"https://dps.report/large","encounter":{"success":true,"bossId":65536,"boss":"Boss"}})json",
         R"json({"permalink":"https://dps.report/control","encounter":{"success":true,"bossId":1,"boss":"Bad\u0001Name"}})json",
+        R"json({"permalink":"https://wvw.report/pve","encounter":{"success":true,"bossId":2,"boss":"Boss"}})json",
+        R"json({"permalink":"https://wvw.report","encounter":{"success":true,"bossId":1,"boss":"World vs World"}})json",
+        R"json({"permalink":"https://wvw.report.evil.example/private","encounter":{"success":true,"bossId":1,"boss":"World vs World"}})json",
     };
     for (const auto document : documents) {
         FakeHttpClient http{json_response(document)};

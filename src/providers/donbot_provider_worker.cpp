@@ -143,7 +143,7 @@ domain::Provider DonBotProviderWorker::provider() const noexcept {
 
 std::expected<void, ports::DispatchError>
 DonBotProviderWorker::enqueue(ports::UploadRequest request) {
-    if (request.donbot_context || request.twitch_context) {
+    if (request.dps_report_context || request.donbot_context || request.twitch_context) {
         return std::unexpected(ports::DispatchError{.message = "DonBot upload request is invalid"});
     }
     try {

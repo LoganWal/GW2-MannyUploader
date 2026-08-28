@@ -488,6 +488,23 @@ void permalink_import_tests(TestSuite& suite) {
                                                std::string{encoded});
     }
 
+    SequentialHttpClient wvw_http{{
+        response(R"json({"success":1})json"),
+        response(
+            R"json({"inQueue":true,"inDB":false,"targetURL":"https://gw2wingman.nevermindcreations.de/log/wvw-fight"})json"),
+    }};
+    providers::WingmanClient wvw_client{wvw_http};
+    const auto wvw = wvw_client.import_permalink("https://wvw.report/KKNj-20260318-212757_wvw");
+    MANNY_CHECK(suite, wvw.has_value());
+    MANNY_CHECK(suite, wvw_http.urls.size() == 2);
+    if (wvw_http.urls.size() == 2) {
+        constexpr std::string_view encoded = "https%3A%2F%2Fwvw.report%2FKKNj-20260318-212757_wvw";
+        MANNY_CHECK(suite, wvw_http.urls[0] == std::string{providers::wingman_import_queued_url} +
+                                                   std::string{encoded});
+        MANNY_CHECK(suite, wvw_http.urls[1] == std::string{providers::wingman_check_queued_url} +
+                                                   std::string{encoded});
+    }
+
     SequentialHttpClient duplicate_http{{
         response(R"json({"success":0})json"),
         response(
@@ -532,6 +549,10 @@ void permalink_import_tests(TestSuite& suite) {
     providers::WingmanClient invalid_client{invalid_http};
     const auto invalid = invalid_client.import_permalink("https://dps.report.evil/private");
     MANNY_CHECK(suite, !invalid.has_value());
+    MANNY_CHECK(suite, invalid_http.calls == 0);
+
+    const auto invalid_wvw = invalid_client.import_permalink("https://wvw.report.evil/private");
+    MANNY_CHECK(suite, !invalid_wvw.has_value());
     MANNY_CHECK(suite, invalid_http.calls == 0);
 
     SequentialHttpClient unsafe_target{{

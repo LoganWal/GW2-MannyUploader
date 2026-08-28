@@ -1,5 +1,7 @@
 #include "manny_uploader/application/recent_log_actions_controller.hpp"
 
+#include "manny_uploader/support/report_permalink.hpp"
+
 #include <algorithm>
 #include <concepts>
 #include <ranges>
@@ -12,7 +14,6 @@ namespace {
 
 constexpr std::size_t maximum_command_capacity = 256;
 constexpr std::size_t maximum_report_url_length = 2048;
-constexpr std::string_view dps_report_prefix = "https://dps.report/";
 constexpr std::string_view wingman_report_prefix = "https://gw2wingman.nevermindcreations.de/log/";
 constexpr std::string_view donbot_report_prefix = "https://donbot.walmslo.com/logs/";
 
@@ -182,7 +183,9 @@ RecentLogActionsController::execute(const RecentLogActionCommand& command) {
                                               "This job does not have a dps.report link"));
         }
         const auto& url = job->dps_report_result->permalink;
-        if (!trusted_report_url(url, dps_report_prefix)) {
+        const auto origin = support::report_permalink_origin(url);
+        if (!origin || (*origin == support::ReportPermalinkOrigin::WvwReport &&
+                        job->dps_report_result->boss_id != domain::wvw_boss_id)) {
             return std::unexpected(make_error(RecentLogActionErrorCode::UnsafeReportUrl,
                                               "The dps.report link is not trusted"));
         }

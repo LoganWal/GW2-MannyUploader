@@ -4,6 +4,10 @@ This contract defines the conditional GW2Wingman integration used by GW2 Manny U
 same job enables dps.report, Wingman imports its trusted permalink. Otherwise the addon sends the
 `.zevtc` through the existing `evtc.bel.st` compatibility bridge.
 
+WvW logs use arcdps encounter ID `1` and are always skipped before Wingman dispatch. This applies to
+dependent permalink imports, direct archive uploads, manual retries, and explicit reuploads. The
+job shows `Skipped` with zero Wingman attempts while dps.report and DonBot continue independently.
+
 Verified 2026-08-25 against:
 
 - <https://gw2wingman.nevermindcreations.de/api>;
@@ -36,10 +40,11 @@ GET  https://gw2wingman.nevermindcreations.de/api/checkLogQueuedOrDB?link=<perce
 Accept: application/json
 ```
 
-The permalink must use the exact `https://dps.report/` prefix and contain no credentials, query,
-fragment, backslash, control, or non-ASCII byte. An import response with integer `success: 1` means
-newly queued. `success: 0` is accepted only when the following status check confirms `inQueue: true`
-or `inDB: true`. The status response must include both booleans, plus a `targetURL` under the exact
+The permalink must use the exact HTTPS authority `dps.report`, `b.dps.report`, or `wvw.report` and
+contain no credentials, query, fragment, backslash, double quote, control, or non-ASCII byte. An
+import response with integer `success: 1` means newly queued. `success: 0` is accepted only when the
+following status check confirms `inQueue: true` or `inDB: true`. The status response must include
+both booleans, plus a `targetURL` under the exact
 `https://gw2wingman.nevermindcreations.de/log/` prefix with a safe log slug. The target is retained
 immediately so the UI can open the fight while Wingman finishes processing it. A newly queued import
 may temporarily report both status flags false. `inDB: true` is reported as duplicate success.
@@ -124,7 +129,7 @@ transport message.
 The client is tested through an injected fake `IHttpClient`; the default suite never contacts the
 bridge or uploads a log. Tests assert exact multipart fields and streamed bytes, fixed endpoints and
 limits, queued permalink import and status resolution, legacy and ticketed success, polling,
-permalink validation, duplicate success,
+permalink validation, duplicate success, coordinator-owned WvW exclusion,
 false/malformed/incomplete JSON, every status and transport class, bounded retry headers,
 stable-file changes, input validation, cancellation, endpoint policy, exception containment, and
 diagnostic redaction.

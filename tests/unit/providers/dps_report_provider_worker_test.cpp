@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace manny_uploader::test {
 namespace {
@@ -75,6 +76,7 @@ request(std::uint64_t id, domain::Provider provider = domain::Provider::DpsRepor
             },
         .metadata = domain::EncounterMetadata{.boss_id = 123, .pov_account = "Player.1234"},
         .dps_report_result = std::nullopt,
+        .dps_report_context = std::nullopt,
         .donbot_context = std::nullopt,
         .attempt = 1,
     };
@@ -134,15 +136,22 @@ class FakeDpsReportClient final : public providers::IDpsReportClient {
         return saw_stop_;
     }
 
+    [[nodiscard]] std::vector<bool> detailed_wvw_options() const {
+        const std::scoped_lock lock{mutex_};
+        return detailed_wvw_options_;
+    }
+
     [[nodiscard]] std::expected<providers::DpsReportUploadSuccess, providers::DpsReportUploadError>
     upload(const domain::LogFileIdentity&, const support::SecretValue* user_token,
-           const std::stop_token& stop_token) const override {
+           const std::stop_token& stop_token,
+           providers::DpsReportUploadOptions options) const override {
         std::stop_callback wake_on_stop{stop_token, [this] { condition_.notify_all(); }};
         std::unique_lock lock{mutex_};
         ++calls_;
         received_token_ = user_token == nullptr
                               ? std::nullopt
                               : std::optional<std::string>{secret_text(*user_token)};
+        detailed_wvw_options_.push_back(options.detailed_wvw);
         condition_.notify_all();
         condition_.wait(lock, [this, &stop_token] {
             return !blocked_ || released_ || stop_token.stop_requested();
@@ -170,6 +179,7 @@ class FakeDpsReportClient final : public providers::IDpsReportClient {
     mutable std::deque<Result> results_;
     mutable std::size_t calls_{};
     mutable std::optional<std::string> received_token_;
+    mutable std::vector<bool> detailed_wvw_options_;
     mutable bool blocked_{};
     mutable bool released_{};
     mutable bool throw_next_{};
@@ -454,7 +464,9 @@ void request_validation_tests(TestSuite& suite) {
     zero_attempt.attempt = 0;
     auto has_report = request(55);
     has_report.dps_report_result = report();
-    auto has_donbot_context = request(56);
+    auto has_dps_report_context = request(56);
+    has_dps_report_context.dps_report_context = ports::DpsReportUploadContext{.detailed_wvw = true};
+    auto has_donbot_context = request(57);
     has_donbot_context.donbot_context = ports::DonBotUploadContext{
         .api_base_url = "https://donbot.example",
         .guild_id = "1",
@@ -467,8 +479,31 @@ void request_validation_tests(TestSuite& suite) {
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(empty_path)).has_value());
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(zero_attempt)).has_value());
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(has_report)).has_value());
+    MANNY_CHECK(suite, !(*worker)->enqueue(std::move(has_dps_report_context)).has_value());
     MANNY_CHECK(suite, !(*worker)->enqueue(std::move(has_donbot_context)).has_value());
     MANNY_CHECK(suite, client.calls() == 0);
+}
+
+void configuration_capture_tests(TestSuite& suite) {
+    FakeDpsReportClient client;
+    client.block();
+    auto worker = DpsReportProviderWorker::create(
+        client, nullptr, 2, 1, providers::DpsReportProviderConfig{.detailed_wvw = false});
+    MANNY_CHECK(suite, worker.has_value());
+    MANNY_CHECK(suite, (*worker)->config_snapshot() ==
+                           providers::DpsReportProviderConfig{.detailed_wvw = false});
+    MANNY_CHECK(suite, (*worker)->enqueue(request(58)).has_value());
+    MANNY_CHECK(suite, client.wait_for_calls(1, 2s));
+
+    (*worker)->update_config(providers::DpsReportProviderConfig{.detailed_wvw = true});
+    MANNY_CHECK(suite, (*worker)->enqueue(request(59)).has_value());
+    (*worker)->update_config(providers::DpsReportProviderConfig{.detailed_wvw = false});
+    client.release();
+
+    MANNY_CHECK(suite, (*worker)->wait_for_result(2s).has_value());
+    MANNY_CHECK(suite, (*worker)->wait_for_result(2s).has_value());
+    const auto options = client.detailed_wvw_options();
+    MANNY_CHECK(suite, options == std::vector<bool>({false, true}));
 }
 
 void bounded_queue_and_backpressure_tests(TestSuite& suite) {
@@ -532,6 +567,7 @@ void run_dps_report_provider_worker_tests(TestSuite& suite) {
     credential_failure_tests(suite);
     outcome_mapping_tests(suite);
     request_validation_tests(suite);
+    configuration_capture_tests(suite);
     bounded_queue_and_backpressure_tests(suite);
     cancellation_and_shutdown_tests(suite);
 }

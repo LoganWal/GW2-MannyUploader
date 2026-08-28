@@ -50,6 +50,10 @@ struct CoordinatorFixture {
     return EncounterMetadata{.boss_id = 123, .pov_account = "Broadcaster.1234"};
 }
 
+[[nodiscard]] EncounterMetadata wvw_metadata() {
+    return EncounterMetadata{.boss_id = domain::wvw_boss_id, .pov_account = "Broadcaster.1234"};
+}
+
 [[nodiscard]] ProviderSelection providers(bool dps, bool wingman, bool donbot, bool twitch) {
     ProviderSelection selection{};
     selection[domain::provider_index(Provider::DpsReport)] = dps;
@@ -59,10 +63,12 @@ struct CoordinatorFixture {
     return selection;
 }
 
-[[nodiscard]] DpsReportResult dps_result(std::string permalink = "https://dps.report/example") {
+[[nodiscard]] DpsReportResult dps_result(std::string permalink = "https://dps.report/example",
+                                         std::uint16_t boss_id = 123) {
     return DpsReportResult{
         .permalink = std::move(permalink),
         .encounter_name = "Example Encounter",
+        .boss_id = boss_id,
         .mode = "CM",
         .success = true,
     };
@@ -105,6 +111,78 @@ void creation_and_dispatch_tests(TestSuite& suite) {
     MANNY_CHECK(suite, snapshots[0].detected_at == std::chrono::system_clock::time_point{});
     MANNY_CHECK(suite, snapshots[2].detected_at ==
                            std::chrono::system_clock::time_point{} + std::chrono::seconds{5});
+}
+
+void wvw_wingman_skip_tests(TestSuite& suite) {
+    CoordinatorFixture fixture;
+    auto created = UploadCoordinator::create(fixture.clock, fixture.ports);
+    MANNY_CHECK(suite, created.has_value());
+    auto coordinator = std::move(*created);
+
+    const auto dependent = coordinator.add_job(file("wvw-dependent.zevtc"), wvw_metadata(),
+                                               providers(true, true, true, true));
+    MANNY_CHECK(suite, dependent.has_value());
+    MANNY_CHECK(suite, fixture.dps.requests.size() == 1);
+    MANNY_CHECK(suite, fixture.wingman.requests.empty());
+    auto snapshots = coordinator.snapshots();
+    MANNY_CHECK(suite,
+                snapshots.front().providers[domain::provider_index(Provider::Wingman)].state ==
+                    ProviderState::Skipped);
+    MANNY_CHECK(suite,
+                snapshots.front().providers[domain::provider_index(Provider::Wingman)].attempts ==
+                    0);
+    MANNY_CHECK(suite,
+                snapshots.front().providers[domain::provider_index(Provider::Wingman)].detail ==
+                    "WvW logs are not uploaded to GW2Wingman");
+
+    MANNY_CHECK(suite, coordinator
+                           .handle_result(UploadResult{
+                               .job_id = *dependent,
+                               .provider = Provider::DpsReport,
+                               .outcome = UploadOutcome::Succeeded,
+                               .detail = "uploaded",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = dps_result("https://wvw.report/example_wvw",
+                                                               domain::wvw_boss_id),
+                           })
+                           .has_value());
+    MANNY_CHECK(suite, fixture.wingman.requests.empty());
+    MANNY_CHECK(suite, fixture.donbot.requests.size() == 1);
+    MANNY_CHECK(suite, fixture.twitch.requests.size() == 1);
+
+    MANNY_CHECK(suite, coordinator
+                           .handle_result(UploadResult{
+                               .job_id = *dependent,
+                               .provider = Provider::DonBot,
+                               .outcome = UploadOutcome::Succeeded,
+                               .detail = "uploaded",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = std::nullopt,
+                           })
+                           .has_value());
+    MANNY_CHECK(suite, coordinator.reupload(*dependent).has_value());
+    MANNY_CHECK(suite, coordinator
+                           .handle_result(UploadResult{
+                               .job_id = *dependent,
+                               .provider = Provider::DpsReport,
+                               .outcome = UploadOutcome::Succeeded,
+                               .detail = "uploaded",
+                               .retry_after = std::nullopt,
+                               .dps_report_result = dps_result("https://wvw.report/reupload_wvw",
+                                                               domain::wvw_boss_id),
+                           })
+                           .has_value());
+    MANNY_CHECK(suite, fixture.wingman.requests.empty());
+    snapshots = coordinator.snapshots();
+    MANNY_CHECK(suite,
+                snapshots.front().providers[domain::provider_index(Provider::Wingman)].state ==
+                    ProviderState::Skipped);
+
+    const auto direct = coordinator.add_job(file("wvw-direct.zevtc"), wvw_metadata(),
+                                            providers(false, true, true, false));
+    MANNY_CHECK(suite, direct.has_value());
+    MANNY_CHECK(suite, fixture.wingman.requests.empty());
+    MANNY_CHECK(suite, fixture.donbot.requests.size() == 3);
 }
 
 void pending_metadata_tests(TestSuite& suite) {
@@ -897,6 +975,7 @@ void validation_and_cancellation_tests(TestSuite& suite) {
 
 void run_upload_coordinator_tests(TestSuite& suite) {
     creation_and_dispatch_tests(suite);
+    wvw_wingman_skip_tests(suite);
     pending_metadata_tests(suite);
     result_correlation_and_twitch_tests(suite);
     retry_tests(suite);

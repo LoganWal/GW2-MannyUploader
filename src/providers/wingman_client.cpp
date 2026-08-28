@@ -2,6 +2,7 @@
 
 #include "manny_uploader/http/body_sources.hpp"
 #include "manny_uploader/http/multipart_form_data.hpp"
+#include "manny_uploader/support/report_permalink.hpp"
 #include "manny_uploader/support/utf8.hpp"
 
 #include <glaze/json.hpp>
@@ -102,13 +103,7 @@ make_error(WingmanUploadDisposition disposition, std::string detail,
 }
 
 [[nodiscard]] bool trusted_dps_report_permalink(std::string_view value) noexcept {
-    constexpr std::string_view prefix = "https://dps.report/";
-    return value.starts_with(prefix) && value.size() > prefix.size() && value.size() <= 2048 &&
-           !value.contains('@') && !value.contains('?') && !value.contains('#') &&
-           !value.contains('\\') && std::ranges::all_of(value, [](char character) {
-               const auto byte = static_cast<unsigned char>(character);
-               return byte >= 0x21U && byte <= 0x7eU;
-           });
+    return support::report_permalink_origin(value).has_value();
 }
 
 [[nodiscard]] char ascii_lower(char value) noexcept {

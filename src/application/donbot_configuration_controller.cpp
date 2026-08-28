@@ -40,6 +40,7 @@ namespace {
     candidate.donbot.enabled = false;
     candidate.donbot.selected_guild_id.clear();
     candidate.donbot.discord_delivery_enabled = false;
+    candidate.donbot.discord_channel_override_explicit = false;
     candidate.donbot.selected_discord_channel_id.clear();
     candidate.donbot.api_base_url = api_base_url;
     return config::validate_settings(candidate).empty();
@@ -124,7 +125,7 @@ authorized_donbot_delivery(const config::Settings& settings,
     if (guild == nullptr || !guild->discord_delivery.enabled) {
         return authorization;
     }
-    if (settings.donbot.selected_discord_channel_id.empty()) {
+    if (!settings.donbot.discord_channel_override_explicit) {
         if (guild->discord_delivery.defaults_available) {
             authorization.mode = domain::DonBotDiscordDeliveryMode::GuildDefaults;
         }
@@ -204,6 +205,7 @@ DonBotConfigurationController::select_guild(std::string guild_id) {
     settings.donbot.selected_guild_id = guild_id;
     if (changed_guild) {
         settings.donbot.discord_delivery_enabled = false;
+        settings.donbot.discord_channel_override_explicit = false;
         settings.donbot.selected_discord_channel_id.clear();
     }
     if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
@@ -238,18 +240,22 @@ DonBotConfigurationController::set_discord_delivery_enabled(bool enabled) {
             make_error(DonBotConfigurationErrorCode::DeliveryUnavailable,
                        "The selected DonBot server does not allow MannyUploader Discord delivery"));
     }
-    if (enabled && settings.donbot.selected_discord_channel_id.empty() &&
+    if (enabled && !settings.donbot.discord_channel_override_explicit &&
         !guild->discord_delivery.defaults_available) {
         return std::unexpected(make_error(DonBotConfigurationErrorCode::DeliveryUnavailable,
                                           "DonBot server default delivery is unavailable"));
     }
-    if (enabled && !settings.donbot.selected_discord_channel_id.empty() &&
+    if (enabled && settings.donbot.discord_channel_override_explicit &&
         (!guild->discord_delivery.channel_override_allowed ||
          !contains_channel(*guild, settings.donbot.selected_discord_channel_id))) {
         return std::unexpected(make_error(DonBotConfigurationErrorCode::UnknownChannel,
                                           "The selected DonBot Discord channel is unavailable"));
     }
     settings.donbot.discord_delivery_enabled = enabled;
+    if (!enabled || !settings.donbot.discord_channel_override_explicit) {
+        settings.donbot.discord_channel_override_explicit = false;
+        settings.donbot.selected_discord_channel_id.clear();
+    }
     if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
         return std::unexpected(publish_error(from_configuration_error(
             DonBotConfigurationErrorCode::SettingsSaveFailed,
@@ -293,6 +299,7 @@ DonBotConfigurationController::select_discord_channel(std::string channel_id) {
     }
 
     auto settings = settings_snapshot.settings;
+    settings.donbot.discord_channel_override_explicit = !channel_id.empty();
     settings.donbot.selected_discord_channel_id = std::move(channel_id);
     if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
         return std::unexpected(publish_error(from_configuration_error(
@@ -317,6 +324,7 @@ std::expected<void, DonBotConfigurationError> DonBotConfigurationController::dis
     settings.donbot.enabled = false;
     settings.donbot.selected_guild_id.clear();
     settings.donbot.discord_delivery_enabled = false;
+    settings.donbot.discord_channel_override_explicit = false;
     settings.donbot.selected_discord_channel_id.clear();
     if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
         return std::unexpected(publish_error(
@@ -440,6 +448,7 @@ DonBotConfigurationController::handle_candidate_success(ports::DonBotVerificatio
     settings.donbot.enabled = false;
     settings.donbot.selected_guild_id.clear();
     settings.donbot.discord_delivery_enabled = false;
+    settings.donbot.discord_channel_override_explicit = false;
     settings.donbot.selected_discord_channel_id.clear();
     settings.donbot.api_base_url = request.api_base_url;
     if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
@@ -474,6 +483,7 @@ DonBotConfigurationController::handle_saved_success(ports::DonBotVerificationSuc
         settings.donbot.enabled = false;
         settings.donbot.selected_guild_id.clear();
         settings.donbot.discord_delivery_enabled = false;
+        settings.donbot.discord_channel_override_explicit = false;
         settings.donbot.selected_discord_channel_id.clear();
         if (auto saved = configuration_.save_settings(settings); !saved) {
             return std::unexpected(publish_error(from_configuration_error(
@@ -484,18 +494,42 @@ DonBotConfigurationController::handle_saved_success(ports::DonBotVerificationSuc
     }
 
     const auto* selected_guild = find_guild(success.identity.guilds, selected_guild_id);
-    const auto delivery_valid =
-        !settings.donbot.discord_delivery_enabled ||
-        (success.identity.discord_summary_delivery_v1 && selected_guild != nullptr &&
-         selected_guild->discord_delivery.enabled &&
-         (settings.donbot.selected_discord_channel_id.empty()
-              ? selected_guild->discord_delivery.defaults_available
-              : selected_guild->discord_delivery.channel_override_allowed &&
-                    contains_channel(*selected_guild,
-                                     settings.donbot.selected_discord_channel_id)));
-    if (!delivery_valid) {
-        settings.donbot.discord_delivery_enabled = false;
+    bool save_sanitized_route = false;
+    if (!settings.donbot.discord_channel_override_explicit &&
+        !settings.donbot.selected_discord_channel_id.empty()) {
         settings.donbot.selected_discord_channel_id.clear();
+        save_sanitized_route = true;
+    }
+
+    const auto delivery_policy_available = success.identity.discord_summary_delivery_v1 &&
+                                           selected_guild != nullptr &&
+                                           selected_guild->discord_delivery.enabled;
+    const auto explicit_override_valid =
+        delivery_policy_available && settings.donbot.discord_channel_override_explicit &&
+        selected_guild->discord_delivery.channel_override_allowed &&
+        contains_channel(*selected_guild, settings.donbot.selected_discord_channel_id);
+    if (settings.donbot.discord_channel_override_explicit && !explicit_override_valid) {
+        settings.donbot.discord_channel_override_explicit = false;
+        settings.donbot.selected_discord_channel_id.clear();
+        save_sanitized_route = true;
+    }
+
+    if (settings.donbot.discord_delivery_enabled &&
+        (!delivery_policy_available || (!settings.donbot.discord_channel_override_explicit &&
+                                        !selected_guild->discord_delivery.defaults_available))) {
+        settings.donbot.discord_delivery_enabled = false;
+        settings.donbot.discord_channel_override_explicit = false;
+        settings.donbot.selected_discord_channel_id.clear();
+        save_sanitized_route = true;
+    }
+    if (!settings.donbot.discord_delivery_enabled &&
+        (settings.donbot.discord_channel_override_explicit ||
+         !settings.donbot.selected_discord_channel_id.empty())) {
+        settings.donbot.discord_channel_override_explicit = false;
+        settings.donbot.selected_discord_channel_id.clear();
+        save_sanitized_route = true;
+    }
+    if (save_sanitized_route) {
         if (auto saved = configuration_.save_settings(settings); !saved) {
             return std::unexpected(publish_error(from_configuration_error(
                 DonBotConfigurationErrorCode::SettingsSaveFailed,

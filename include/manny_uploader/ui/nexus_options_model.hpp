@@ -13,10 +13,14 @@ namespace manny_uploader::ui {
 struct DonBotOptionsModel {
     std::string status_text;
     std::string diagnostic;
+    std::string discord_delivery_status_text;
     bool verify_available{};
+    bool configuration_visible{};
     bool guild_selection_available{};
     bool enable_toggle_available{};
+    bool discord_delivery_visible{};
     bool discord_delivery_toggle_available{};
+    bool discord_channel_selection_visible{};
     bool discord_channel_selection_available{};
     bool disconnect_available{};
 };

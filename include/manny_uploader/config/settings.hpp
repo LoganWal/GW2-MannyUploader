@@ -31,6 +31,7 @@ struct GeneralSettings {
 
 struct DpsReportSettings {
     bool enabled{true};
+    bool detailed_wvw{};
 
     [[nodiscard]] friend bool operator==(DpsReportSettings, DpsReportSettings) noexcept = default;
 };
@@ -46,6 +47,7 @@ struct DonBotSettings {
     std::string api_base_url{default_donbot_api_base};
     std::string selected_guild_id;
     bool discord_delivery_enabled{};
+    bool discord_channel_override_explicit{};
     std::string selected_discord_channel_id;
 
     [[nodiscard]] friend bool operator==(const DonBotSettings&,

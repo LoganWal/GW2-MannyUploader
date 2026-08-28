@@ -72,6 +72,8 @@ void disconnected_model_tests(TestSuite& suite) {
     const auto model = ui::build_nexus_options_model(snapshot());
     MANNY_CHECK(suite, model.donbot.status_text == "Not verified");
     MANNY_CHECK(suite, model.donbot.verify_available);
+    MANNY_CHECK(suite, !model.donbot.configuration_visible);
+    MANNY_CHECK(suite, !model.donbot.discord_delivery_visible);
     MANNY_CHECK(suite, !model.donbot.guild_selection_available);
     MANNY_CHECK(suite, !model.donbot.enable_toggle_available);
     MANNY_CHECK(suite, !model.donbot.discord_delivery_toggle_available);
@@ -124,9 +126,12 @@ void connected_model_tests(TestSuite& suite) {
 
     const auto model = ui::build_nexus_options_model(state);
     MANNY_CHECK(suite, model.donbot.status_text == "Verified as Player.1234");
+    MANNY_CHECK(suite, model.donbot.configuration_visible);
     MANNY_CHECK(suite, model.donbot.guild_selection_available);
     MANNY_CHECK(suite, model.donbot.enable_toggle_available);
+    MANNY_CHECK(suite, model.donbot.discord_delivery_visible);
     MANNY_CHECK(suite, model.donbot.discord_delivery_toggle_available);
+    MANNY_CHECK(suite, model.donbot.discord_channel_selection_visible);
     MANNY_CHECK(suite, model.donbot.discord_channel_selection_available);
     MANNY_CHECK(suite, model.donbot.disconnect_available);
     MANNY_CHECK(suite, model.twitch.status_text == "Connected as broadcaster_name");
@@ -140,7 +145,29 @@ void connected_model_tests(TestSuite& suite) {
     state.configuration.settings.donbot.discord_delivery_enabled = true;
     const auto delivery = ui::build_nexus_options_model(state);
     MANNY_CHECK(suite, delivery.donbot.discord_delivery_toggle_available);
+    MANNY_CHECK(suite, delivery.donbot.discord_channel_selection_visible);
     MANNY_CHECK(suite, delivery.donbot.discord_channel_selection_available);
+
+    state.configuration.settings.donbot.discord_delivery_enabled = false;
+    state.donbot.guilds.front().discord_delivery.defaults_available = false;
+    const auto override_only = ui::build_nexus_options_model(state);
+    MANNY_CHECK(suite, override_only.donbot.discord_delivery_visible);
+    MANNY_CHECK(suite, override_only.donbot.discord_channel_selection_visible);
+    MANNY_CHECK(suite, override_only.donbot.discord_channel_selection_available);
+    state.donbot.guilds.front().discord_delivery.defaults_available = true;
+
+    state.configuration.settings.donbot.enabled = false;
+    const auto donbot_disabled = ui::build_nexus_options_model(state);
+    MANNY_CHECK(suite, !donbot_disabled.donbot.configuration_visible);
+    MANNY_CHECK(suite, !donbot_disabled.donbot.discord_delivery_visible);
+    state.configuration.settings.donbot.enabled = true;
+
+    state.donbot.guilds.front().discord_delivery.enabled = false;
+    const auto discord_disabled = ui::build_nexus_options_model(state);
+    MANNY_CHECK(suite, !discord_disabled.donbot.discord_delivery_visible);
+    MANNY_CHECK(suite, discord_disabled.donbot.discord_delivery_status_text ==
+                           "Discord summaries are disabled in this server's DonBot settings");
+    state.donbot.guilds.front().discord_delivery.enabled = true;
 
     state.twitch_test_message.state = application::TwitchTestMessageState::Sending;
     state.twitch_test_message.diagnostic = "Sending a Twitch test message";

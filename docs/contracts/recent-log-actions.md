@@ -32,8 +32,9 @@ accepting a URL or path from ImGui. A dps.report or GW2Wingman target must:
 - contain printable ASCII only; and
 - contain no backslash or double quote.
 
-The trusted origins are `https://dps.report/` and
-`https://gw2wingman.nevermindcreations.de/log/`. A DonBot target is constructed locally as
+The trusted dps.report-result origins are `https://dps.report/`, `https://b.dps.report/`, and
+`https://wvw.report/`. The WvW origin additionally requires retained boss ID `1`. The trusted
+Wingman origin is `https://gw2wingman.nevermindcreations.de/log/`. A DonBot target is constructed locally as
 `https://donbot.walmslo.com/logs/{fight_log_id}` from the retained numeric receipt. The folder target
 is exactly the parent of the retained canonical log path and must be non-empty.
 The Windows adapter passes either validated target directly to `ShellExecuteW`; it does not construct
@@ -66,6 +67,7 @@ attempt.
 all three upload destinations to be idle. It atomically resets the dps.report result, GW2Wingman
 permalink, and DonBot receipt, then dispatches dps.report with the user-initiated flag. Its successful
 permalink fans out to Wingman and DonBot with the same flag. Twitch is not part of this action.
+For WvW encounter ID `1`, the replay keeps GW2Wingman skipped and fans out only to DonBot.
 
 `Rechat` requires a retained dps.report result and an idle Twitch state. It clears the prior Twitch
 receipt and queues one user-initiated chat attempt. That flag deliberately bypasses both confirmed

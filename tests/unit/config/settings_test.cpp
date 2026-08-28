@@ -37,10 +37,12 @@ void default_and_selection_tests(TestSuite& suite) {
     MANNY_CHECK(suite, settings.general.parallel_uploads_per_provider == 5);
     MANNY_CHECK(suite, settings.general.max_candidates == 4096);
     MANNY_CHECK(suite, settings.dps_report.enabled);
+    MANNY_CHECK(suite, !settings.dps_report.detailed_wvw);
     MANNY_CHECK(suite, settings.wingman.enabled);
     MANNY_CHECK(suite, !settings.donbot.enabled);
     MANNY_CHECK(suite, settings.donbot.api_base_url == "https://donbot-api.walmslo.com");
     MANNY_CHECK(suite, !settings.donbot.discord_delivery_enabled);
+    MANNY_CHECK(suite, !settings.donbot.discord_channel_override_explicit);
     MANNY_CHECK(suite, settings.donbot.selected_discord_channel_id.empty());
     MANNY_CHECK(suite, !settings.twitch.enabled);
     MANNY_CHECK(suite, settings.twitch.client_id.empty());
@@ -200,6 +202,7 @@ void donbot_validation_tests(TestSuite& suite) {
     settings.donbot.enabled = true;
     settings.donbot.selected_guild_id = "123";
     settings.donbot.discord_delivery_enabled = true;
+    settings.donbot.discord_channel_override_explicit = true;
     settings.donbot.selected_discord_channel_id = "223456789012345678";
     MANNY_CHECK(suite, config::validate_settings(settings).empty());
 }

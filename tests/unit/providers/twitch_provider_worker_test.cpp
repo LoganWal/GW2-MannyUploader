@@ -200,6 +200,7 @@ config(std::string message_template = "{result}: {url}", bool post_success = tru
             },
         .metadata = domain::EncounterMetadata{.boss_id = 26257, .pov_account = "Player.1234"},
         .dps_report_result = report(success, std::move(permalink)),
+        .dps_report_context = std::nullopt,
         .donbot_context = std::nullopt,
         .twitch_context = std::nullopt,
         .attempt = attempt,

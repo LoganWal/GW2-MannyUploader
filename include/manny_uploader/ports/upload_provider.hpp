@@ -10,6 +10,10 @@
 
 namespace manny_uploader::ports {
 
+struct DpsReportUploadContext {
+    bool detailed_wvw{};
+};
+
 struct DonBotUploadContext {
     std::string api_base_url;
     std::string guild_id;
@@ -30,6 +34,7 @@ struct UploadRequest {
     domain::LogFileIdentity file;
     domain::EncounterMetadata metadata;
     std::optional<domain::DpsReportResult> dps_report_result;
+    std::optional<DpsReportUploadContext> dps_report_context;
     std::optional<DonBotUploadContext> donbot_context;
     std::optional<TwitchUploadContext> twitch_context{};
     std::uint32_t attempt{};

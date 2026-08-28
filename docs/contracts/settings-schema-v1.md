@@ -20,7 +20,8 @@ not a secret store. It may be copied into diagnostics after path/account identif
     "max_candidates": 4096
   },
   "dps_report": {
-    "enabled": true
+    "enabled": true,
+    "detailed_wvw": false
   },
   "wingman": {
     "enabled": true
@@ -30,6 +31,7 @@ not a secret store. It may be copied into diagnostics after path/account identif
     "api_base_url": "https://donbot-api.walmslo.com",
     "selected_guild_id": "",
     "discord_delivery_enabled": false,
+    "discord_channel_override_explicit": false,
     "selected_discord_channel_id": ""
   },
   "twitch": {
@@ -58,15 +60,20 @@ must be valid UTF-8.
 - `parser_queue_capacity`: 1 through 64.
 - `parallel_uploads_per_provider`: 1 through 32. The limit is applied independently to every
   provider worker and may be changed live.
+- `dps_report.detailed_wvw` defaults to false. When true, newly accepted dps.report work requests
+  detailed WvW parsing. Already queued uploads keep the value captured when they were accepted.
 - `max_candidates`: 1 through 10,000.
 - `donbot.api_base_url` is an HTTPS base URL without credentials, query, fragment, whitespace, or an
   empty host and is at most 2048 bytes.
 - `donbot.selected_guild_id` is empty while DonBot is disabled or is a canonical positive decimal
   value within a signed 64-bit integer. Enabling DonBot requires a verified guild selection.
 - `donbot.discord_delivery_enabled` defaults to false and requires DonBot uploads to be enabled.
+- `donbot.discord_channel_override_explicit` defaults to false. Guild defaults are used unless the
+  user explicitly selects a channel. An older persisted channel ID without this marker is stale and
+  is cleared during loading.
 - `donbot.selected_discord_channel_id` is empty for DonBot server defaults or is a canonical
-  positive decimal value within a signed 64-bit integer. The DonBot workflow verifies that a saved
-  channel is still authorized before enabling delivery.
+  positive decimal value within a signed 64-bit integer. An ID is submitted only while the explicit
+  override marker is true and the DonBot workflow has verified that the channel remains authorized.
 - Twitch can be enabled only while dps.report is enabled and at least one posting policy is enabled.
 - `twitch.client_id` is empty or a public Twitch application Client ID of at most 128 lowercase
   ASCII letters and digits. It is ordinary, non-secret configuration and may change only while the

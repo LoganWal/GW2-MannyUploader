@@ -1,6 +1,7 @@
 #include "manny_uploader/providers/donbot_client.hpp"
 
 #include "manny_uploader/http/body_sources.hpp"
+#include "manny_uploader/support/report_permalink.hpp"
 #include "manny_uploader/support/utf8.hpp"
 
 #include <glaze/json.hpp>
@@ -163,10 +164,7 @@ struct ParsedBaseUrl {
 }
 
 [[nodiscard]] bool trusted_dps_report_permalink(std::string_view value) noexcept {
-    constexpr std::string_view prefix = "https://dps.report/";
-    return value.starts_with(prefix) && value.size() > prefix.size() && value.size() <= 2048 &&
-           !value.contains('@') && !value.contains('?') && !value.contains('#') &&
-           !value.contains('\\') && visible_ascii(value);
+    return support::report_permalink_origin(value).has_value();
 }
 
 [[nodiscard]] bool valid_positive_long(std::string_view value,

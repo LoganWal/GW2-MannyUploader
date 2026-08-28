@@ -38,6 +38,10 @@ struct SetDpsReportEnabledCommand {
     bool enabled;
 };
 
+struct SetDpsReportDetailedWvwCommand {
+    bool enabled;
+};
+
 struct SetWingmanEnabledCommand {
     bool enabled;
 };
@@ -79,8 +83,8 @@ struct DismissNexusOptionsErrorCommand {};
 
 using NexusOptionsCommand =
     std::variant<SaveOrdinaryOptionsCommand, SetWindowVisibleCommand, SetDpsReportEnabledCommand,
-                 SetWingmanEnabledCommand, VerifyDonBotCommand, SelectDonBotGuildCommand,
-                 SetDonBotEnabledCommand, DisconnectDonBotCommand,
+                 SetDpsReportDetailedWvwCommand, SetWingmanEnabledCommand, VerifyDonBotCommand,
+                 SelectDonBotGuildCommand, SetDonBotEnabledCommand, DisconnectDonBotCommand,
                  SetDonBotDiscordDeliveryEnabledCommand, SelectDonBotDiscordChannelCommand,
                  ConnectTwitchCommand, SetTwitchEnabledCommand, DisconnectTwitchCommand,
                  SendTwitchTestMessageCommand, DismissNexusOptionsErrorCommand>;

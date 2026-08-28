@@ -73,10 +73,11 @@ X-GW2-API-Key: <protected key>
 {"url":"https://dps.report/<permalink>","guildId":"<selected guild ID>"}
 ```
 
-The permalink must have the exact `https://dps.report/` prefix and no credentials, query, fragment,
-backslash, control, or non-ASCII byte. The selected guild and key use the same validation and
-authorization boundary as a direct upload. The server stores the selected guild, deduplicates by
-authorized identity, guild, and canonical URL, and disables its own Wingman submission.
+The permalink must use the exact HTTPS authority `dps.report`, `b.dps.report`, or `wvw.report` and
+contain no credentials, query, fragment, backslash, double quote, control, or non-ASCII byte. The
+selected guild and key use the same validation and authorization boundary as a direct upload. The
+server stores the selected guild, deduplicates by authorized identity, guild, and canonical URL, and
+disables its own Wingman submission.
 
 New work returns `202`; an idempotent existing result returns `200`. Both responses are capped at 64
 KiB and must contain:
@@ -194,10 +195,11 @@ rejected. An enabled delivery policy must advertise at least one message kind.
 
 At most 256 channels per guild and 2,048 channels across the response are accepted. Channel IDs must
 be unique within a guild. The existing 256 KiB verification bound applies. Channel names and enabled
-message kinds are transient and credential-free. Only the selected channel ID is ordinary settings.
+message kinds are transient and credential-free. Only the explicit override marker and selected
+channel ID are ordinary settings.
 
-Omission of the capability preserves upload-only behavior. Delivery is disabled by default. A
-request selects exactly one of these modes:
+Omission of the capability preserves upload-only behavior. Delivery is disabled by default. Guild
+defaults are the initial route. A request selects exactly one of these modes:
 
 ```json
 {"discordDelivery":{"mode":"guild_defaults"}}

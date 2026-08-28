@@ -164,6 +164,13 @@ UploadCoordinator::cancel_pending_job(domain::UploadJobId id, const std::string&
 }
 
 void UploadCoordinator::dispatch_initial_providers(domain::UploadJob& job) {
+    if (job.encounter_metadata()->boss_id == domain::wvw_boss_id &&
+        job.provider_status(domain::Provider::Wingman).state == domain::ProviderState::Waiting) {
+        [[maybe_unused]] const auto skipped =
+            job.transition(domain::Provider::Wingman, domain::ProviderState::Skipped,
+                           "WvW logs are not uploaded to GW2Wingman");
+    }
+
     if (job.provider_status(domain::Provider::DpsReport).state == domain::ProviderState::Waiting) {
         dispatch(job, domain::Provider::DpsReport);
         return;
@@ -707,6 +714,13 @@ UploadCoordinator::settle_pending_job(domain::UploadJobId id, domain::ProviderSt
 
 void UploadCoordinator::dispatch(domain::UploadJob& job, domain::Provider provider,
                                  bool user_initiated_retry) {
+    if (provider == domain::Provider::Wingman && job.encounter_metadata() &&
+        job.encounter_metadata()->boss_id == domain::wvw_boss_id) {
+        [[maybe_unused]] const auto skipped = job.transition(
+            provider, domain::ProviderState::Skipped, "WvW logs are not uploaded to GW2Wingman");
+        return;
+    }
+
     auto* provider_port = providers_[domain::provider_index(provider)];
     if (provider_port == nullptr) {
         [[maybe_unused]] const auto failed = job.transition(
@@ -740,6 +754,7 @@ void UploadCoordinator::dispatch(domain::UploadJob& job, domain::Provider provid
                                      provider == domain::Provider::Twitch
                                  ? job.dps_report_result()
                                  : std::nullopt,
+        .dps_report_context = std::nullopt,
         .donbot_context = std::nullopt,
         .twitch_context = std::nullopt,
         .attempt = job.provider_status(provider).attempts,

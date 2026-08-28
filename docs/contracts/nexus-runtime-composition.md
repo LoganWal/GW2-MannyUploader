@@ -27,9 +27,12 @@ Twitch configuration never prevents dps.report, GW2Wingman, or DonBot from runni
 
 The background owner is the only caller of options/action ticks, external target launching,
 filesystem polling, discovery, ingestion, job mutation, retry dispatch, provider-configuration
-updates, and upload-history persistence. It applies the latest durable DonBot/Twitch settings before
-accepting new logs and publishes deep-copy, UI-ready snapshots at a bounded cadence. UI command
-submission wakes the owner but performs no application work itself.
+updates, and upload-history persistence. It applies the latest durable dps.report, DonBot, and Twitch
+settings before accepting new logs and publishes deep-copy, UI-ready snapshots at a bounded cadence.
+UI command submission wakes the owner but performs no application work itself.
+
+The dps.report provider update contains the Detailed WvW choice. Each accepted request captures the
+current value, so a later toggle affects new uploads without changing queued work.
 
 DonBot provider updates include a captured Discord delivery mode and optional channel ID. The
 options snapshot supplies only DonBot-authorized transient channel choices. Native Windows and Wine
@@ -63,12 +66,13 @@ immediate poll so the new behavior does not wait for the previous interval.
 
 The main callback copies one published snapshot and renders the bounded recent-log table, including
 detection time, per-provider state, aggregate-copy controls, and typed folder/retry/reupload/rechat
-actions. Beside those aggregate controls it exposes live dps.report, GW2Wingman, DonBot, and DonBot
-Discord delivery toggles plus verified DonBot server and authorized Discord route dropdowns. Each
-control submits a narrow value command. The options callback edits adapter-owned bounded buffers and
-submits only value commands. Poll interval, stability observations, recent-log limit, parser queue
-capacity, and candidate limit remain validated persisted settings but are not exposed in Nexus. The
-Nexus page exposes per-provider parallelism and defaults it to five.
+actions. Beside those aggregate controls it exposes live dps.report, Detailed WvW, GW2Wingman,
+DonBot, and DonBot Discord delivery toggles plus verified DonBot server and authorized Discord route
+dropdowns. Each control submits a narrow value command. The options callback edits adapter-owned
+bounded buffers and submits only value commands. Poll interval, stability observations, recent-log
+limit, parser queue capacity, and candidate limit remain validated persisted settings but are not
+exposed in Nexus. The Nexus page exposes Detailed WvW and per-provider parallelism, which defaults to
+five.
 Candidate DonBot keys
 are converted directly into move-only secret commands and the input buffer is wiped immediately.
 Neither callback traverses the filesystem, saves settings, accesses protected records, parses EVTC,

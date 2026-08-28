@@ -5,6 +5,7 @@
 #include "manny_uploader/providers/async_upload_worker.hpp"
 #include "manny_uploader/providers/dps_report_client.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -14,6 +15,13 @@
 #include <string>
 
 namespace manny_uploader::providers {
+
+struct DpsReportProviderConfig {
+    bool detailed_wvw{};
+
+    [[nodiscard]] friend bool operator==(DpsReportProviderConfig,
+                                         DpsReportProviderConfig) noexcept = default;
+};
 
 enum class DpsReportProviderWorkerErrorCode : std::uint8_t {
     InvalidCapacity,
@@ -31,7 +39,8 @@ class DpsReportProviderWorker final : public ports::IUploadProvider,
     [[nodiscard]] static std::expected<std::unique_ptr<DpsReportProviderWorker>,
                                        DpsReportProviderWorkerError>
     create(const IDpsReportClient& client, ports::ISecretStore* secret_store = nullptr,
-           std::size_t queue_capacity = 8, std::size_t parallelism = 1);
+           std::size_t queue_capacity = 8, std::size_t parallelism = 1,
+           DpsReportProviderConfig config = {});
 
     ~DpsReportProviderWorker() override;
 
@@ -44,6 +53,9 @@ class DpsReportProviderWorker final : public ports::IUploadProvider,
     [[nodiscard]] std::optional<ports::UploadResult> try_take_result() override;
     void cancel_pending() noexcept override;
 
+    void update_config(DpsReportProviderConfig config) noexcept;
+    [[nodiscard]] DpsReportProviderConfig config_snapshot() const noexcept;
+
     [[nodiscard]] std::optional<ports::UploadResult>
     wait_for_result(std::chrono::milliseconds timeout);
     [[nodiscard]] std::size_t pending_count() const noexcept;
@@ -54,13 +66,15 @@ class DpsReportProviderWorker final : public ports::IUploadProvider,
     [[nodiscard]] std::size_t parallelism() const noexcept;
 
   private:
-    DpsReportProviderWorker(const IDpsReportClient& client, ports::ISecretStore* secret_store);
+    DpsReportProviderWorker(const IDpsReportClient& client, ports::ISecretStore* secret_store,
+                            DpsReportProviderConfig config);
 
     [[nodiscard]] ports::UploadResult process(const ports::UploadRequest& request,
                                               const std::stop_token& stop_token) const override;
 
     const IDpsReportClient& client_;
     ports::ISecretStore* secret_store_;
+    std::atomic_bool detailed_wvw_{};
     std::unique_ptr<AsyncUploadWorker> worker_;
 };
 

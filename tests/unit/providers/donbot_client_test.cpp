@@ -697,10 +697,30 @@ void permalink_import_tests(TestSuite& suite) {
     MANNY_CHECK(suite, duplicate && duplicate->fight_log_id == 315);
     MANNY_CHECK(suite, duplicate_http.requests().size() == 1);
 
+    SequencedHttpClient wvw_http;
+    wvw_http.push(response(
+        200, {},
+        R"json({"uploadId":44,"fightLogId":316,"status":"complete","duplicate":false})json"));
+    providers::DonBotClient wvw_client{wvw_http};
+    const auto wvw = wvw_client.import_permalink("https://wvw.report/KKNj-20260318-212757_wvw",
+                                                 providers::donbot_default_api_base, "123", key);
+    MANNY_CHECK(suite, wvw.has_value());
+    MANNY_CHECK(suite, wvw_http.requests().size() == 1);
+    if (wvw_http.requests().size() == 1) {
+        MANNY_CHECK(suite,
+                    wvw_http.requests()[0].body ==
+                        R"({"url":"https://wvw.report/KKNj-20260318-212757_wvw","guildId":"123"})");
+    }
+
     SequencedHttpClient invalid_http;
     providers::DonBotClient invalid_client{invalid_http};
     MANNY_CHECK(suite, !invalid_client
                             .import_permalink("https://dps.report.evil/private",
+                                              providers::donbot_default_api_base, "123", key)
+                            .has_value());
+    MANNY_CHECK(suite, invalid_http.requests().empty());
+    MANNY_CHECK(suite, !invalid_client
+                            .import_permalink("https://wvw.report.evil/private",
                                               providers::donbot_default_api_base, "123", key)
                             .has_value());
     MANNY_CHECK(suite, invalid_http.requests().empty());

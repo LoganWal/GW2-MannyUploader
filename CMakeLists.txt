@@ -137,6 +137,7 @@ target_sources(
             include/manny_uploader/providers/wingman_client.hpp
             include/manny_uploader/providers/wingman_provider_worker.hpp
             include/manny_uploader/support/atomic_file.hpp
+            include/manny_uploader/support/report_permalink.hpp
             include/manny_uploader/support/secret_value.hpp
             include/manny_uploader/support/utf8.hpp
             include/manny_uploader/ui/nexus_options_model.hpp

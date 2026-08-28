@@ -101,6 +101,29 @@ NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnaps
     const auto discord_delivery_available =
         donbot_verified && snapshot.donbot.discord_summary_delivery_v1 &&
         selected_guild != snapshot.donbot.guilds.end() && selected_guild->discord_delivery.enabled;
+    const auto discord_route_available =
+        discord_delivery_available && (selected_guild->discord_delivery.defaults_available ||
+                                       (selected_guild->discord_delivery.channel_override_allowed &&
+                                        !selected_guild->discord_delivery.channels.empty()));
+    const auto discord_delivery_visible =
+        snapshot.configuration.settings.donbot.enabled && discord_route_available;
+    const auto discord_channel_selection_visible = discord_delivery_visible;
+    std::string discord_delivery_status_text;
+    if (snapshot.configuration.settings.donbot.enabled && !discord_delivery_visible) {
+        if (!donbot_verified) {
+            discord_delivery_status_text = "Verify DonBot to configure Discord summaries";
+        } else if (selected_guild == snapshot.donbot.guilds.end()) {
+            discord_delivery_status_text = "Select a DonBot server to configure Discord summaries";
+        } else if (!snapshot.donbot.discord_summary_delivery_v1) {
+            discord_delivery_status_text =
+                "This DonBot deployment does not support Discord summaries";
+        } else if (!selected_guild->discord_delivery.enabled) {
+            discord_delivery_status_text =
+                "Discord summaries are disabled in this server's DonBot settings";
+        } else {
+            discord_delivery_status_text = "No authorized Discord log destination is available";
+        }
+    }
     const auto twitch_idle =
         snapshot.twitch.state == application::TwitchConnectionState::Disconnected ||
         snapshot.twitch.state == application::TwitchConnectionState::Error;
@@ -113,21 +136,18 @@ NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnaps
             DonBotOptionsModel{
                 .status_text = donbot_status(snapshot.donbot),
                 .diagnostic = snapshot.donbot.diagnostic,
+                .discord_delivery_status_text = discord_delivery_status_text,
                 .verify_available = active && storage_available && donbot_idle && !donbot_verified,
+                .configuration_visible = snapshot.configuration.settings.donbot.enabled,
                 .guild_selection_available =
                     active && donbot_verified && !snapshot.donbot.guilds.empty(),
                 .enable_toggle_available =
                     active && (snapshot.configuration.settings.donbot.enabled ||
                                (donbot_verified && !snapshot.donbot.selected_guild_id.empty())),
-                .discord_delivery_toggle_available =
-                    active && snapshot.configuration.settings.donbot.enabled &&
-                    discord_delivery_available,
-                .discord_channel_selection_available =
-                    active && snapshot.configuration.settings.donbot.enabled &&
-                    discord_delivery_available &&
-                    (selected_guild->discord_delivery.defaults_available ||
-                     (selected_guild->discord_delivery.channel_override_allowed &&
-                      !selected_guild->discord_delivery.channels.empty())),
+                .discord_delivery_visible = discord_delivery_visible,
+                .discord_delivery_toggle_available = active && discord_delivery_visible,
+                .discord_channel_selection_visible = discord_channel_selection_visible,
+                .discord_channel_selection_available = active && discord_channel_selection_visible,
                 .disconnect_available =
                     active && donbot_idle &&
                     (snapshot.donbot.state != application::DonBotConfigurationState::Unverified ||

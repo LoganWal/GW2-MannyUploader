@@ -88,6 +88,7 @@ validate_submit_command(const NexusOptionsCommand& command,
         candidate.donbot.enabled = false;
         candidate.donbot.selected_guild_id.clear();
         candidate.donbot.discord_delivery_enabled = false;
+        candidate.donbot.discord_channel_override_explicit = false;
         candidate.donbot.selected_discord_channel_id.clear();
         candidate.donbot.api_base_url = verify->api_base_url;
         auto errors = config::validate_settings(candidate);
@@ -134,6 +135,8 @@ struct NexusOptionsController::State {
     execute(const SetWindowVisibleCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(const SetDpsReportEnabledCommand& command);
+    [[nodiscard]] std::expected<void, NexusOptionsError>
+    execute(const SetDpsReportDetailedWvwCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(const SetWingmanEnabledCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError> execute(VerifyDonBotCommand& command);
@@ -226,6 +229,13 @@ NexusOptionsController::State::execute(const SetDpsReportEnabledCommand& command
 }
 
 std::expected<void, NexusOptionsError>
+NexusOptionsController::State::execute(const SetDpsReportDetailedWvwCommand& command) {
+    auto settings = configuration.snapshot().settings;
+    settings.dps_report.detailed_wvw = command.enabled;
+    return save_settings(std::move(settings));
+}
+
+std::expected<void, NexusOptionsError>
 NexusOptionsController::State::execute(const SetWingmanEnabledCommand& command) {
     auto settings = configuration.snapshot().settings;
     settings.wingman.enabled = command.enabled;
@@ -268,6 +278,8 @@ NexusOptionsController::State::execute(const SetDonBotEnabledCommand& command) {
     settings.donbot.enabled = command.enabled;
     if (!command.enabled) {
         settings.donbot.discord_delivery_enabled = false;
+        settings.donbot.discord_channel_override_explicit = false;
+        settings.donbot.selected_discord_channel_id.clear();
     }
     return save_settings(std::move(settings));
 }

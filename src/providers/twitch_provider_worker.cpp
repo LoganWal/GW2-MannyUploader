@@ -89,7 +89,8 @@ domain::Provider TwitchProviderWorker::provider() const noexcept {
 
 std::expected<void, ports::DispatchError>
 TwitchProviderWorker::enqueue(ports::UploadRequest request) {
-    if (!request.dps_report_result || request.donbot_context || request.twitch_context) {
+    if (!request.dps_report_result || request.dps_report_context || request.donbot_context ||
+        request.twitch_context) {
         return std::unexpected(ports::DispatchError{.message = "Twitch upload request is invalid"});
     }
     try {

@@ -56,8 +56,6 @@ from_twitch_test_message_result(const ports::TwitchTestMessageResult& result) {
 [[nodiscard]] config::Settings apply_ordinary_options(config::Settings settings,
                                                       const NexusOrdinaryOptions& options) {
     settings.general = options.general;
-    settings.dps_report = options.dps_report;
-    settings.wingman = options.wingman;
     settings.twitch.client_id = options.twitch_client_id;
     settings.twitch.message_template = options.twitch_message_template;
     settings.twitch.post_success = options.twitch_post_success;
@@ -89,6 +87,8 @@ validate_submit_command(const NexusOptionsCommand& command,
         auto candidate = configuration.settings;
         candidate.donbot.enabled = false;
         candidate.donbot.selected_guild_id.clear();
+        candidate.donbot.discord_delivery_enabled = false;
+        candidate.donbot.selected_discord_channel_id.clear();
         candidate.donbot.api_base_url = verify->api_base_url;
         auto errors = config::validate_settings(candidate);
         if (verify->api_key.empty() || !errors.empty()) {
@@ -132,10 +132,18 @@ struct NexusOptionsController::State {
     execute(SaveOrdinaryOptionsCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(const SetWindowVisibleCommand& command);
+    [[nodiscard]] std::expected<void, NexusOptionsError>
+    execute(const SetDpsReportEnabledCommand& command);
+    [[nodiscard]] std::expected<void, NexusOptionsError>
+    execute(const SetWingmanEnabledCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError> execute(VerifyDonBotCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError> execute(SelectDonBotGuildCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(const SetDonBotEnabledCommand& command);
+    [[nodiscard]] std::expected<void, NexusOptionsError>
+    execute(const SetDonBotDiscordDeliveryEnabledCommand& command);
+    [[nodiscard]] std::expected<void, NexusOptionsError>
+    execute(SelectDonBotDiscordChannelCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(const DisconnectDonBotCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
@@ -208,6 +216,23 @@ NexusOptionsController::State::execute(const SetWindowVisibleCommand& command) {
 }
 
 std::expected<void, NexusOptionsError>
+NexusOptionsController::State::execute(const SetDpsReportEnabledCommand& command) {
+    auto settings = configuration.snapshot().settings;
+    settings.dps_report.enabled = command.enabled;
+    if (!command.enabled) {
+        settings.twitch.enabled = false;
+    }
+    return save_settings(std::move(settings));
+}
+
+std::expected<void, NexusOptionsError>
+NexusOptionsController::State::execute(const SetWingmanEnabledCommand& command) {
+    auto settings = configuration.snapshot().settings;
+    settings.wingman.enabled = command.enabled;
+    return save_settings(std::move(settings));
+}
+
+std::expected<void, NexusOptionsError>
 NexusOptionsController::State::execute(VerifyDonBotCommand& command) {
     auto started =
         donbot.begin_verification(std::move(command.api_base_url), std::move(command.api_key));
@@ -241,7 +266,28 @@ NexusOptionsController::State::execute(const SetDonBotEnabledCommand& command) {
         }
     }
     settings.donbot.enabled = command.enabled;
+    if (!command.enabled) {
+        settings.donbot.discord_delivery_enabled = false;
+    }
     return save_settings(std::move(settings));
+}
+
+std::expected<void, NexusOptionsError>
+NexusOptionsController::State::execute(const SetDonBotDiscordDeliveryEnabledCommand& command) {
+    auto updated = donbot.set_discord_delivery_enabled(command.enabled);
+    if (!updated) {
+        return std::unexpected(from_donbot_error(updated.error()));
+    }
+    return {};
+}
+
+std::expected<void, NexusOptionsError>
+NexusOptionsController::State::execute(SelectDonBotDiscordChannelCommand& command) {
+    auto selected = donbot.select_discord_channel(std::move(command.channel_id));
+    if (!selected) {
+        return std::unexpected(from_donbot_error(selected.error()));
+    }
+    return {};
 }
 
 std::expected<void, NexusOptionsError>
@@ -383,8 +429,6 @@ void NexusOptionsController::State::publish(std::optional<NexusOptionsError> las
 NexusOrdinaryOptions ordinary_options_from(const config::Settings& settings) {
     return NexusOrdinaryOptions{
         .general = settings.general,
-        .dps_report = settings.dps_report,
-        .wingman = settings.wingman,
         .twitch_client_id = settings.twitch.client_id,
         .twitch_message_template = settings.twitch.message_template,
         .twitch_post_success = settings.twitch.post_success,

@@ -32,14 +32,16 @@ void default_and_selection_tests(TestSuite& suite) {
     MANNY_CHECK(suite, settings.general.window_visible);
     MANNY_CHECK(suite, settings.general.poll_interval_ms == 1000);
     MANNY_CHECK(suite, settings.general.stability_observations == 2);
-    MANNY_CHECK(suite, settings.general.recent_log_limit == 50);
+    MANNY_CHECK(suite, settings.general.recent_log_limit == 100);
     MANNY_CHECK(suite, settings.general.parser_queue_capacity == 8);
-    MANNY_CHECK(suite, settings.general.parallel_uploads_per_provider == 1);
+    MANNY_CHECK(suite, settings.general.parallel_uploads_per_provider == 5);
     MANNY_CHECK(suite, settings.general.max_candidates == 4096);
     MANNY_CHECK(suite, settings.dps_report.enabled);
     MANNY_CHECK(suite, settings.wingman.enabled);
     MANNY_CHECK(suite, !settings.donbot.enabled);
     MANNY_CHECK(suite, settings.donbot.api_base_url == "https://donbot-api.walmslo.com");
+    MANNY_CHECK(suite, !settings.donbot.discord_delivery_enabled);
+    MANNY_CHECK(suite, settings.donbot.selected_discord_channel_id.empty());
     MANNY_CHECK(suite, !settings.twitch.enabled);
     MANNY_CHECK(suite, settings.twitch.client_id.empty());
     MANNY_CHECK(suite, settings.twitch.message_template.find("{url}") != std::string::npos);
@@ -180,6 +182,26 @@ void donbot_validation_tests(TestSuite& suite) {
     errors = config::validate_settings(settings);
     MANNY_CHECK(suite, has_error(errors, SettingsValidationErrorCode::EmptyValue,
                                  "donbot.selected_guild_id"));
+
+    settings = valid_settings();
+    settings.donbot.selected_discord_channel_id = "not-a-channel";
+    errors = config::validate_settings(settings);
+    MANNY_CHECK(suite, has_error(errors, SettingsValidationErrorCode::InvalidChannelId,
+                                 "donbot.selected_discord_channel_id"));
+
+    settings = valid_settings();
+    settings.donbot.discord_delivery_enabled = true;
+    errors = config::validate_settings(settings);
+    MANNY_CHECK(suite,
+                has_error(errors, SettingsValidationErrorCode::DonBotDiscordDeliveryRequiresUpload,
+                          "donbot.discord_delivery_enabled"));
+
+    settings = valid_settings();
+    settings.donbot.enabled = true;
+    settings.donbot.selected_guild_id = "123";
+    settings.donbot.discord_delivery_enabled = true;
+    settings.donbot.selected_discord_channel_id = "223456789012345678";
+    MANNY_CHECK(suite, config::validate_settings(settings).empty());
 }
 
 void twitch_validation_tests(TestSuite& suite) {

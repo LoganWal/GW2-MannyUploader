@@ -119,6 +119,7 @@ void open_and_validation_tests(TestSuite& suite) {
                                    domain::DonBotUploadReceipt{
                                        .upload_id = 271,
                                        .fight_log_id = 314,
+                                       .discord_delivery = {},
                                    },
                            })
                            .has_value());

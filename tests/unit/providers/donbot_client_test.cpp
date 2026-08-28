@@ -200,6 +200,7 @@ void verification_tests(TestSuite& suite) {
     MANNY_CHECK(suite, verified && verified->account_name == "Player.1234");
     MANNY_CHECK(suite, verified && verified->guilds.size() == 2);
     MANNY_CHECK(suite, verified && verified->guilds.front().guild_id == "123456789012345678");
+    MANNY_CHECK(suite, verified && !verified->discord_summary_delivery_v1);
     MANNY_CHECK(suite, http.requests().size() == 1);
     if (!http.requests().empty()) {
         const auto& request = http.requests().front();
@@ -231,6 +232,177 @@ void verification_tests(TestSuite& suite) {
         MANNY_CHECK(suite, result.error().disposition == providers::DonBotDisposition::Failed);
         MANNY_CHECK(suite, result.error().detail.find("Player.1234") == std::string::npos);
     }
+
+    SequencedHttpClient delivery_http;
+    delivery_http.push(response(200, {}, R"json({
+      "accountName":"Player.1234",
+      "capabilities":["future-capability","discord-summary-delivery-v1"],
+      "guilds":[{
+        "guildId":"123456789012345678",
+        "guildName":"Raid Guild",
+        "discordDelivery":{
+          "enabled":true,
+          "defaultsAvailable":true,
+          "channelOverrideAllowed":true,
+          "enabledMessageKinds":["pve-summary","wvw-summary","wvw-advanced","wvw-stream"],
+          "channels":[
+            {"channelId":"223456789012345678","channelName":"logs"},
+            {"channelId":"323456789012345678","channelName":"command-logs"}
+          ]
+        }
+      }]
+    })json"));
+    providers::DonBotClient delivery_client{delivery_http};
+    const auto delivery_verified = delivery_client.verify(providers::donbot_default_api_base, key);
+    MANNY_CHECK(suite, delivery_verified.has_value());
+    MANNY_CHECK(suite, delivery_verified && delivery_verified->discord_summary_delivery_v1);
+    MANNY_CHECK(suite, delivery_verified && delivery_verified->guilds.size() == 1);
+    if (delivery_verified && !delivery_verified->guilds.empty()) {
+        const auto& delivery = delivery_verified->guilds.front().discord_delivery;
+        MANNY_CHECK(suite, delivery.enabled && delivery.defaults_available &&
+                               delivery.channel_override_allowed);
+        MANNY_CHECK(suite, delivery.pve_summary && delivery.wvw_summary && delivery.wvw_advanced &&
+                               delivery.wvw_stream);
+        MANNY_CHECK(suite, delivery.channels.size() == 2);
+        MANNY_CHECK(suite, delivery.channels.front().channel_name == "logs");
+    }
+
+    SequencedHttpClient malformed_delivery_http;
+    malformed_delivery_http.push(response(
+        200, {},
+        R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary"],"channels":[{"channelId":"223","channelName":"one"},{"channelId":"223","channelName":"duplicate"}]}}]})json"));
+    providers::DonBotClient malformed_delivery_client{malformed_delivery_http};
+    MANNY_CHECK(
+        suite,
+        !malformed_delivery_client.verify(providers::donbot_default_api_base, key).has_value());
+
+    constexpr std::array invalid_delivery_policies{
+        std::string_view{
+            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["future-summary"],"channels":[]}}]})json"},
+        std::string_view{
+            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":["pve-summary","wvw-summary","wvw-advanced","wvw-stream","future-summary"],"channels":[]}}]})json"},
+        std::string_view{
+            R"json({"accountName":"Player.1234","capabilities":["discord-summary-delivery-v1"],"guilds":[{"guildId":"123","guildName":"Guild","discordDelivery":{"enabled":true,"defaultsAvailable":true,"channelOverrideAllowed":true,"enabledMessageKinds":[],"channels":[]}}]})json"},
+    };
+    for (const auto document : invalid_delivery_policies) {
+        SequencedHttpClient invalid_policy_http;
+        invalid_policy_http.push(response(200, {}, document));
+        providers::DonBotClient invalid_policy_client{invalid_policy_http};
+        MANNY_CHECK(
+            suite,
+            !invalid_policy_client.verify(providers::donbot_default_api_base, key).has_value());
+    }
+}
+
+void discord_delivery_upload_tests(TestSuite& suite, const domain::LogFileIdentity& file) {
+    const auto key = support::SecretValue::from_text("VALID-KEY");
+    auto headers = created_headers();
+    headers.push_back(header("X-DonBot-Discord-Delivery", "accepted"));
+    SequencedHttpClient http;
+    http.push(response(201, std::move(headers)));
+    http.push(response(204, patched_headers(file.size)));
+    http.push(response(200, {},
+                       "data: {\"stage\":\"complete\",\"fightLogId\":314,\"discordDelivery\":{"
+                       "\"requested\":true,\"outcome\":\"partial\",\"sent\":2,\"skipped\":1,"
+                       "\"failed\":0,\"ambiguous\":0}}\n\n"));
+    providers::DonBotClient client{http};
+    const auto uploaded =
+        client.upload(file, providers::donbot_default_api_base, "123456789012345678", key,
+                      providers::DonBotDiscordDeliveryRequest{
+                          .mode = domain::DonBotDiscordDeliveryMode::ChannelOverride,
+                          .channel_id = "223456789012345678",
+                      });
+    MANNY_CHECK(suite, uploaded.has_value());
+    MANNY_CHECK(suite, uploaded && uploaded->discord_delivery.outcome ==
+                                       domain::DonBotDiscordDeliveryOutcome::Partial);
+    MANNY_CHECK(suite, uploaded && uploaded->discord_delivery.sent == 2);
+    MANNY_CHECK(suite, uploaded && uploaded->discord_delivery.skipped == 1);
+    MANNY_CHECK(suite, http.requests().size() == 3);
+    if (!http.requests().empty()) {
+        const auto* metadata = find_header(http.requests().front(), "Upload-Metadata");
+        MANNY_CHECK(suite, metadata != nullptr);
+        MANNY_CHECK(suite, metadata && metadata->value ==
+                                           "filename dXBsb2FkLnpldnRj,guildid "
+                                           "MTIzNDU2Nzg5MDEyMzQ1Njc4,wingman ZmFsc2U=,"
+                                           "discorddelivery Y2hhbm5lbF9vdmVycmlkZQ==,"
+                                           "discordchannelid MjIzNDU2Nzg5MDEyMzQ1Njc4");
+    }
+
+    SequencedHttpClient missing_ack_http;
+    missing_ack_http.push(response(201, created_headers()));
+    providers::DonBotClient missing_ack_client{missing_ack_http};
+    const auto missing_ack = missing_ack_client.upload(
+        file, providers::donbot_default_api_base, "123456789012345678", key,
+        providers::DonBotDiscordDeliveryRequest{
+            .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+            .channel_id = {},
+        });
+    MANNY_CHECK(suite, !missing_ack.has_value());
+    MANNY_CHECK(suite, missing_ack_http.requests().size() == 1);
+    if (!missing_ack_http.requests().empty()) {
+        const auto* metadata = find_header(missing_ack_http.requests().front(), "Upload-Metadata");
+        MANNY_CHECK(suite, metadata != nullptr);
+        MANNY_CHECK(suite, metadata && metadata->value ==
+                                           "filename dXBsb2FkLnpldnRj,guildid "
+                                           "MTIzNDU2Nzg5MDEyMzQ1Njc4,wingman ZmFsc2U=,"
+                                           "discorddelivery Z3VpbGRfZGVmYXVsdHM=");
+    }
+
+    auto no_id_headers = created_headers();
+    no_id_headers.pop_back();
+    no_id_headers.push_back(header("X-DonBot-Discord-Delivery", "accepted"));
+    SequencedHttpClient no_id_http;
+    no_id_http.push(response(201, std::move(no_id_headers)));
+    providers::DonBotClient no_id_client{no_id_http};
+    const auto no_id =
+        no_id_client.upload(file, providers::donbot_default_api_base, "123456789012345678", key,
+                            providers::DonBotDiscordDeliveryRequest{
+                                .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+                                .channel_id = {},
+                            });
+    MANNY_CHECK(suite, !no_id.has_value());
+    MANNY_CHECK(suite, no_id_http.requests().size() == 1);
+
+    const auto mismatched_receipt =
+        "data: {\"stage\":\"complete\",\"fightLogId\":314,\"discordDelivery\":{"
+        "\"requested\":false,\"outcome\":\"not_requested\",\"sent\":0,\"skipped\":0,"
+        "\"failed\":0,\"ambiguous\":0}}\n\n";
+    SequencedHttpClient mismatched_receipt_http;
+    auto mismatched_headers = created_headers();
+    mismatched_headers.push_back(header("X-DonBot-Discord-Delivery", "accepted"));
+    mismatched_receipt_http.push(response(201, std::move(mismatched_headers)));
+    mismatched_receipt_http.push(response(204, patched_headers(file.size)));
+    mismatched_receipt_http.push(response(200, {}, mismatched_receipt));
+    providers::DonBotClient mismatched_receipt_client{mismatched_receipt_http};
+    MANNY_CHECK(suite,
+                !mismatched_receipt_client
+                     .upload(file, providers::donbot_default_api_base, "123456789012345678", key,
+                             providers::DonBotDiscordDeliveryRequest{
+                                 .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+                                 .channel_id = {},
+                             })
+                     .has_value());
+
+    SequencedHttpClient nonterminal_receipt_http;
+    auto nonterminal_headers = created_headers();
+    nonterminal_headers.push_back(header("X-DonBot-Discord-Delivery", "accepted"));
+    nonterminal_receipt_http.push(response(201, std::move(nonterminal_headers)));
+    nonterminal_receipt_http.push(response(204, patched_headers(file.size)));
+    nonterminal_receipt_http.push(
+        response(200, {},
+                 "data: {\"stage\":\"complete\",\"fightLogId\":314,\"discordDelivery\":{"
+                 "\"requested\":true,\"outcome\":\"sent\",\"sent\":1,\"skipped\":0,"
+                 "\"failed\":0,\"ambiguous\":0}}\n\n"
+                 "data: {\"stage\":\"parsing\"}\n\n"));
+    providers::DonBotClient nonterminal_receipt_client{nonterminal_receipt_http};
+    MANNY_CHECK(suite,
+                !nonterminal_receipt_client
+                     .upload(file, providers::donbot_default_api_base, "123456789012345678", key,
+                             providers::DonBotDiscordDeliveryRequest{
+                                 .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+                                 .channel_id = {},
+                             })
+                     .has_value());
 }
 
 void upload_success_tests(TestSuite& suite, const domain::LogFileIdentity& file,
@@ -296,7 +468,10 @@ void upload_success_tests(TestSuite& suite, const domain::LogFileIdentity& file,
         MANNY_CHECK(suite, patch.url.find(secret_text(key)) == std::string::npos);
         MANNY_CHECK(suite, progress.method == ports::HttpMethod::Get);
         MANNY_CHECK(suite, progress.url == "https://donbot-api.walmslo.com/api/upload/stream/42");
-        MANNY_CHECK(suite, find_header(progress, "X-GW2-API-Key") == nullptr);
+        const auto* progress_key = find_header(progress, "X-GW2-API-Key");
+        MANNY_CHECK(suite, progress_key && progress_key->value == secret_text(key));
+        MANNY_CHECK(suite, progress_key && progress_key->sensitivity ==
+                                               ports::HttpHeaderSensitivity::Sensitive);
     }
 
     SequencedHttpClient no_id_http;
@@ -465,7 +640,7 @@ void failure_policy_tests(TestSuite& suite, const domain::LogFileIdentity& file)
     std::stop_source stopped;
     stopped.request_stop();
     MANNY_CHECK(suite, !invalid_input_client
-                            .upload(file, providers::donbot_default_api_base, "123", key,
+                            .upload(file, providers::donbot_default_api_base, "123", key, {},
                                     stopped.get_token())
                             .has_value());
     MANNY_CHECK(suite, !invalid_input_client
@@ -505,6 +680,10 @@ void permalink_import_tests(TestSuite& suite) {
         MANNY_CHECK(suite, http.requests()[1].method == ports::HttpMethod::Get);
         MANNY_CHECK(suite, http.requests()[1].url ==
                                "https://donbot-api.walmslo.com/api/upload/stream/42");
+        const auto* progress_key = find_header(http.requests()[1], "X-GW2-API-Key");
+        MANNY_CHECK(suite, progress_key && progress_key->value == "VALID-KEY");
+        MANNY_CHECK(suite, progress_key && progress_key->sensitivity ==
+                                               ports::HttpHeaderSensitivity::Sensitive);
     }
 
     SequencedHttpClient duplicate_http;
@@ -533,6 +712,79 @@ void permalink_import_tests(TestSuite& suite) {
         "https://dps.report/retry", providers::donbot_default_api_base, "123", key);
     MANNY_CHECK(suite, !retry.has_value());
     MANNY_CHECK(suite, retry.error().disposition == providers::DonBotDisposition::Retry);
+
+    SequencedHttpClient delivery_http;
+    delivery_http.push(response(
+        202, {},
+        R"json({"uploadId":44,"fightLogId":null,"status":"pending","duplicate":false,"discordDeliveryAccepted":true})json"));
+    delivery_http.push(response(
+        200, {},
+        R"sse(data: {"stage":"complete","fightLogId":316,"discordDelivery":{"requested":true,"outcome":"sent","sent":2,"skipped":0,"failed":0,"ambiguous":0}}
+
+)sse"));
+    providers::DonBotClient delivery_client{delivery_http};
+    const auto delivered = delivery_client.import_permalink(
+        "https://dps.report/discord", providers::donbot_default_api_base, "123", key,
+        providers::DonBotDiscordDeliveryRequest{
+            .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+            .channel_id = {},
+        });
+    MANNY_CHECK(suite, delivered.has_value());
+    MANNY_CHECK(suite, delivered && delivered->discord_delivery.outcome ==
+                                        domain::DonBotDiscordDeliveryOutcome::Sent);
+    MANNY_CHECK(suite, delivered && delivered->discord_delivery.sent == 2);
+    MANNY_CHECK(
+        suite,
+        !delivery_http.requests().empty() &&
+            delivery_http.requests().front().body ==
+                R"({"url":"https://dps.report/discord","guildId":"123","discordDelivery":{"mode":"guild_defaults"}})");
+
+    SequencedHttpClient completed_delivery_http;
+    completed_delivery_http.push(response(
+        200, {},
+        R"json({"uploadId":45,"fightLogId":317,"status":"complete","duplicate":true,"discordDeliveryAccepted":true,"discordDelivery":{"requested":true,"outcome":"skipped","sent":0,"skipped":1,"failed":0,"ambiguous":0}})json"));
+    providers::DonBotClient completed_delivery_client{completed_delivery_http};
+    const auto completed_delivery = completed_delivery_client.import_permalink(
+        "https://dps.report/discord-complete", providers::donbot_default_api_base, "123", key,
+        providers::DonBotDiscordDeliveryRequest{
+            .mode = domain::DonBotDiscordDeliveryMode::ChannelOverride,
+            .channel_id = "223456789012345678",
+        });
+    MANNY_CHECK(suite, completed_delivery.has_value());
+    MANNY_CHECK(suite, completed_delivery && completed_delivery->discord_delivery.outcome ==
+                                                 domain::DonBotDiscordDeliveryOutcome::Skipped);
+    MANNY_CHECK(
+        suite,
+        !completed_delivery_http.requests().empty() &&
+            completed_delivery_http.requests().front().body ==
+                R"({"url":"https://dps.report/discord-complete","guildId":"123","discordDelivery":{"mode":"channel_override","channelId":"223456789012345678"}})");
+
+    SequencedHttpClient missing_ack_http;
+    missing_ack_http.push(response(
+        202, {},
+        R"json({"uploadId":46,"fightLogId":null,"status":"pending","duplicate":false})json"));
+    providers::DonBotClient missing_ack_client{missing_ack_http};
+    const auto missing_ack = missing_ack_client.import_permalink(
+        "https://dps.report/discord-unacknowledged", providers::donbot_default_api_base, "123", key,
+        providers::DonBotDiscordDeliveryRequest{
+            .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+            .channel_id = {},
+        });
+    MANNY_CHECK(suite, !missing_ack.has_value());
+    MANNY_CHECK(suite, missing_ack_http.requests().size() == 1);
+
+    SequencedHttpClient mismatched_complete_http;
+    mismatched_complete_http.push(response(
+        200, {},
+        R"json({"uploadId":47,"fightLogId":318,"status":"complete","duplicate":true,"discordDeliveryAccepted":true,"discordDelivery":{"requested":false,"outcome":"not_requested","sent":0,"skipped":0,"failed":0,"ambiguous":0}})json"));
+    providers::DonBotClient mismatched_complete_client{mismatched_complete_http};
+    const auto mismatched_complete = mismatched_complete_client.import_permalink(
+        "https://dps.report/discord-mismatch", providers::donbot_default_api_base, "123", key,
+        providers::DonBotDiscordDeliveryRequest{
+            .mode = domain::DonBotDiscordDeliveryMode::GuildDefaults,
+            .channel_id = {},
+        });
+    MANNY_CHECK(suite, !mismatched_complete.has_value());
 }
 
 } // namespace
@@ -543,6 +795,7 @@ void run_donbot_client_tests(TestSuite& suite) {
     const auto file = log.identity();
     verification_tests(suite);
     upload_success_tests(suite, file, payload);
+    discord_delivery_upload_tests(suite, file);
     unsafe_location_tests(suite, file);
     protocol_response_tests(suite, file);
     failure_policy_tests(suite, file);

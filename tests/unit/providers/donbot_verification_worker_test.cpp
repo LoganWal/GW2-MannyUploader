@@ -111,7 +111,12 @@ class FakeVerificationClient final : public providers::IDonBotClient {
         if (results_.empty()) {
             return providers::DonBotVerification{
                 .account_name = "Player.1234",
-                .guilds = {{.guild_id = "123", .guild_name = "Guild"}},
+                .discord_summary_delivery_v1 = false,
+                .guilds = {{
+                    .guild_id = "123",
+                    .guild_name = "Guild",
+                    .discord_delivery = {},
+                }},
             };
         }
         auto result = std::move(results_.front());
@@ -121,13 +126,15 @@ class FakeVerificationClient final : public providers::IDonBotClient {
 
     [[nodiscard]] std::expected<providers::DonBotUploadSuccess, providers::DonBotError>
     upload(const domain::LogFileIdentity&, std::string_view, std::string_view,
-           const support::SecretValue&, const std::stop_token&) const override {
+           const support::SecretValue&, const providers::DonBotDiscordDeliveryRequest&,
+           const std::stop_token&) const override {
         return std::unexpected(client_error(providers::DonBotDisposition::Failed, "unused"));
     }
 
     [[nodiscard]] std::expected<providers::DonBotUploadSuccess, providers::DonBotError>
     import_permalink(std::string_view, std::string_view, std::string_view,
-                     const support::SecretValue&, const std::stop_token&) const override {
+                     const support::SecretValue&, const providers::DonBotDiscordDeliveryRequest&,
+                     const std::stop_token&) const override {
         return std::unexpected(client_error(providers::DonBotDisposition::Failed, "unused"));
     }
 
@@ -158,7 +165,12 @@ void success_and_failure_tests(TestSuite& suite) {
     auto worker = std::move(*created);
     client.push(providers::DonBotVerification{
         .account_name = "Player.1234",
-        .guilds = {{.guild_id = "123", .guild_name = "Guild One"}},
+        .discord_summary_delivery_v1 = false,
+        .guilds = {{
+            .guild_id = "123",
+            .guild_name = "Guild One",
+            .discord_delivery = {},
+        }},
     });
     client.push(std::unexpected(
         client_error(providers::DonBotDisposition::Retry, "Please verify again later")));

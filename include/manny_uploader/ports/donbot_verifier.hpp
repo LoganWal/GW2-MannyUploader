@@ -10,15 +10,39 @@
 
 namespace manny_uploader::ports {
 
+struct DonBotChannel {
+    std::string channel_id;
+    std::string channel_name;
+
+    [[nodiscard]] friend bool operator==(const DonBotChannel&,
+                                         const DonBotChannel&) noexcept = default;
+};
+
+struct DonBotDiscordDeliveryPolicy {
+    bool enabled{};
+    bool defaults_available{};
+    bool channel_override_allowed{};
+    bool pve_summary{};
+    bool wvw_summary{};
+    bool wvw_advanced{};
+    bool wvw_stream{};
+    std::vector<DonBotChannel> channels;
+
+    [[nodiscard]] friend bool operator==(const DonBotDiscordDeliveryPolicy&,
+                                         const DonBotDiscordDeliveryPolicy&) noexcept = default;
+};
+
 struct DonBotGuild {
     std::string guild_id;
     std::string guild_name;
+    DonBotDiscordDeliveryPolicy discord_delivery;
 
     [[nodiscard]] friend bool operator==(const DonBotGuild&, const DonBotGuild&) noexcept = default;
 };
 
 struct DonBotVerification {
     std::string account_name;
+    bool discord_summary_delivery_v1{};
     std::vector<DonBotGuild> guilds;
 };
 

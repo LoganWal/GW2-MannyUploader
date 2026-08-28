@@ -23,12 +23,22 @@ struct DonBotConfigurationSnapshot {
     DonBotConfigurationState state;
     std::string api_base_url;
     std::optional<std::string> account_name;
+    bool discord_summary_delivery_v1{};
     std::vector<ports::DonBotGuild> guilds;
     std::string selected_guild_id;
     std::string diagnostic;
     std::uint64_t revision;
     bool shutting_down;
 };
+
+struct DonBotDeliveryAuthorization {
+    domain::DonBotDiscordDeliveryMode mode{domain::DonBotDiscordDeliveryMode::None};
+    std::string channel_id;
+};
+
+[[nodiscard]] DonBotDeliveryAuthorization
+authorized_donbot_delivery(const config::Settings& settings,
+                           const DonBotConfigurationSnapshot& snapshot);
 
 enum class DonBotConfigurationErrorCode : std::uint8_t {
     InvalidConfiguration,
@@ -43,6 +53,8 @@ enum class DonBotConfigurationErrorCode : std::uint8_t {
     SecretEraseFailed,
     NotVerified,
     UnknownGuild,
+    DeliveryUnavailable,
+    UnknownChannel,
     ShuttingDown,
 };
 
@@ -70,6 +82,10 @@ class DonBotConfigurationController {
     [[nodiscard]] std::expected<void, DonBotConfigurationError> begin_saved_verification();
     [[nodiscard]] std::expected<bool, DonBotConfigurationError> poll();
     [[nodiscard]] std::expected<void, DonBotConfigurationError> select_guild(std::string guild_id);
+    [[nodiscard]] std::expected<void, DonBotConfigurationError>
+    set_discord_delivery_enabled(bool enabled);
+    [[nodiscard]] std::expected<void, DonBotConfigurationError>
+    select_discord_channel(std::string channel_id);
     [[nodiscard]] std::expected<void, DonBotConfigurationError> disconnect();
 
     void shutdown() noexcept;

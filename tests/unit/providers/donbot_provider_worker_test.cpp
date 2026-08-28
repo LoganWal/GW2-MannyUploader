@@ -34,6 +34,8 @@ config(std::string guild = "123456789012345678",
     return providers::DonBotProviderConfig{
         .api_base_url = std::move(base),
         .guild_id = std::move(guild),
+        .discord_delivery_mode = domain::DonBotDiscordDeliveryMode::None,
+        .discord_channel_id = {},
     };
 }
 
@@ -72,6 +74,7 @@ struct CapturedUpload {
     std::string guild_id;
     std::string api_key;
     std::optional<std::string> dps_report_permalink;
+    providers::DonBotDiscordDeliveryRequest discord_delivery;
 };
 
 class FakeDonBotClient final : public providers::IDonBotClient {
@@ -125,21 +128,26 @@ class FakeDonBotClient final : public providers::IDonBotClient {
 
     [[nodiscard]] std::expected<providers::DonBotUploadSuccess, providers::DonBotError>
     upload(const domain::LogFileIdentity&, std::string_view api_base_url, std::string_view guild_id,
-           const support::SecretValue& api_key, const std::stop_token& stop_token) const override {
-        return run(api_base_url, guild_id, api_key, std::nullopt, stop_token);
+           const support::SecretValue& api_key,
+           const providers::DonBotDiscordDeliveryRequest& discord_delivery,
+           const std::stop_token& stop_token) const override {
+        return run(api_base_url, guild_id, api_key, std::nullopt, discord_delivery, stop_token);
     }
 
     [[nodiscard]] std::expected<providers::DonBotUploadSuccess, providers::DonBotError>
     import_permalink(std::string_view permalink, std::string_view api_base_url,
                      std::string_view guild_id, const support::SecretValue& api_key,
+                     const providers::DonBotDiscordDeliveryRequest& discord_delivery,
                      const std::stop_token& stop_token) const override {
-        return run(api_base_url, guild_id, api_key, std::string{permalink}, stop_token);
+        return run(api_base_url, guild_id, api_key, std::string{permalink}, discord_delivery,
+                   stop_token);
     }
 
   private:
     [[nodiscard]] Result run(std::string_view api_base_url, std::string_view guild_id,
                              const support::SecretValue& api_key,
                              std::optional<std::string> permalink,
+                             const providers::DonBotDiscordDeliveryRequest& discord_delivery,
                              const std::stop_token& stop_token) const {
         std::stop_callback wake_on_stop{stop_token, [this] { condition_.notify_all(); }};
         std::unique_lock lock{mutex_};
@@ -148,6 +156,7 @@ class FakeDonBotClient final : public providers::IDonBotClient {
             .guild_id = std::string{guild_id},
             .api_key = secret_text(api_key),
             .dps_report_permalink = std::move(permalink),
+            .discord_delivery = discord_delivery,
         });
         condition_.notify_all();
         condition_.wait(lock, [this, &stop_token] {
@@ -166,6 +175,7 @@ class FakeDonBotClient final : public providers::IDonBotClient {
             return providers::DonBotUploadSuccess{
                 .upload_id = std::nullopt,
                 .fight_log_id = std::nullopt,
+                .discord_delivery = {},
             };
         }
         auto result = std::move(results_.front());
@@ -275,6 +285,7 @@ void creation_and_outcome_tests(TestSuite& suite) {
     client.push(providers::DonBotUploadSuccess{
         .upload_id = std::uint64_t{91},
         .fight_log_id = std::uint64_t{191},
+        .discord_delivery = {},
     });
     client.push(
         std::unexpected(upload_error(providers::DonBotDisposition::Retry, "retry detail", 12s)));
@@ -362,6 +373,8 @@ void credential_and_validation_tests(TestSuite& suite) {
     has_context.donbot_context = ports::DonBotUploadContext{
         .api_base_url = "https://example.com",
         .guild_id = "1",
+        .discord_delivery_mode = domain::DonBotDiscordDeliveryMode::None,
+        .discord_channel_id = {},
     };
     auto empty_path = request(34);
     empty_path.file.canonical_path.clear();
@@ -386,7 +399,9 @@ void configuration_snapshot_tests(TestSuite& suite) {
     MANNY_CHECK(suite, (*worker)->enqueue(request(41)).has_value());
     MANNY_CHECK(suite, client.wait_for_calls(1, 2s));
     MANNY_CHECK(suite, (*worker)->enqueue(request(42)).has_value());
-    const auto updated = config("223456789012345678", "https://new-donbot.example/root/");
+    auto updated = config("223456789012345678", "https://new-donbot.example/root/");
+    updated.discord_delivery_mode = domain::DonBotDiscordDeliveryMode::ChannelOverride;
+    updated.discord_channel_id = "323456789012345678";
     MANNY_CHECK(suite, (*worker)->update_config(updated).has_value());
     MANNY_CHECK(suite, (*worker)->enqueue(request(43)).has_value());
     client.release();
@@ -401,7 +416,25 @@ void configuration_snapshot_tests(TestSuite& suite) {
         MANNY_CHECK(suite, uploads[1].guild_id == "123456789012345678");
         MANNY_CHECK(suite, uploads[2].guild_id == "223456789012345678");
         MANNY_CHECK(suite, uploads[2].api_base_url == "https://new-donbot.example/root/");
+        MANNY_CHECK(suite,
+                    uploads[0].discord_delivery.mode == domain::DonBotDiscordDeliveryMode::None);
+        MANNY_CHECK(suite,
+                    uploads[1].discord_delivery.mode == domain::DonBotDiscordDeliveryMode::None);
+        MANNY_CHECK(suite, uploads[2].discord_delivery.mode ==
+                               domain::DonBotDiscordDeliveryMode::ChannelOverride);
+        MANNY_CHECK(suite, uploads[2].discord_delivery.channel_id == "323456789012345678");
     }
+
+    auto reupload = request(44);
+    reupload.user_initiated_retry = true;
+    MANNY_CHECK(suite, (*worker)->enqueue(std::move(reupload)).has_value());
+    MANNY_CHECK(suite, (*worker)->wait_for_result(2s).has_value());
+    const auto after_reupload = client.uploads();
+    MANNY_CHECK(suite, after_reupload.size() == 4);
+    MANNY_CHECK(suite, after_reupload.size() == 4 && after_reupload.back().discord_delivery.mode ==
+                                                         domain::DonBotDiscordDeliveryMode::None);
+    MANNY_CHECK(suite, after_reupload.size() == 4 &&
+                           after_reupload.back().discord_delivery.channel_id.empty());
 }
 
 void cancellation_and_exception_tests(TestSuite& suite) {

@@ -18,12 +18,14 @@ only:
 - `Unverified`, `Verifying`, `Verified`, `Error`, or `ShuttingDown` state;
 - normalized API base;
 - transient verified account name and authorized guild list;
+- negotiated Discord delivery capability, guild policy, message kinds, and authorized channels
 - the durably selected guild ID;
 - safe diagnostic, revision, and shutdown state.
 
 Snapshots never contain the API key, a key prefix, credential presence, a request body, or any other
-secret-derived marker. The account and guild list exist only in memory after a successful current
-verification; only the selected guild ID is ordinary persisted configuration.
+secret-derived marker. Verified identity and channel choices exist only in memory after a successful
+current verification. Only the selected guild ID, delivery enablement, and selected channel ID are
+ordinary persisted configuration.
 
 Only one verification may be active. Results are correlated by monotonically increasing request ID;
 an unmatched result is discarded as stale without ending the current request. Shutdown clears queued
@@ -50,13 +52,26 @@ returned by DonBot, and must still refer to the same configured API base. Select
 the snapshot changes. Selection does not implicitly enable DonBot; the options presenter controls the
 ordinary enable toggle separately after a durable verified selection exists.
 
+Changing the selected guild disables Discord delivery and clears its channel override. Selecting the
+same guild preserves the current route. Enabling delivery requires DonBot uploads, negotiated
+`discord-summary-delivery-v1`, an enabled guild policy, and an authorized route. Empty channel ID
+means guild defaults. A non-empty ID must match a channel returned for the selected guild. Saves
+complete before the snapshot revision advances.
+
 ## Startup and disconnect
 
 Startup verification explicitly loads `DonBotGw2ApiKey` through `ConfigurationService` and moves it
 to the verifier. A successful result does not rewrite the same protected key. An existing selected
 guild is retained only when it is in the returned authorized set. If it is no longer authorized,
-ordinary settings are first saved with DonBot disabled and selection cleared, then verified identity
-is published.
+ordinary settings are first saved with DonBot disabled and the guild, Discord delivery, and channel
+selection cleared, then verified identity is published.
+
+Startup preserves Discord delivery only while the capability, guild policy, and optional channel
+remain authorized. Revocation durably disables delivery and clears the channel before publishing the
+verified snapshot. Ordinary DonBot uploads remain enabled when the guild is still authorized.
+The provider starts with no Discord delivery route. Discovery waits while saved delivery
+verification is active, and the route is published to the provider only from a matching current
+verified snapshot. A failed verification cannot send to a persisted guild or channel.
 
 If ordinary settings change to a different API base while saved-key verification is running, the
 result is stale and cannot authorize selection. Missing or unavailable protected storage becomes a
@@ -64,7 +79,7 @@ typed visible error without a network command.
 
 Disconnect is ordered for fail-safe behavior:
 
-1. Durably disable DonBot and clear its selected guild.
+1. Durably disable DonBot and clear its selected guild, Discord delivery, and selected channel.
 2. Clear transient verified identity.
 3. Erase the protected key.
 

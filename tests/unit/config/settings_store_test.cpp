@@ -133,6 +133,8 @@ void round_trip_tests(TestSuite& suite) {
     settings.donbot.enabled = true;
     settings.donbot.api_base_url = "https://donbot.example/v1/";
     settings.donbot.selected_guild_id = "123456789012345678";
+    settings.donbot.discord_delivery_enabled = true;
+    settings.donbot.selected_discord_channel_id = "223456789012345678";
     settings.twitch.enabled = true;
     settings.twitch.client_id = "abc123publicclient";
     settings.twitch.message_template = "{encounter}: {url} — Uploaded";
@@ -173,6 +175,8 @@ void partial_and_strict_json_tests(TestSuite& suite) {
     MANNY_CHECK(suite, loaded->settings.general.poll_interval_ms == 1000);
     MANNY_CHECK(suite, loaded->settings.dps_report.enabled);
     MANNY_CHECK(suite, loaded->settings.wingman.enabled);
+    MANNY_CHECK(suite, !loaded->settings.donbot.discord_delivery_enabled);
+    MANNY_CHECK(suite, loaded->settings.donbot.selected_discord_channel_id.empty());
     MANNY_CHECK(suite, !loaded->settings.twitch.enabled);
 
     const std::vector<std::string> invalid_documents{

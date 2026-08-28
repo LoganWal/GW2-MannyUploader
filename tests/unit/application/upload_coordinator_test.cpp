@@ -751,6 +751,7 @@ void manual_retry_tests(TestSuite& suite) {
             domain::DonBotUploadReceipt{
                 .upload_id = 81,
                 .fight_log_id = 91,
+                .discord_delivery = {},
             },
         .twitch_delivery_receipt =
             domain::TwitchDeliveryReceipt{

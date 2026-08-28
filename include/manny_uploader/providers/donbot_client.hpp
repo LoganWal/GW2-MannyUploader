@@ -25,6 +25,15 @@ using DonBotVerification = ports::DonBotVerification;
 struct DonBotUploadSuccess {
     std::optional<std::uint64_t> upload_id;
     std::optional<std::uint64_t> fight_log_id;
+    domain::DonBotDiscordDeliveryReceipt discord_delivery;
+};
+
+struct DonBotDiscordDeliveryRequest {
+    domain::DonBotDiscordDeliveryMode mode{domain::DonBotDiscordDeliveryMode::None};
+    std::string channel_id;
+
+    [[nodiscard]] friend bool operator==(const DonBotDiscordDeliveryRequest&,
+                                         const DonBotDiscordDeliveryRequest&) noexcept = default;
 };
 
 enum class DonBotDisposition : std::uint8_t {
@@ -52,11 +61,13 @@ class IDonBotClient {
     [[nodiscard]] virtual std::expected<DonBotUploadSuccess, DonBotError>
     upload(const domain::LogFileIdentity& file, std::string_view api_base_url,
            std::string_view guild_id, const support::SecretValue& gw2_api_key,
+           const DonBotDiscordDeliveryRequest& discord_delivery = {},
            const std::stop_token& stop_token = {}) const = 0;
 
     [[nodiscard]] virtual std::expected<DonBotUploadSuccess, DonBotError>
     import_permalink(std::string_view dps_report_permalink, std::string_view api_base_url,
                      std::string_view guild_id, const support::SecretValue& gw2_api_key,
+                     const DonBotDiscordDeliveryRequest& discord_delivery = {},
                      const std::stop_token& stop_token = {}) const = 0;
 };
 
@@ -71,11 +82,13 @@ class DonBotClient final : public IDonBotClient {
     [[nodiscard]] std::expected<DonBotUploadSuccess, DonBotError>
     upload(const domain::LogFileIdentity& file, std::string_view api_base_url,
            std::string_view guild_id, const support::SecretValue& gw2_api_key,
+           const DonBotDiscordDeliveryRequest& discord_delivery = {},
            const std::stop_token& stop_token = {}) const override;
 
     [[nodiscard]] std::expected<DonBotUploadSuccess, DonBotError>
     import_permalink(std::string_view dps_report_permalink, std::string_view api_base_url,
                      std::string_view guild_id, const support::SecretValue& gw2_api_key,
+                     const DonBotDiscordDeliveryRequest& discord_delivery = {},
                      const std::stop_token& stop_token = {}) const override;
 
   private:

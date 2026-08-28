@@ -12,6 +12,10 @@ parsed encounter metadata including optional remaining boss health, public dps.r
 GW2Wingman permalink, DonBot upload/fight IDs, normalized Twitch receipt, and every provider's state,
 attempt count, and locally generated detail.
 
+The DonBot receipt also stores only a normalized Discord delivery outcome and bounded sent, skipped,
+failed, and ambiguous counts. It does not store the selected channel, Discord message IDs, message
+bodies, or raw delivery errors.
+
 OAuth tokens, DonBot keys, Device Codes, request bodies, response documents, account secrets, and
 retry deadlines are never stored. The file is capped at 32 MiB before parsing and after serialization.
 Paths and strings are UTF-8 validated and bounded; enum values, numeric receipts, duplicate identities,
@@ -32,6 +36,9 @@ Consequently, changing provider enablement, re-enabling the addon, restarting th
 between New and Today does not upload or chat an unchanged retained identity again. A file with a
 different size or write time is a new identity and follows normal stability checks. The only replay
 paths are the explicit user actions defined in [`recent-log-actions.md`](recent-log-actions.md).
+
+DonBot Reupload deliberately omits Discord delivery intent. No retained, ambiguous, failed, or
+partially delivered Discord receipt is replayed by any existing action.
 
 An invalid previous history document is ignored with a visible recovery diagnostic rather than
 trusted as job state. The New selection cutoff still prevents pre-session files from being submitted

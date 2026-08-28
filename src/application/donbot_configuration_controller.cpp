@@ -39,6 +39,8 @@ namespace {
     auto candidate = current;
     candidate.donbot.enabled = false;
     candidate.donbot.selected_guild_id.clear();
+    candidate.donbot.discord_delivery_enabled = false;
+    candidate.donbot.selected_discord_channel_id.clear();
     candidate.donbot.api_base_url = api_base_url;
     return config::validate_settings(candidate).empty();
 }
@@ -48,6 +50,20 @@ namespace {
     return std::ranges::any_of(identity.guilds, [guild_id](const ports::DonBotGuild& guild) {
         return guild.guild_id == guild_id;
     });
+}
+
+[[nodiscard]] const ports::DonBotGuild* find_guild(const std::vector<ports::DonBotGuild>& guilds,
+                                                   std::string_view guild_id) noexcept {
+    const auto found = std::ranges::find(guilds, guild_id, &ports::DonBotGuild::guild_id);
+    return found == guilds.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] bool contains_channel(const ports::DonBotGuild& guild,
+                                    std::string_view channel_id) noexcept {
+    return std::ranges::any_of(guild.discord_delivery.channels,
+                               [channel_id](const ports::DonBotChannel& channel) {
+                                   return channel.channel_id == channel_id;
+                               });
 }
 
 } // namespace
@@ -73,6 +89,7 @@ DonBotConfigurationController::create(ConfigurationService& configuration,
             .state = DonBotConfigurationState::Unverified,
             .api_base_url = std::move(base_url),
             .account_name = std::nullopt,
+            .discord_summary_delivery_v1 = false,
             .guilds = {},
             .selected_guild_id = {},
             .diagnostic = {},
@@ -89,6 +106,36 @@ DonBotConfigurationController::DonBotConfigurationController(ConfigurationServic
 
 DonBotConfigurationSnapshot DonBotConfigurationController::snapshot() const {
     return snapshot_;
+}
+
+DonBotDeliveryAuthorization
+authorized_donbot_delivery(const config::Settings& settings,
+                           const DonBotConfigurationSnapshot& snapshot) {
+    DonBotDeliveryAuthorization authorization;
+    if (!settings.donbot.enabled || !settings.donbot.discord_delivery_enabled ||
+        snapshot.state != DonBotConfigurationState::Verified || !snapshot.account_name ||
+        !snapshot.discord_summary_delivery_v1 ||
+        normalize_base_url(settings.donbot.api_base_url) != snapshot.api_base_url ||
+        settings.donbot.selected_guild_id != snapshot.selected_guild_id) {
+        return authorization;
+    }
+
+    const auto* guild = find_guild(snapshot.guilds, settings.donbot.selected_guild_id);
+    if (guild == nullptr || !guild->discord_delivery.enabled) {
+        return authorization;
+    }
+    if (settings.donbot.selected_discord_channel_id.empty()) {
+        if (guild->discord_delivery.defaults_available) {
+            authorization.mode = domain::DonBotDiscordDeliveryMode::GuildDefaults;
+        }
+        return authorization;
+    }
+    if (guild->discord_delivery.channel_override_allowed &&
+        contains_channel(*guild, settings.donbot.selected_discord_channel_id)) {
+        authorization.mode = domain::DonBotDiscordDeliveryMode::ChannelOverride;
+        authorization.channel_id = settings.donbot.selected_discord_channel_id;
+    }
+    return authorization;
 }
 
 std::expected<void, DonBotConfigurationError>
@@ -153,7 +200,12 @@ DonBotConfigurationController::select_guild(std::string guild_id) {
             publish_error(make_error(DonBotConfigurationErrorCode::StaleVerification,
                                      "DonBot settings changed after verification; verify again")));
     }
+    const auto changed_guild = settings.donbot.selected_guild_id != guild_id;
     settings.donbot.selected_guild_id = guild_id;
+    if (changed_guild) {
+        settings.donbot.discord_delivery_enabled = false;
+        settings.donbot.selected_discord_channel_id.clear();
+    }
     if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
         return std::unexpected(publish_error(from_configuration_error(
             DonBotConfigurationErrorCode::SettingsSaveFailed,
@@ -162,6 +214,91 @@ DonBotConfigurationController::select_guild(std::string guild_id) {
 
     snapshot_.selected_guild_id = std::move(guild_id);
     snapshot_.diagnostic.clear();
+    advance_revision();
+    return {};
+}
+
+std::expected<void, DonBotConfigurationError>
+DonBotConfigurationController::set_discord_delivery_enabled(bool enabled) {
+    if (snapshot_.shutting_down || configuration_.is_shutting_down()) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::ShuttingDown,
+                                          "DonBot configuration is shutting down"));
+    }
+    auto settings = configuration_.snapshot().settings;
+    if (normalize_base_url(settings.donbot.api_base_url) != snapshot_.api_base_url) {
+        return std::unexpected(
+            publish_error(make_error(DonBotConfigurationErrorCode::StaleVerification,
+                                     "DonBot settings changed after verification; verify again")));
+    }
+    const auto* guild = find_guild(snapshot_.guilds, settings.donbot.selected_guild_id);
+    if (enabled && (snapshot_.state != DonBotConfigurationState::Verified ||
+                    !snapshot_.discord_summary_delivery_v1 || guild == nullptr ||
+                    !guild->discord_delivery.enabled || !settings.donbot.enabled)) {
+        return std::unexpected(
+            make_error(DonBotConfigurationErrorCode::DeliveryUnavailable,
+                       "The selected DonBot server does not allow MannyUploader Discord delivery"));
+    }
+    if (enabled && settings.donbot.selected_discord_channel_id.empty() &&
+        !guild->discord_delivery.defaults_available) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::DeliveryUnavailable,
+                                          "DonBot server default delivery is unavailable"));
+    }
+    if (enabled && !settings.donbot.selected_discord_channel_id.empty() &&
+        (!guild->discord_delivery.channel_override_allowed ||
+         !contains_channel(*guild, settings.donbot.selected_discord_channel_id))) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::UnknownChannel,
+                                          "The selected DonBot Discord channel is unavailable"));
+    }
+    settings.donbot.discord_delivery_enabled = enabled;
+    if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
+        return std::unexpected(publish_error(from_configuration_error(
+            DonBotConfigurationErrorCode::SettingsSaveFailed,
+            "The DonBot Discord delivery setting could not be saved", saved.error())));
+    }
+    advance_revision();
+    return {};
+}
+
+std::expected<void, DonBotConfigurationError>
+DonBotConfigurationController::select_discord_channel(std::string channel_id) {
+    if (snapshot_.shutting_down || configuration_.is_shutting_down()) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::ShuttingDown,
+                                          "DonBot configuration is shutting down"));
+    }
+    const auto settings_snapshot = configuration_.snapshot();
+    if (normalize_base_url(settings_snapshot.settings.donbot.api_base_url) !=
+        snapshot_.api_base_url) {
+        return std::unexpected(
+            publish_error(make_error(DonBotConfigurationErrorCode::StaleVerification,
+                                     "DonBot settings changed after verification; verify again")));
+    }
+    const auto* guild =
+        find_guild(snapshot_.guilds, settings_snapshot.settings.donbot.selected_guild_id);
+    if (snapshot_.state != DonBotConfigurationState::Verified ||
+        !snapshot_.discord_summary_delivery_v1 || guild == nullptr ||
+        !guild->discord_delivery.enabled) {
+        return std::unexpected(
+            make_error(DonBotConfigurationErrorCode::DeliveryUnavailable,
+                       "The selected DonBot server does not allow MannyUploader Discord delivery"));
+    }
+    if (channel_id.empty()) {
+        if (!guild->discord_delivery.defaults_available) {
+            return std::unexpected(make_error(DonBotConfigurationErrorCode::DeliveryUnavailable,
+                                              "DonBot server default delivery is unavailable"));
+        }
+    } else if (!guild->discord_delivery.channel_override_allowed ||
+               !contains_channel(*guild, channel_id)) {
+        return std::unexpected(make_error(DonBotConfigurationErrorCode::UnknownChannel,
+                                          "The selected DonBot Discord channel is unavailable"));
+    }
+
+    auto settings = settings_snapshot.settings;
+    settings.donbot.selected_discord_channel_id = std::move(channel_id);
+    if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
+        return std::unexpected(publish_error(from_configuration_error(
+            DonBotConfigurationErrorCode::SettingsSaveFailed,
+            "The DonBot Discord route could not be saved", saved.error())));
+    }
     advance_revision();
     return {};
 }
@@ -179,6 +316,8 @@ std::expected<void, DonBotConfigurationError> DonBotConfigurationController::dis
     auto settings = configuration_.snapshot().settings;
     settings.donbot.enabled = false;
     settings.donbot.selected_guild_id.clear();
+    settings.donbot.discord_delivery_enabled = false;
+    settings.donbot.selected_discord_channel_id.clear();
     if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
         return std::unexpected(publish_error(
             from_configuration_error(DonBotConfigurationErrorCode::SettingsSaveFailed,
@@ -300,6 +439,8 @@ DonBotConfigurationController::handle_candidate_success(ports::DonBotVerificatio
     auto settings = configuration_.snapshot().settings;
     settings.donbot.enabled = false;
     settings.donbot.selected_guild_id.clear();
+    settings.donbot.discord_delivery_enabled = false;
+    settings.donbot.selected_discord_channel_id.clear();
     settings.donbot.api_base_url = request.api_base_url;
     if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
         return std::unexpected(publish_error(from_configuration_error(
@@ -332,12 +473,34 @@ DonBotConfigurationController::handle_saved_success(ports::DonBotVerificationSuc
     if (!selected_guild_id.empty() && !contains_guild(success.identity, selected_guild_id)) {
         settings.donbot.enabled = false;
         settings.donbot.selected_guild_id.clear();
-        if (auto saved = configuration_.save_settings(std::move(settings)); !saved) {
+        settings.donbot.discord_delivery_enabled = false;
+        settings.donbot.selected_discord_channel_id.clear();
+        if (auto saved = configuration_.save_settings(settings); !saved) {
             return std::unexpected(publish_error(from_configuration_error(
                 DonBotConfigurationErrorCode::SettingsSaveFailed,
                 "An unauthorized DonBot guild selection could not be disabled", saved.error())));
         }
         selected_guild_id.clear();
+    }
+
+    const auto* selected_guild = find_guild(success.identity.guilds, selected_guild_id);
+    const auto delivery_valid =
+        !settings.donbot.discord_delivery_enabled ||
+        (success.identity.discord_summary_delivery_v1 && selected_guild != nullptr &&
+         selected_guild->discord_delivery.enabled &&
+         (settings.donbot.selected_discord_channel_id.empty()
+              ? selected_guild->discord_delivery.defaults_available
+              : selected_guild->discord_delivery.channel_override_allowed &&
+                    contains_channel(*selected_guild,
+                                     settings.donbot.selected_discord_channel_id)));
+    if (!delivery_valid) {
+        settings.donbot.discord_delivery_enabled = false;
+        settings.donbot.selected_discord_channel_id.clear();
+        if (auto saved = configuration_.save_settings(settings); !saved) {
+            return std::unexpected(publish_error(from_configuration_error(
+                DonBotConfigurationErrorCode::SettingsSaveFailed,
+                "An unauthorized DonBot Discord route could not be disabled", saved.error())));
+        }
     }
 
     publish_verified(std::move(success.identity), request.api_base_url,
@@ -360,6 +523,7 @@ void DonBotConfigurationController::publish_verified(ports::DonBotVerification i
     snapshot_.state = DonBotConfigurationState::Verified;
     snapshot_.api_base_url = std::move(api_base_url);
     snapshot_.account_name = std::move(identity.account_name);
+    snapshot_.discord_summary_delivery_v1 = identity.discord_summary_delivery_v1;
     snapshot_.guilds = std::move(identity.guilds);
     snapshot_.selected_guild_id = std::move(selected_guild_id);
     snapshot_.diagnostic.clear();
@@ -368,6 +532,7 @@ void DonBotConfigurationController::publish_verified(ports::DonBotVerification i
 
 void DonBotConfigurationController::clear_identity() noexcept {
     snapshot_.account_name.reset();
+    snapshot_.discord_summary_delivery_v1 = false;
     snapshot_.guilds.clear();
     snapshot_.selected_guild_id.clear();
 }

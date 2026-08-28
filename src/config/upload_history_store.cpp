@@ -58,6 +58,11 @@ struct EncodedWingmanReceipt {
 struct EncodedDonBotReceipt {
     std::optional<std::uint64_t> upload_id;
     std::optional<std::uint64_t> fight_log_id;
+    std::uint8_t discord_delivery_outcome{};
+    std::uint16_t discord_sent{};
+    std::uint16_t discord_skipped{};
+    std::uint16_t discord_failed{};
+    std::uint16_t discord_ambiguous{};
 };
 
 struct EncodedTwitchReceipt {
@@ -120,6 +125,35 @@ struct WriteOptions : glz::opts {
                const auto byte = static_cast<unsigned char>(character);
                return byte < 0x20U && character != '\t';
            });
+}
+
+[[nodiscard]] bool valid_discord_receipt(const EncodedDonBotReceipt& receipt) noexcept {
+    const auto total = static_cast<std::uint32_t>(receipt.discord_sent) + receipt.discord_skipped +
+                       receipt.discord_failed + receipt.discord_ambiguous;
+    if (receipt.discord_delivery_outcome >
+            static_cast<std::uint8_t>(domain::DonBotDiscordDeliveryOutcome::Ambiguous) ||
+        total > 4) {
+        return false;
+    }
+    const auto populated_categories = static_cast<unsigned>(receipt.discord_sent != 0) +
+                                      static_cast<unsigned>(receipt.discord_skipped != 0) +
+                                      static_cast<unsigned>(receipt.discord_failed != 0) +
+                                      static_cast<unsigned>(receipt.discord_ambiguous != 0);
+    switch (static_cast<domain::DonBotDiscordDeliveryOutcome>(receipt.discord_delivery_outcome)) {
+    case domain::DonBotDiscordDeliveryOutcome::NotRequested:
+        return populated_categories == 0;
+    case domain::DonBotDiscordDeliveryOutcome::Sent:
+        return receipt.discord_sent != 0 && populated_categories == 1;
+    case domain::DonBotDiscordDeliveryOutcome::Partial:
+        return populated_categories >= 2;
+    case domain::DonBotDiscordDeliveryOutcome::Skipped:
+        return receipt.discord_skipped != 0 && populated_categories == 1;
+    case domain::DonBotDiscordDeliveryOutcome::Failed:
+        return receipt.discord_failed != 0 && populated_categories == 1;
+    case domain::DonBotDiscordDeliveryOutcome::Ambiguous:
+        return receipt.discord_ambiguous != 0 && populated_categories == 1;
+    }
+    return false;
 }
 
 [[nodiscard]] bool same_file(const domain::UploadJobRecord& left,
@@ -221,7 +255,8 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
         if ((encoded.donbot_upload_receipt->upload_id &&
              *encoded.donbot_upload_receipt->upload_id == 0) ||
             (encoded.donbot_upload_receipt->fight_log_id &&
-             *encoded.donbot_upload_receipt->fight_log_id == 0)) {
+             *encoded.donbot_upload_receipt->fight_log_id == 0) ||
+            !valid_discord_receipt(*encoded.donbot_upload_receipt)) {
             return std::unexpected(make_error(UploadHistoryStoreErrorCode::ValidationFailed,
                                               "Upload history contains an invalid DonBot receipt",
                                               store_path));
@@ -229,6 +264,15 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
         record.donbot_upload_receipt = domain::DonBotUploadReceipt{
             .upload_id = encoded.donbot_upload_receipt->upload_id,
             .fight_log_id = encoded.donbot_upload_receipt->fight_log_id,
+            .discord_delivery =
+                domain::DonBotDiscordDeliveryReceipt{
+                    .outcome = static_cast<domain::DonBotDiscordDeliveryOutcome>(
+                        encoded.donbot_upload_receipt->discord_delivery_outcome),
+                    .sent = encoded.donbot_upload_receipt->discord_sent,
+                    .skipped = encoded.donbot_upload_receipt->discord_skipped,
+                    .failed = encoded.donbot_upload_receipt->discord_failed,
+                    .ambiguous = encoded.donbot_upload_receipt->discord_ambiguous,
+                },
         };
     }
     if (encoded.twitch_delivery_receipt) {
@@ -306,6 +350,12 @@ decode_record(const EncodedUploadJob& encoded, const std::filesystem::path& stor
         encoded.donbot_upload_receipt = EncodedDonBotReceipt{
             .upload_id = record.donbot_upload_receipt->upload_id,
             .fight_log_id = record.donbot_upload_receipt->fight_log_id,
+            .discord_delivery_outcome =
+                static_cast<std::uint8_t>(record.donbot_upload_receipt->discord_delivery.outcome),
+            .discord_sent = record.donbot_upload_receipt->discord_delivery.sent,
+            .discord_skipped = record.donbot_upload_receipt->discord_delivery.skipped,
+            .discord_failed = record.donbot_upload_receipt->discord_delivery.failed,
+            .discord_ambiguous = record.donbot_upload_receipt->discord_delivery.ambiguous,
         };
     }
     if (record.twitch_delivery_receipt) {

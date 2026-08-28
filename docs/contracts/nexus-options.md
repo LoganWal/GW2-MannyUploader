@@ -29,27 +29,38 @@ queues or polls that worker.
 ## Commands
 
 Ordinary editing is represented by `SaveOrdinaryOptionsCommand`. Its payload contains general,
-dps.report, GW2Wingman, public Twitch Client ID, and Twitch message-policy fields. Applying it preserves the current
-DonBot endpoint, guild selection, and enabled state, and preserves the Twitch enabled state.
+public Twitch Client ID, and Twitch message-policy fields. Applying it preserves the current
+dps.report, GW2Wingman, DonBot, and Twitch enabled states.
 Once that command has durably saved and published a new settings revision, the production application
 owner applies general polling, stability, parser-capacity, per-provider parallelism, and recent-history
 values to the existing components. No render callback performs this reconfiguration, and active
 parse/upload inputs are not rewritten. The public Twitch Client ID can change only while disconnected
 or in error; no secret is needed for Device Code authorization.
-A dedicated `SetWindowVisibleCommand` updates only the persisted window visibility bit. The options
-checkbox, window close button, Nexus input bind, and quick-access shortcut all use that narrow path so
-they cannot replay a stale ordinary-options draft over unrelated settings.
+A dedicated `SetWindowVisibleCommand` updates only the persisted window visibility bit. Dedicated
+dps.report and GW2Wingman commands update only their destination state. Disabling dps.report also
+disables Twitch posting because Twitch requires a same-job permalink. It does not disconnect or erase
+the Twitch session. The options checkbox, window close button, Nexus input bind, and quick-access
+shortcut all use the narrow visibility path so they cannot replay a stale ordinary-options draft over
+unrelated settings.
+
+The dps.report and GW2Wingman narrow toggles appear in both the main window and Nexus options. DonBot
+upload, Discord delivery, guild, and channel controls appear in the main window as well as their
+verified options workflow.
 
 Workflow-owned values use dedicated commands:
 
-- verify a candidate DonBot endpoint/key;
-- select a guild returned by the current verified DonBot identity;
-- enable or disable DonBot;
-- disconnect DonBot and erase its protected key;
-- begin broadcaster-owned Twitch Device Code authentication;
-- enable or disable Twitch posting;
-- send one explicit test message to the connected broadcaster's own chat;
-- disconnect Twitch and revoke/erase its session; and
+- enable or disable dps.report.
+- enable or disable GW2Wingman.
+- verify a candidate DonBot endpoint/key.
+- select a guild returned by the current verified DonBot identity.
+- enable or disable DonBot.
+- enable or disable DonBot Discord summaries.
+- select DonBot server defaults or an authorized Discord channel.
+- disconnect DonBot and erase its protected key.
+- begin broadcaster-owned Twitch Device Code authentication.
+- enable or disable Twitch posting.
+- send one explicit test message to the connected broadcaster's own chat.
+- disconnect Twitch and revoke/erase its session.
 - dismiss the last options error.
 
 DonBot can be enabled only while the current verified endpoint still matches ordinary settings and
@@ -57,6 +68,11 @@ the selected guild remains in the verified authorized-guild set. Twitch can be e
 the authentication workflow is connected. Final settings validation still runs inside
 `ConfigurationService`, so enabling Twitch also requires dps.report and at least one post-result
 policy.
+
+Discord summary delivery can be enabled only while DonBot uploads are enabled and the selected guild
+advertises `discord-summary-delivery-v1`. Route commands accept empty for server defaults or an exact
+channel ID from the current verified guild. These workflow-owned values are excluded from stale
+ordinary-options drafts.
 
 There is no command or settings field for a Twitch channel, broadcaster ID, sender ID, raw token, or
 client secret. The ordinary Client ID identifies the public application; the Twitch workflow's
@@ -99,8 +115,9 @@ pending.
 `build_nexus_options_model` is a pure mapping used to test status text and control availability
 without ImGui. It disables credential-dependent controls when protected storage is unavailable,
 exposes verified/connected account labels, and disables every mutating control once command
-acceptance stops. The test-message control is enabled only for a connected broadcaster while no test
-request is being sent.
+acceptance stops. DonBot delivery controls require an enabled upload destination and verified guild
+policy. The test-message control is enabled only for a connected broadcaster while no test request
+is being sent.
 
 ## Shutdown
 
@@ -126,3 +143,5 @@ Portable deterministic tests must prove:
 - protected-storage capability and workflow states drive view-model enablement;
 - keys and tokens never appear in snapshots or view models; and
 - shutdown clears queued secret-bearing commands without dispatch.
+- destination toggle commands preserve unrelated settings and stale ordinary drafts cannot overwrite
+  destination state.

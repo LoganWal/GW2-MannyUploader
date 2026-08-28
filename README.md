@@ -58,6 +58,9 @@ the addon remains active through its keybind and options entry.
 
 The main window shows recent logs and each provider's state. Successful encounter cells are green.
 Failed encounter cells are red and include the remaining boss health when the EVTC recorded it.
+The controls above the table toggle dps.report, GW2Wingman, DonBot, and DonBot Discord delivery.
+The same row selects the verified DonBot server and either its default Discord route or an authorized
+channel.
 Completed rows can open their dps.report, GW2Wingman, and DonBot fight pages. `Copy dps.report URLs`
 copies the visible report links, while `Copy DonBot aggregate URL` copies one aggregate page for the
 visible DonBot fight IDs. Each row can open its source folder. `Reupload` deliberately submits that
@@ -70,7 +73,8 @@ history is persisted across game restarts, so switching modes or disabling and r
 does not resubmit an already-seen log. Only the explicit `Reupload` and `Rechat` actions replay work.
 
 All configuration is under `MannyUploader` in Nexus options. Saved settings apply without
-reloading; active parses and uploads keep the inputs captured when they started.
+reloading; active parses and uploads keep the inputs captured when they started. The dps.report and
+GW2Wingman toggles remain available here as well as above the recent-log table.
 
 ### General options
 
@@ -78,15 +82,12 @@ reloading; active parses and uploads keep the inputs captured when they started.
 | --- | ---: | --- |
 | Log directory | `<Guild Wars 2>\arcdps.cbtlogs` | Directory containing `.zevtc` logs; it may be created after startup. |
 | Watch subdirectories | On | Include nested encounter directories. |
-| Poll interval | 1,000 ms | 250–60,000 ms; native notifications avoid unnecessary scans. |
-| Stability observations | 2 | 2–10 unchanged observations before accepting a log. |
-| Recent log limit | 50 | 1–500 settled rows retained in memory. |
-| Parser queue capacity | 8 | 1–64 queued metadata parses. |
-| Parallel uploads per provider | 1 | 1–32 concurrent requests for each destination independently. A value of 10 gives each of dps.report, GW2Wingman, DonBot, and Twitch its own limit of 10. |
-| Maximum candidates | 4,096 | 1–10,000 logs inside the selected New/Today window per scan. |
+| Parallel uploads per provider | 5 | 1–32 concurrent requests for each destination independently. |
 
 Only `.zevtc` files are supported in version 1. If arcdps writes elsewhere, select that exact
-directory. A missing directory is a waiting state and is discovered when it appears.
+directory. A missing directory is a waiting state and is discovered when it appears. Internal scan,
+stability, parser, and candidate limits use validated defaults. The recent table retains up to 100
+settled rows by default.
 
 ### dps.report
 
@@ -105,12 +106,18 @@ compatibility endpoint because Wingman's direct workflow is based on processed E
 2. Enter the Guild Wars 2 API key associated with the DonBot account and select `Verify DonBot`.
 3. Once verified, the API-key field is hidden. Select one authorized server from the dropdown.
 4. Enable uploads with the checkbox beside the server dropdown.
+5. If that server supports MannyUploader delivery, enable `Post DonBot summaries to Discord`.
+6. Use the server's DonBot defaults or select one authorized Discord channel.
 
 The key is protected separately from ordinary JSON. With dps.report enabled, DonBot imports its
 permalink for the selected server. With dps.report disabled, DonBot uploads the archive through TUS.
 Both routes disable DonBot's own Wingman submission, so enabling Wingman does not create a duplicate.
 `Deverify DonBot` disables the workflow and erases its locally protected key. Completed DonBot
 processing IDs are retained so the main window can compose its aggregate URL.
+
+DonBot creates the PvE or WvW summaries selected by the server. Advanced WvW and stream output are
+included only when enabled in DonBot. Delivery is off by default. Reupload processes the log again
+without reposting Discord messages.
 
 ### Twitch broadcaster chat
 

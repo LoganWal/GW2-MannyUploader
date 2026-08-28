@@ -1,5 +1,7 @@
 #include "manny_uploader/ui/nexus_options_model.hpp"
 
+#include <ranges>
+
 namespace manny_uploader::ui {
 namespace {
 
@@ -74,6 +76,16 @@ twitch_test_message_status(const application::TwitchTestMessageSnapshot& snapsho
 
 } // namespace
 
+std::string escape_imgui_label_text(std::string_view text) {
+    std::string label{text};
+    std::size_t offset{};
+    while ((offset = label.find("##", offset)) != std::string::npos) {
+        label.replace(offset, 2, "# #");
+        offset += 3;
+    }
+    return label;
+}
+
 NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnapshot& snapshot) {
     const auto storage_available = snapshot.configuration.persistent_secret_storage.state ==
                                    application::PersistentSecretStorageState::Available;
@@ -84,6 +96,11 @@ NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnaps
     const auto donbot_verified =
         snapshot.donbot.state == application::DonBotConfigurationState::Verified &&
         snapshot.donbot.account_name.has_value();
+    const auto selected_guild = std::ranges::find(
+        snapshot.donbot.guilds, snapshot.donbot.selected_guild_id, &ports::DonBotGuild::guild_id);
+    const auto discord_delivery_available =
+        donbot_verified && snapshot.donbot.discord_summary_delivery_v1 &&
+        selected_guild != snapshot.donbot.guilds.end() && selected_guild->discord_delivery.enabled;
     const auto twitch_idle =
         snapshot.twitch.state == application::TwitchConnectionState::Disconnected ||
         snapshot.twitch.state == application::TwitchConnectionState::Error;
@@ -102,6 +119,15 @@ NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnaps
                 .enable_toggle_available =
                     active && (snapshot.configuration.settings.donbot.enabled ||
                                (donbot_verified && !snapshot.donbot.selected_guild_id.empty())),
+                .discord_delivery_toggle_available =
+                    active && snapshot.configuration.settings.donbot.enabled &&
+                    discord_delivery_available,
+                .discord_channel_selection_available =
+                    active && snapshot.configuration.settings.donbot.enabled &&
+                    discord_delivery_available &&
+                    (selected_guild->discord_delivery.defaults_available ||
+                     (selected_guild->discord_delivery.channel_override_allowed &&
+                      !selected_guild->discord_delivery.channels.empty())),
                 .disconnect_available =
                     active && donbot_idle &&
                     (snapshot.donbot.state != application::DonBotConfigurationState::Unverified ||

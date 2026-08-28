@@ -291,21 +291,24 @@ void successful_lifecycle_tests(TestSuite& suite) {
 }
 
 void quick_access_status_tests(TestSuite& suite) {
-    const auto idle = addon::make_quick_access_status(false, false, false, {}, false);
+    const auto idle = addon::make_quick_access_status(false, false, false, {}, {}, false);
     MANNY_CHECK(suite, idle.tooltip == "View MannyUploader list");
     MANNY_CHECK(suite, idle.tint == addon::QuickAccessTint::Idle);
 
-    const auto uploads = addon::make_quick_access_status(true, true, true, "Raid Guild", false);
+    const auto uploads =
+        addon::make_quick_access_status(true, true, true, "Raid Guild", "#logs", false);
     MANNY_CHECK(suite, uploads.tooltip ==
                            "View MannyUploader list\nUploading to dps.report\nUploading to "
-                           "GW2Wingman\nUploading to DonBot - Raid Guild");
+                           "GW2Wingman\nUploading to DonBot - Raid Guild\nPosting DonBot summaries "
+                           "- #logs");
     MANNY_CHECK(suite, uploads.tint == addon::QuickAccessTint::Upload);
 
-    const auto twitch = addon::make_quick_access_status(false, false, false, {}, true);
+    const auto twitch = addon::make_quick_access_status(false, false, false, {}, {}, true);
     MANNY_CHECK(suite, twitch.tooltip == "View MannyUploader list\nReporting to Twitch chat");
     MANNY_CHECK(suite, twitch.tint == addon::QuickAccessTint::Twitch);
 
-    const auto precedence = addon::make_quick_access_status(true, true, true, "123", true);
+    const auto precedence =
+        addon::make_quick_access_status(true, true, true, "123", "server defaults", true);
     MANNY_CHECK(suite, precedence.tint == addon::QuickAccessTint::Twitch);
     MANNY_CHECK(suite, precedence.tooltip.ends_with("\nReporting to Twitch chat"));
 }

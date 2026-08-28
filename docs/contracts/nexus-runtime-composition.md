@@ -31,6 +31,13 @@ updates, and upload-history persistence. It applies the latest durable DonBot/Tw
 accepting new logs and publishes deep-copy, UI-ready snapshots at a bounded cadence. UI command
 submission wakes the owner but performs no application work itself.
 
+DonBot provider updates include a captured Discord delivery mode and optional channel ID. The
+options snapshot supplies only DonBot-authorized transient channel choices. Native Windows and Wine
+render the same server, delivery toggle, route selector, and enabled message-kind status.
+The provider starts with delivery disabled. When persisted delivery is enabled, initial discovery
+waits for saved verification, and only a current matching verified snapshot may activate its route.
+Verification failure leaves delivery disabled and releases discovery without using stale routing.
+
 Poll interval changes apply immediately. Log-directory, recursion, stability, history, candidate,
 parser-capacity, and per-provider parallelism changes also apply live on this owner thread. They do
 not replace the component graph:
@@ -56,7 +63,12 @@ immediate poll so the new behavior does not wait for the previous interval.
 
 The main callback copies one published snapshot and renders the bounded recent-log table, including
 detection time, per-provider state, aggregate-copy controls, and typed folder/retry/reupload/rechat
-actions. The options callback edits adapter-owned bounded buffers and submits only value commands.
+actions. Beside those aggregate controls it exposes live dps.report, GW2Wingman, DonBot, and DonBot
+Discord delivery toggles plus verified DonBot server and authorized Discord route dropdowns. Each
+control submits a narrow value command. The options callback edits adapter-owned bounded buffers and
+submits only value commands. Poll interval, stability observations, recent-log limit, parser queue
+capacity, and candidate limit remain validated persisted settings but are not exposed in Nexus. The
+Nexus page exposes per-provider parallelism and defaults it to five.
 Candidate DonBot keys
 are converted directly into move-only secret commands and the input buffer is wiped immediately.
 Neither callback traverses the filesystem, saves settings, accesses protected records, parses EVTC,
@@ -66,8 +78,9 @@ The quick-access shortcut and the Nexus-configurable input bind target the same 
 toggle. The default chord is `Alt+Shift+M`; Nexus owns rebinding. A press updates an atomic render
 visibility flag immediately and queues a narrow durable visibility command, while a release does
 nothing. Three small embedded PNG variants are decoded synchronously by Nexus during load. An owned
-multiline tooltip lists enabled destinations and the selected DonBot guild; grey means none enabled,
-the normal tint means upload enabled, and Twitch purple takes precedence when chat is enabled.
+multiline tooltip lists enabled destinations, the selected DonBot guild, and its active Discord
+delivery route. Grey means none enabled, the normal tint means upload enabled, and Twitch purple
+takes precedence when chat is enabled.
 
 ## Shutdown
 

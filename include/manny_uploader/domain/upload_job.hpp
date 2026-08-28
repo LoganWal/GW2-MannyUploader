@@ -73,9 +73,36 @@ struct DpsReportResult {
     [[nodiscard]] friend bool operator==(const DpsReportResult&, const DpsReportResult&) = default;
 };
 
+enum class DonBotDiscordDeliveryMode : std::uint8_t {
+    None,
+    GuildDefaults,
+    ChannelOverride,
+};
+
+enum class DonBotDiscordDeliveryOutcome : std::uint8_t {
+    NotRequested,
+    Sent,
+    Partial,
+    Skipped,
+    Failed,
+    Ambiguous,
+};
+
+struct DonBotDiscordDeliveryReceipt {
+    DonBotDiscordDeliveryOutcome outcome{DonBotDiscordDeliveryOutcome::NotRequested};
+    std::uint16_t sent{};
+    std::uint16_t skipped{};
+    std::uint16_t failed{};
+    std::uint16_t ambiguous{};
+
+    [[nodiscard]] friend bool operator==(const DonBotDiscordDeliveryReceipt&,
+                                         const DonBotDiscordDeliveryReceipt&) = default;
+};
+
 struct DonBotUploadReceipt {
     std::optional<std::uint64_t> upload_id;
     std::optional<std::uint64_t> fight_log_id;
+    DonBotDiscordDeliveryReceipt discord_delivery;
 
     [[nodiscard]] friend bool operator==(const DonBotUploadReceipt&,
                                          const DonBotUploadReceipt&) = default;

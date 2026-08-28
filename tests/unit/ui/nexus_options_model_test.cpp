@@ -31,6 +31,7 @@ namespace {
                 .state = application::DonBotConfigurationState::Unverified,
                 .api_base_url = std::string{config::default_donbot_api_base},
                 .account_name = std::nullopt,
+                .discord_summary_delivery_v1 = false,
                 .guilds = {},
                 .selected_guild_id = {},
                 .diagnostic = {},
@@ -73,6 +74,8 @@ void disconnected_model_tests(TestSuite& suite) {
     MANNY_CHECK(suite, model.donbot.verify_available);
     MANNY_CHECK(suite, !model.donbot.guild_selection_available);
     MANNY_CHECK(suite, !model.donbot.enable_toggle_available);
+    MANNY_CHECK(suite, !model.donbot.discord_delivery_toggle_available);
+    MANNY_CHECK(suite, !model.donbot.discord_channel_selection_available);
     MANNY_CHECK(suite, !model.donbot.disconnect_available);
     MANNY_CHECK(suite, model.twitch.status_text == "Not connected");
     MANNY_CHECK(suite, model.twitch.connect_available);
@@ -92,8 +95,21 @@ void connected_model_tests(TestSuite& suite) {
     state.pending_commands = 2;
     state.donbot.state = application::DonBotConfigurationState::Verified;
     state.donbot.account_name = "Player.1234";
-    state.donbot.guilds = {{.guild_id = "123", .guild_name = "Guild One"}};
+    state.donbot.discord_summary_delivery_v1 = true;
+    state.donbot.guilds = {{
+        .guild_id = "123",
+        .guild_name = "Guild One",
+        .discord_delivery =
+            ports::DonBotDiscordDeliveryPolicy{
+                .enabled = true,
+                .defaults_available = true,
+                .channel_override_allowed = true,
+                .channels = {{.channel_id = "223", .channel_name = "logs"}},
+            },
+    }};
     state.donbot.selected_guild_id = "123";
+    state.configuration.settings.donbot.enabled = true;
+    state.configuration.settings.donbot.selected_guild_id = "123";
     state.twitch.state = application::TwitchConnectionState::Connected;
     state.twitch.login = "broadcaster_name";
     state.last_error = application::NexusOptionsError{
@@ -110,6 +126,8 @@ void connected_model_tests(TestSuite& suite) {
     MANNY_CHECK(suite, model.donbot.status_text == "Verified as Player.1234");
     MANNY_CHECK(suite, model.donbot.guild_selection_available);
     MANNY_CHECK(suite, model.donbot.enable_toggle_available);
+    MANNY_CHECK(suite, model.donbot.discord_delivery_toggle_available);
+    MANNY_CHECK(suite, model.donbot.discord_channel_selection_available);
     MANNY_CHECK(suite, model.donbot.disconnect_available);
     MANNY_CHECK(suite, model.twitch.status_text == "Connected as broadcaster_name");
     MANNY_CHECK(suite, !model.twitch.connect_available);
@@ -118,6 +136,11 @@ void connected_model_tests(TestSuite& suite) {
     MANNY_CHECK(suite, model.twitch.test_message_available);
     MANNY_CHECK(suite, model.command_pending);
     MANNY_CHECK(suite, model.last_error == "Safe visible diagnostic");
+
+    state.configuration.settings.donbot.discord_delivery_enabled = true;
+    const auto delivery = ui::build_nexus_options_model(state);
+    MANNY_CHECK(suite, delivery.donbot.discord_delivery_toggle_available);
+    MANNY_CHECK(suite, delivery.donbot.discord_channel_selection_available);
 
     state.twitch_test_message.state = application::TwitchTestMessageState::Sending;
     state.twitch_test_message.diagnostic = "Sending a Twitch test message";
@@ -167,6 +190,8 @@ void authorization_and_disabled_model_tests(TestSuite& suite) {
 } // namespace
 
 void run_nexus_options_model_tests(TestSuite& suite) {
+    MANNY_CHECK(suite, ui::escape_imgui_label_text("Guild ## Logs") == "Guild # # Logs");
+    MANNY_CHECK(suite, ui::escape_imgui_label_text("Guild") == "Guild");
     disconnected_model_tests(suite);
     connected_model_tests(suite);
     authorization_and_disabled_model_tests(suite);

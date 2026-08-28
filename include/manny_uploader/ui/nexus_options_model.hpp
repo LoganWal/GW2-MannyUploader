@@ -4,8 +4,11 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace manny_uploader::ui {
+
+[[nodiscard]] std::string escape_imgui_label_text(std::string_view text);
 
 struct DonBotOptionsModel {
     std::string status_text;
@@ -13,6 +16,8 @@ struct DonBotOptionsModel {
     bool verify_available{};
     bool guild_selection_available{};
     bool enable_toggle_available{};
+    bool discord_delivery_toggle_available{};
+    bool discord_channel_selection_available{};
     bool disconnect_available{};
 };
 

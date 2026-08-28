@@ -22,6 +22,7 @@ namespace {
 
 QuickAccessStatus make_quick_access_status(bool dps_report_enabled, bool wingman_enabled,
                                            bool donbot_enabled, std::string_view donbot_guild,
+                                           std::string_view donbot_discord_route,
                                            bool twitch_enabled) {
     QuickAccessStatus status{.tooltip = "View MannyUploader list", .tint = QuickAccessTint::Idle};
     if (dps_report_enabled) {
@@ -39,6 +40,10 @@ QuickAccessStatus make_quick_access_status(bool dps_report_enabled, bool wingman
             status.tooltip += donbot_guild;
         }
         status.tint = QuickAccessTint::Upload;
+    }
+    if (!donbot_discord_route.empty()) {
+        status.tooltip += "\nPosting DonBot summaries - ";
+        status.tooltip += donbot_discord_route;
     }
     if (twitch_enabled) {
         status.tooltip += "\nReporting to Twitch chat";
@@ -128,7 +133,7 @@ std::expected<void, AddonLifecycleError> AddonLifecycle::load(IAddonHost& host,
         }
 
         QuickAccessStatus initial_quick_access =
-            make_quick_access_status(false, false, false, {}, false);
+            make_quick_access_status(false, false, false, {}, {}, false);
         {
             const std::scoped_lock lock{mutex_};
             initial_quick_access = runtime_->quick_access_status();

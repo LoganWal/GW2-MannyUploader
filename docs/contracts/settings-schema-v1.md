@@ -14,9 +14,9 @@ not a secret store. It may be copied into diagnostics after path/account identif
     "window_visible": true,
     "poll_interval_ms": 1000,
     "stability_observations": 2,
-    "recent_log_limit": 50,
+    "recent_log_limit": 100,
     "parser_queue_capacity": 8,
-    "parallel_uploads_per_provider": 1,
+    "parallel_uploads_per_provider": 5,
     "max_candidates": 4096
   },
   "dps_report": {
@@ -28,7 +28,9 @@ not a secret store. It may be copied into diagnostics after path/account identif
   "donbot": {
     "enabled": false,
     "api_base_url": "https://donbot-api.walmslo.com",
-    "selected_guild_id": ""
+    "selected_guild_id": "",
+    "discord_delivery_enabled": false,
+    "selected_discord_channel_id": ""
   },
   "twitch": {
     "enabled": false,
@@ -61,6 +63,10 @@ must be valid UTF-8.
   empty host and is at most 2048 bytes.
 - `donbot.selected_guild_id` is empty while DonBot is disabled or is a canonical positive decimal
   value within a signed 64-bit integer. Enabling DonBot requires a verified guild selection.
+- `donbot.discord_delivery_enabled` defaults to false and requires DonBot uploads to be enabled.
+- `donbot.selected_discord_channel_id` is empty for DonBot server defaults or is a canonical
+  positive decimal value within a signed 64-bit integer. The DonBot workflow verifies that a saved
+  channel is still authorized before enabling delivery.
 - Twitch can be enabled only while dps.report is enabled and at least one posting policy is enabled.
 - `twitch.client_id` is empty or a public Twitch application Client ID of at most 128 lowercase
   ASCII letters and digits. It is ordinary, non-secret configuration and may change only while the

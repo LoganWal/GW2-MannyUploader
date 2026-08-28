@@ -31,8 +31,9 @@ Current contracts:
   result delivery, credential-rotation ordering, retry scheduling, cancellation, and joined shutdown.
 - [`wingman.md`](wingman.md): direct raw-EVTC compatibility upload, duplicate semantics, response
   validation, retry classification, compatibility risk, and deterministic provider tests.
-- [`donbot.md`](donbot.md): protected-key verification, authorized guild discovery, strict TUS
-  creation/location/PATCH behavior, `wingman=false`, and duplicate-safe retry policy.
+- [`donbot.md`](donbot.md): protected-key verification, authorized guild and Discord-route
+  discovery, strict TUS creation/location/PATCH behavior, normalized Discord delivery receipts,
+  `wingman=false`, and duplicate-safe retry policy.
 - [`donbot-provider-worker.md`](donbot-provider-worker.md): configuration snapshotting, per-attempt
   protected-key loading, result mapping, and shared bounded-worker behavior.
 - [`donbot-configuration-workflow.md`](donbot-configuration-workflow.md): asynchronous key

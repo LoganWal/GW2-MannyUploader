@@ -4,6 +4,10 @@ This contract defines GW2 Manny Uploader's DonBot integration. It covers API-key
 server-authorized guild discovery, permalink import when dps.report is enabled, one-shot TUS upload
 when dps.report is disabled, and the completion stream used to retain the DonBot fight ID.
 
+It also defines the optional `discord-summary-delivery-v1` extension. This extension asks DonBot to
+create its configured PvE or WvW Discord output after one accepted log. DonBot owns message
+rendering, authorization, routing, delivery, and duplicate suppression.
+
 Verified 2026-08-20 against:
 
 - the current DonBot [`UploadEndpoints.cs`](https://github.com/LoganWal/GW2-DonBot/blob/main/DonBot.Api/Endpoints/UploadEndpoints.cs);
@@ -150,13 +154,17 @@ Success is exactly `204`. The response must contain exactly one `Tus-Resumable: 
 decimal `Upload-Offset` equal to the original file size. The source size and last-write time are
 verified before opening and after the final bytes are read.
 
-When creation returned a numeric upload ID, successful PATCH completion is followed by an anonymous
-bounded event-stream request:
+When creation returned a numeric upload ID, successful PATCH completion is followed by an
+authenticated bounded event-stream request:
 
 ```text
 GET <api-base>/api/upload/stream/<upload-id>
+X-GW2-API-Key: <same protected key>
 Accept: text/event-stream
 ```
+
+The permalink path uses the same protected key for its completion stream. The key remains a
+sensitive header and never appears in the URL or diagnostics.
 
 Each `data:` line must contain a bounded JSON object with a stage. A `failed` stage is a permanent
 processing failure. A `complete` stage ends processing and may include one positive signed-64-bit
@@ -168,6 +176,75 @@ Failure to reach the optional progress endpoint does not reinterpret an already-
 as failed and leaves the fight ID unavailable. Cancellation remains cancellation. A malformed or
 explicitly failed event stream is a permanent DonBot result because automatically creating a second
 upload could duplicate the accepted log.
+
+When Discord delivery was requested, the upload ID and completion stream are required. A missing or
+unavailable completion result is a permanent unconfirmed-delivery result and is never retried
+automatically.
+
+## Discord summary delivery extension
+
+Verification advertises the extension with capability `discord-summary-delivery-v1`. Each guild then
+includes a bounded `discordDelivery` object with `enabled`, `defaultsAvailable`,
+`channelOverrideAllowed`, `enabledMessageKinds`, and `channels`. Message kinds are `pve-summary`,
+`wvw-summary`, `wvw-advanced`, and `wvw-stream`. Channel objects contain a canonical positive signed
+64-bit decimal `channelId` and a bounded display `channelName`.
+
+The v1 message-kind list contains at most those four exact values. Unknown or duplicate values are
+rejected. An enabled delivery policy must advertise at least one message kind.
+
+At most 256 channels per guild and 2,048 channels across the response are accepted. Channel IDs must
+be unique within a guild. The existing 256 KiB verification bound applies. Channel names and enabled
+message kinds are transient and credential-free. Only the selected channel ID is ordinary settings.
+
+Omission of the capability preserves upload-only behavior. Delivery is disabled by default. A
+request selects exactly one of these modes:
+
+```json
+{"discordDelivery":{"mode":"guild_defaults"}}
+```
+
+```json
+{"discordDelivery":{"mode":"channel_override","channelId":"223456789012345678"}}
+```
+
+The permalink object is added beside `url` and `guildId`. A delivery request requires
+`discordDeliveryAccepted: true` in the `200` or `202` response. A completed response must also carry
+the normalized receipt below.
+
+Direct TUS creation appends `discorddelivery` containing base64 of `guild_defaults` or
+`channel_override`. An override also appends `discordchannelid` containing base64 of the canonical
+channel ID. Creation must return exactly one `X-DonBot-Discord-Delivery: accepted` before the client
+sends PATCH. Delivery also requires a valid `X-Log-Upload-Id` so its outcome can be observed.
+
+The final SSE event, or an already-complete permalink response, contains:
+
+```json
+{
+  "discordDelivery": {
+    "requested": true,
+    "outcome": "sent",
+    "sent": 3,
+    "skipped": 0,
+    "failed": 0,
+    "ambiguous": 0
+  }
+}
+```
+
+Allowed outcomes are `not_requested`, `sent`, `partial`, `skipped`, `failed`, and `ambiguous`.
+Counts total at most four and must agree with the outcome. Partial, failed, skipped, or ambiguous
+Discord output does not invalidate a successfully ingested fight. The client retains only the
+normalized outcome and counts. It never retains channel IDs, Discord message IDs, message bodies,
+raw Discord errors, or raw server responses in upload history.
+
+The normalized receipt must match the captured request intent. Requested delivery cannot complete
+as `requested: false` or `not_requested`. An unrequested upload cannot report requested delivery.
+For an event stream, the final `data:` event must be `complete`, and that same event must carry the
+matching receipt when delivery was requested.
+
+Initial automatic work carries the configured delivery intent. Explicit Reupload omits it. Restart,
+rescan, configuration toggles, and automatic retry never replay a settled or ambiguous Discord
+delivery.
 
 ## Failure and retry policy
 
@@ -187,7 +264,8 @@ key, URL, file path, account, guild name, response body, raw server message, or 
 ## Deterministic coverage
 
 Fake-transport tests cover verification JSON and bounds, permalink import and idempotent responses,
-secret placement, all accepted location
+capability and channel policy, exact delivery JSON and TUS metadata, acknowledgements, normalized
+delivery outcomes, secret placement, all accepted location
 forms, cross-origin and path-confusion rejection, exact metadata including `wingman=false`, streamed
 file bytes, both TUS response handshakes, optional upload IDs, cancellation, local validation,
 creation retry classification, and no-retry ambiguous PATCH failures. Default tests never contact

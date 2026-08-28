@@ -13,6 +13,9 @@ namespace manny_uploader::ports {
 struct DonBotUploadContext {
     std::string api_base_url;
     std::string guild_id;
+    domain::DonBotDiscordDeliveryMode discord_delivery_mode{
+        domain::DonBotDiscordDeliveryMode::None};
+    std::string discord_channel_id;
 };
 
 struct TwitchUploadContext {

@@ -20,9 +20,9 @@ struct GeneralSettings {
     bool window_visible{true};
     std::uint32_t poll_interval_ms{1000};
     std::uint32_t stability_observations{2};
-    std::uint32_t recent_log_limit{50};
+    std::uint32_t recent_log_limit{100};
     std::uint32_t parser_queue_capacity{8};
-    std::uint32_t parallel_uploads_per_provider{1};
+    std::uint32_t parallel_uploads_per_provider{5};
     std::uint32_t max_candidates{4096};
 
     [[nodiscard]] friend bool operator==(const GeneralSettings&,
@@ -45,6 +45,8 @@ struct DonBotSettings {
     bool enabled{};
     std::string api_base_url{default_donbot_api_base};
     std::string selected_guild_id;
+    bool discord_delivery_enabled{};
+    std::string selected_discord_channel_id;
 
     [[nodiscard]] friend bool operator==(const DonBotSettings&,
                                          const DonBotSettings&) noexcept = default;
@@ -81,6 +83,8 @@ enum class SettingsValidationErrorCode : std::uint8_t {
     OutOfRange,
     InvalidUrl,
     InvalidGuildId,
+    InvalidChannelId,
+    DonBotDiscordDeliveryRequiresUpload,
     InvalidTwitchClientId,
     TwitchRequiresDpsReport,
     TwitchPostingDisabled,

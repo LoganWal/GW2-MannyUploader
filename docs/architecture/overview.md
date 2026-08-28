@@ -317,13 +317,19 @@ used to obtain the resulting fight-log ID. Both upload routes supply the selecte
 and disable DonBot's own Wingman submission. A TUS `Location` is accepted only beneath the configured
 creation path at the exact same HTTPS origin before the same key can be sent in PATCH.
 
+Capability `discord-summary-delivery-v1` extends verification with guild-owned default routing,
+enabled message kinds, and authorized channel overrides. New jobs may carry server defaults or one
+verified channel into either DonBot upload path. Both paths require explicit acceptance, and
+completion returns only normalized delivery counts.
+
 The client requires exact `201` creation and `204` completion handshakes, including protocol version
 and final upload offset. A completed event stream contributes the DonBot fight ID used for aggregate
 links. Once creation succeeds, an ambiguous PATCH or processing failure is not automatically retried
 because starting a new upload could create a duplicate record. The complete wire and retry rules are
 frozen in [`docs/contracts/donbot.md`](../contracts/donbot.md).
 
-`DonBotProviderWorker` copies the ordinary API base and guild selection into each accepted request,
+`DonBotProviderWorker` copies the ordinary API base, guild selection, Discord delivery mode, and
+optional channel into each accepted request,
 while loading the protected API key only when that attempt reaches the worker. Options changes
 therefore affect new work without retargeting queued work, and credentials never enter coordinator
 requests. See
@@ -338,6 +344,10 @@ identity become visible. Startup re-verifies the saved key; revoked selections a
 Guild selection and disconnect are also write-through, with disconnect disabling ordinary settings
 before protected-key erasure. The exact state and failure ordering is frozen in
 [`docs/contracts/donbot-configuration-workflow.md`](../contracts/donbot-configuration-workflow.md).
+
+The DonBot options model exposes the delivery toggle and default-or-channel route only while the
+current verified guild authorizes them. Changing guilds clears delivery targeting. Startup
+re-verification disables a revoked route without retargeting it.
 
 ## Twitch broadcaster client
 
@@ -430,6 +440,8 @@ ID, and Twitch message-policy changes use an ordinary-options payload that canno
 DonBot or Twitch enablement. The Client ID may change only while Twitch is disconnected or in error.
 Dedicated commands enforce verified DonBot endpoint/guild state and a connected broadcaster-owned
 Twitch session before those destinations can be enabled.
+Dedicated DonBot delivery commands also enforce the current guild policy and channel list without
+placing transient channel names into ordinary settings.
 After the durable ordinary-settings revision is published, the owner applies all general settings to
 the long-lived components in place. Poll-source and stability changes clear only pending candidate
 observations, parser-queue downsizing preserves queued and completed parses, and history downsizing

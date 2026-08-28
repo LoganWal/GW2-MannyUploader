@@ -18,8 +18,6 @@ namespace manny_uploader::application {
 
 struct NexusOrdinaryOptions {
     config::GeneralSettings general;
-    config::DpsReportSettings dps_report;
-    config::WingmanSettings wingman;
     std::string twitch_client_id;
     std::string twitch_message_template;
     bool twitch_post_success{true};
@@ -36,6 +34,14 @@ struct SetWindowVisibleCommand {
     bool visible;
 };
 
+struct SetDpsReportEnabledCommand {
+    bool enabled;
+};
+
+struct SetWingmanEnabledCommand {
+    bool enabled;
+};
+
 struct VerifyDonBotCommand {
     std::string api_base_url;
     support::SecretValue api_key;
@@ -47,6 +53,14 @@ struct SelectDonBotGuildCommand {
 
 struct SetDonBotEnabledCommand {
     bool enabled;
+};
+
+struct SetDonBotDiscordDeliveryEnabledCommand {
+    bool enabled;
+};
+
+struct SelectDonBotDiscordChannelCommand {
+    std::string channel_id;
 };
 
 struct DisconnectDonBotCommand {};
@@ -64,8 +78,10 @@ struct SendTwitchTestMessageCommand {};
 struct DismissNexusOptionsErrorCommand {};
 
 using NexusOptionsCommand =
-    std::variant<SaveOrdinaryOptionsCommand, SetWindowVisibleCommand, VerifyDonBotCommand,
-                 SelectDonBotGuildCommand, SetDonBotEnabledCommand, DisconnectDonBotCommand,
+    std::variant<SaveOrdinaryOptionsCommand, SetWindowVisibleCommand, SetDpsReportEnabledCommand,
+                 SetWingmanEnabledCommand, VerifyDonBotCommand, SelectDonBotGuildCommand,
+                 SetDonBotEnabledCommand, DisconnectDonBotCommand,
+                 SetDonBotDiscordDeliveryEnabledCommand, SelectDonBotDiscordChannelCommand,
                  ConnectTwitchCommand, SetTwitchEnabledCommand, DisconnectTwitchCommand,
                  SendTwitchTestMessageCommand, DismissNexusOptionsErrorCommand>;
 

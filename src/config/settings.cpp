@@ -117,6 +117,23 @@ void validate_guild_id(std::string_view value, std::vector<SettingsValidationErr
     }
 }
 
+void validate_channel_id(std::string_view value, std::vector<SettingsValidationError>& errors) {
+    if (value.empty()) {
+        return;
+    }
+    std::uint64_t parsed{};
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    const bool valid =
+        value.size() <= max_guild_id_bytes && result.ec == std::errc{} &&
+        result.ptr == value.data() + value.size() && parsed > 0 &&
+        parsed <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+    if (!valid) {
+        add_error(errors, SettingsValidationErrorCode::InvalidChannelId,
+                  "donbot.selected_discord_channel_id",
+                  "DonBot Discord channel ID must be a positive decimal Discord snowflake");
+    }
+}
+
 void validate_twitch_client_id(std::string_view value,
                                std::vector<SettingsValidationError>& errors) {
     if (value.empty()) {
@@ -191,6 +208,7 @@ std::vector<SettingsValidationError> validate_settings(const Settings& settings)
     validate_range(settings.general.max_candidates, 1, 10'000, "general.max_candidates", errors);
     validate_donbot_url(settings.donbot.api_base_url, errors);
     validate_guild_id(settings.donbot.selected_guild_id, errors);
+    validate_channel_id(settings.donbot.selected_discord_channel_id, errors);
     validate_twitch_client_id(settings.twitch.client_id, errors);
     validate_template(settings.twitch.message_template, errors);
 
@@ -201,6 +219,11 @@ std::vector<SettingsValidationError> validate_settings(const Settings& settings)
     if (settings.donbot.enabled && settings.donbot.selected_guild_id.empty()) {
         add_error(errors, SettingsValidationErrorCode::EmptyValue, "donbot.selected_guild_id",
                   "Enabling DonBot requires a verified guild selection");
+    }
+    if (settings.donbot.discord_delivery_enabled && !settings.donbot.enabled) {
+        add_error(errors, SettingsValidationErrorCode::DonBotDiscordDeliveryRequiresUpload,
+                  "donbot.discord_delivery_enabled",
+                  "DonBot Discord delivery requires DonBot uploads to be enabled");
     }
     if (settings.twitch.enabled && !settings.twitch.post_success && !settings.twitch.post_failure) {
         add_error(errors, SettingsValidationErrorCode::TwitchPostingDisabled, "twitch.enabled",

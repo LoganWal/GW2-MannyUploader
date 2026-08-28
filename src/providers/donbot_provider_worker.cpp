@@ -41,16 +41,32 @@ constexpr auto default_retry_delay = std::chrono::seconds{30};
         config.api_base_url.ends_with("/.")) {
         return false;
     }
-    if (config.guild_id.empty()) {
-        return true;
+    const auto valid_identifier = [](std::string_view value) {
+        std::uint64_t parsed_value{};
+        const auto parsed =
+            std::from_chars(value.data(), value.data() + value.size(), parsed_value);
+        return !value.empty() && value.size() <= 19 && value.front() != '0' &&
+               parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size() &&
+               parsed_value > 0 &&
+               parsed_value <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+    };
+    const auto delivery_valid = [&config, &valid_identifier] {
+        switch (config.discord_delivery_mode) {
+        case domain::DonBotDiscordDeliveryMode::None:
+        case domain::DonBotDiscordDeliveryMode::GuildDefaults:
+            return config.discord_channel_id.empty();
+        case domain::DonBotDiscordDeliveryMode::ChannelOverride:
+            return valid_identifier(config.discord_channel_id);
+        }
+        return false;
+    }();
+    if (!delivery_valid) {
+        return false;
     }
-    std::uint64_t guild{};
-    const auto parsed = std::from_chars(config.guild_id.data(),
-                                        config.guild_id.data() + config.guild_id.size(), guild);
-    return config.guild_id.size() <= 19 && config.guild_id.front() != '0' &&
-           parsed.ec == std::errc{} &&
-           parsed.ptr == config.guild_id.data() + config.guild_id.size() && guild > 0 &&
-           guild <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+    if (config.guild_id.empty()) {
+        return config.discord_delivery_mode == domain::DonBotDiscordDeliveryMode::None;
+    }
+    return valid_identifier(config.guild_id);
 }
 
 [[nodiscard]] ports::UploadResult
@@ -139,6 +155,11 @@ DonBotProviderWorker::enqueue(ports::UploadRequest request) {
         request.donbot_context = ports::DonBotUploadContext{
             .api_base_url = snapshot.api_base_url,
             .guild_id = snapshot.guild_id,
+            .discord_delivery_mode = request.user_initiated_retry
+                                         ? domain::DonBotDiscordDeliveryMode::None
+                                         : snapshot.discord_delivery_mode,
+            .discord_channel_id =
+                request.user_initiated_retry ? std::string{} : snapshot.discord_channel_id,
         };
     } catch (...) {
         return std::unexpected(
@@ -220,13 +241,17 @@ ports::UploadResult DonBotProviderWorker::process(const ports::UploadRequest& re
                                : "The DonBot GW2 API key could not be loaded");
     }
 
+    const auto delivery = DonBotDiscordDeliveryRequest{
+        .mode = request.donbot_context->discord_delivery_mode,
+        .channel_id = request.donbot_context->discord_channel_id,
+    };
     auto uploaded =
         request.dps_report_result
-            ? client_.import_permalink(request.dps_report_result->permalink,
-                                       request.donbot_context->api_base_url,
-                                       request.donbot_context->guild_id, *api_key, stop_token)
+            ? client_.import_permalink(
+                  request.dps_report_result->permalink, request.donbot_context->api_base_url,
+                  request.donbot_context->guild_id, *api_key, delivery, stop_token)
             : client_.upload(request.file, request.donbot_context->api_base_url,
-                             request.donbot_context->guild_id, *api_key, stop_token);
+                             request.donbot_context->guild_id, *api_key, delivery, stop_token);
     if (!uploaded) {
         switch (uploaded.error().disposition) {
         case DonBotDisposition::Retry:
@@ -253,12 +278,30 @@ ports::UploadResult DonBotProviderWorker::process(const ports::UploadRequest& re
                                             : "Uploaded to DonBot (upload ") +
                  std::to_string(*uploaded->upload_id) + ")";
     }
+    switch (uploaded->discord_delivery.outcome) {
+    case domain::DonBotDiscordDeliveryOutcome::Sent:
+        detail += ". Discord summaries sent";
+        break;
+    case domain::DonBotDiscordDeliveryOutcome::Partial:
+    case domain::DonBotDiscordDeliveryOutcome::Skipped:
+        detail += ". Some Discord summaries were skipped";
+        break;
+    case domain::DonBotDiscordDeliveryOutcome::Failed:
+        detail += ". Discord delivery failed";
+        break;
+    case domain::DonBotDiscordDeliveryOutcome::Ambiguous:
+        detail += ". Discord delivery could not be confirmed";
+        break;
+    case domain::DonBotDiscordDeliveryOutcome::NotRequested:
+        break;
+    }
 
     return make_result(request.job_id, ports::UploadOutcome::Succeeded, std::move(detail),
                        std::nullopt,
                        domain::DonBotUploadReceipt{
                            .upload_id = uploaded->upload_id,
                            .fight_log_id = uploaded->fight_log_id,
+                           .discord_delivery = uploaded->discord_delivery,
                        });
 }
 

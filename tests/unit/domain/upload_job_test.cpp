@@ -222,6 +222,52 @@ void wingman_receipt_tests(TestSuite& suite) {
     MANNY_CHECK(suite, duplicate.error().code == JobErrorCode::WingmanUploadAlreadyRecorded);
 }
 
+void donbot_receipt_tests(TestSuite& suite) {
+    auto created = UploadJob::create(UploadJobId{14}, example_file(), UploadJob::DetectedAt{},
+                                     providers(false, false, true, false));
+    MANNY_CHECK(suite, created.has_value());
+    auto job = std::move(*created);
+    MANNY_CHECK(suite, job.transition(Provider::DonBot, ProviderState::Active).has_value());
+
+    auto invalid_not_requested = job.record_donbot_upload(domain::DonBotUploadReceipt{
+        .upload_id = 42,
+        .fight_log_id = 314,
+        .discord_delivery =
+            domain::DonBotDiscordDeliveryReceipt{
+                .outcome = domain::DonBotDiscordDeliveryOutcome::NotRequested,
+                .sent = 1,
+            },
+    });
+    MANNY_CHECK(suite, !invalid_not_requested.has_value());
+    MANNY_CHECK(suite, invalid_not_requested.error().code == JobErrorCode::InvalidDonBotUpload);
+
+    auto invalid_partial = job.record_donbot_upload(domain::DonBotUploadReceipt{
+        .upload_id = 42,
+        .fight_log_id = 314,
+        .discord_delivery =
+            domain::DonBotDiscordDeliveryReceipt{
+                .outcome = domain::DonBotDiscordDeliveryOutcome::Partial,
+                .sent = 2,
+            },
+    });
+    MANNY_CHECK(suite, !invalid_partial.has_value());
+
+    MANNY_CHECK(suite, job
+                           .record_donbot_upload(domain::DonBotUploadReceipt{
+                               .upload_id = 42,
+                               .fight_log_id = 314,
+                               .discord_delivery =
+                                   domain::DonBotDiscordDeliveryReceipt{
+                                       .outcome = domain::DonBotDiscordDeliveryOutcome::Partial,
+                                       .sent = 2,
+                                       .skipped = 1,
+                                   },
+                           })
+                           .has_value());
+    MANNY_CHECK(suite, job.donbot_upload_receipt().has_value());
+    MANNY_CHECK(suite, job.donbot_upload_receipt()->discord_delivery.sent == 2);
+}
+
 void manual_retry_tests(TestSuite& suite) {
     auto created = UploadJob::create(UploadJobId{12}, example_file(), UploadJob::DetectedAt{},
                                      providers(true, true, true, true));
@@ -276,6 +322,7 @@ void run_upload_job_tests(TestSuite& suite) {
     dps_report_and_twitch_tests(suite);
     metadata_tests(suite);
     wingman_receipt_tests(suite);
+    donbot_receipt_tests(suite);
     manual_retry_tests(suite);
 
     MANNY_CHECK(suite, domain::provider_name(Provider::DpsReport) == "dps.report");

@@ -90,6 +90,7 @@ struct QuickAccessStatus {
 [[nodiscard]] QuickAccessStatus make_quick_access_status(bool dps_report_enabled,
                                                          bool wingman_enabled, bool donbot_enabled,
                                                          std::string_view donbot_guild,
+                                                         std::string_view donbot_discord_route,
                                                          bool twitch_enabled);
 
 class IAddonRuntime {

@@ -256,6 +256,8 @@ void construction_and_validation_tests(TestSuite& suite) {
     wrong_context.donbot_context = ports::DonBotUploadContext{
         .api_base_url = "https://donbot.example",
         .guild_id = "1",
+        .discord_delivery_mode = domain::DonBotDiscordDeliveryMode::None,
+        .discord_channel_id = {},
     };
     MANNY_CHECK(suite, !(*created)->enqueue(std::move(wrong_context)).has_value());
 }

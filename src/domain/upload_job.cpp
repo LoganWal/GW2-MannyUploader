@@ -51,6 +51,43 @@ namespace {
            });
 }
 
+[[nodiscard]] bool
+valid_donbot_discord_delivery(const DonBotDiscordDeliveryReceipt& receipt) noexcept {
+    constexpr std::uint16_t maximum_messages = 4;
+    const auto total = static_cast<std::uint32_t>(receipt.sent) + receipt.skipped + receipt.failed +
+                       receipt.ambiguous;
+    if (total > maximum_messages) {
+        return false;
+    }
+    if (receipt.outcome == DonBotDiscordDeliveryOutcome::NotRequested) {
+        return total == 0;
+    }
+    const auto populated_categories =
+        static_cast<unsigned>(receipt.sent != 0) + static_cast<unsigned>(receipt.skipped != 0) +
+        static_cast<unsigned>(receipt.failed != 0) + static_cast<unsigned>(receipt.ambiguous != 0);
+    switch (receipt.outcome) {
+    case DonBotDiscordDeliveryOutcome::NotRequested:
+        return false;
+    case DonBotDiscordDeliveryOutcome::Sent:
+        return receipt.sent != 0 && populated_categories == 1;
+    case DonBotDiscordDeliveryOutcome::Partial:
+        return populated_categories >= 2;
+    case DonBotDiscordDeliveryOutcome::Skipped:
+        return receipt.skipped != 0 && populated_categories == 1;
+    case DonBotDiscordDeliveryOutcome::Failed:
+        return receipt.failed != 0 && populated_categories == 1;
+    case DonBotDiscordDeliveryOutcome::Ambiguous:
+        return receipt.ambiguous != 0 && populated_categories == 1;
+    }
+    return false;
+}
+
+[[nodiscard]] bool valid_donbot_upload(const DonBotUploadReceipt& receipt) noexcept {
+    return (!receipt.upload_id || *receipt.upload_id != 0) &&
+           (!receipt.fight_log_id || *receipt.fight_log_id != 0) &&
+           valid_donbot_discord_delivery(receipt.discord_delivery);
+}
+
 } // namespace
 
 std::expected<UploadJob, JobError> UploadJob::create(UploadJobId id, LogFileIdentity file,
@@ -87,6 +124,10 @@ std::expected<UploadJob, JobError> UploadJob::restore(UploadJobId id, UploadJobR
     if (record.wingman_upload_receipt && record.wingman_upload_receipt->permalink.empty()) {
         return std::unexpected(make_error(JobErrorCode::InvalidWingmanUpload,
                                           "GW2Wingman permalink must not be empty"));
+    }
+    if (record.donbot_upload_receipt && !valid_donbot_upload(*record.donbot_upload_receipt)) {
+        return std::unexpected(
+            make_error(JobErrorCode::InvalidDonBotUpload, "DonBot upload receipt is invalid"));
     }
 
     ProviderSelection disabled{};
@@ -277,8 +318,7 @@ std::expected<void, JobError> UploadJob::record_donbot_upload(DonBotUploadReceip
         return std::unexpected(make_error(JobErrorCode::DonBotUploadAlreadyRecorded,
                                           "DonBot upload has already been recorded"));
     }
-    if ((receipt.upload_id && *receipt.upload_id == 0) ||
-        (receipt.fight_log_id && *receipt.fight_log_id == 0)) {
+    if (!valid_donbot_upload(receipt)) {
         return std::unexpected(
             make_error(JobErrorCode::InvalidDonBotUpload, "DonBot upload receipt is invalid"));
     }

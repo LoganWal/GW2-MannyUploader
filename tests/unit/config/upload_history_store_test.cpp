@@ -121,6 +121,11 @@ class TempHistoryTree {
             domain::DonBotUploadReceipt{
                 .upload_id = identity + 100,
                 .fight_log_id = identity + 200,
+                .discord_delivery =
+                    domain::DonBotDiscordDeliveryReceipt{
+                        .outcome = domain::DonBotDiscordDeliveryOutcome::Sent,
+                        .sent = 2,
+                    },
             },
         .twitch_delivery_receipt =
             domain::TwitchDeliveryReceipt{

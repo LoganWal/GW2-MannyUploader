@@ -4,6 +4,7 @@
 
 #include "support/test_suite.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -134,18 +135,34 @@ class FakeDonBotVerifier final : public ports::IDonBotVerifier {
     void succeed_next() {
         auto request = std::move(requests.front());
         requests.pop_front();
-        results.push_back(ports::DonBotVerificationResult{
-            .request_id = request.request_id,
-            .verification =
-                ports::DonBotVerificationSuccess{
-                    .identity =
-                        ports::DonBotVerification{
-                            .account_name = "Player.1234",
-                            .guilds = {{.guild_id = "123", .guild_name = "Guild One"}},
-                        },
-                    .api_key = std::move(request.api_key),
-                },
-        });
+        results.push_back(
+            ports::DonBotVerificationResult{
+                .request_id = request.request_id,
+                .verification =
+                    ports::DonBotVerificationSuccess{
+                        .identity =
+                            ports::DonBotVerification{
+                                .account_name = "Player.1234",
+                                .discord_summary_delivery_v1 = true,
+                                .guilds = {{
+                                    .guild_id = "123",
+                                    .guild_name = "Guild One",
+                                    .discord_delivery =
+                                        ports::DonBotDiscordDeliveryPolicy{
+                                            .enabled = true,
+                                            .defaults_available = true,
+                                            .channel_override_allowed = true,
+                                            .pve_summary = true,
+                                            .channels =
+                                                {
+                                                    {.channel_id = "223", .channel_name = "logs"},
+                                                },
+                                        },
+                                }},
+                            },
+                        .api_key = std::move(request.api_key),
+                    },
+            });
     }
 
     std::vector<std::string>& events_;
@@ -410,9 +427,18 @@ struct Fixture {
     const auto& settings = snapshot.configuration.settings;
     return contains(settings.general.log_directory) || contains(settings.donbot.api_base_url) ||
            contains(settings.donbot.selected_guild_id) ||
+           contains(settings.donbot.selected_discord_channel_id) ||
            contains(settings.twitch.message_template) || contains(snapshot.donbot.api_base_url) ||
            contains(snapshot.donbot.account_name.value_or("")) ||
            contains(snapshot.donbot.selected_guild_id) || contains(snapshot.donbot.diagnostic) ||
+           std::ranges::any_of(
+               snapshot.donbot.guilds,
+               [&contains](const auto& guild) {
+                   return std::ranges::any_of(
+                       guild.discord_delivery.channels, [&contains](const auto& channel) {
+                           return contains(channel.channel_id) || contains(channel.channel_name);
+                       });
+               }) ||
            contains(snapshot.twitch.login.value_or("")) ||
            contains(snapshot.twitch.user_code.value_or("")) ||
            contains(snapshot.twitch.verification_uri.value_or("")) ||
@@ -438,7 +464,6 @@ void connect_twitch(Fixture& fixture) {
 void render_boundary_and_queue_tests(TestSuite& suite) {
     Fixture fixture{{.command_capacity = 2, .max_commands_per_tick = 1}};
     auto ordinary = application::ordinary_options_from(fixture.configuration->snapshot().settings);
-    ordinary.wingman.enabled = false;
     ordinary.twitch_client_id = "abc123publicclient";
     ordinary.twitch_message_template = "{result}: {url}";
 
@@ -461,7 +486,7 @@ void render_boundary_and_queue_tests(TestSuite& suite) {
     const auto first_tick = fixture.options->tick();
     MANNY_CHECK(suite, first_tick.has_value() && first_tick->commands_processed == 1);
     MANNY_CHECK(suite, fixture.events == std::vector<std::string>({"settings.save"}));
-    MANNY_CHECK(suite, !fixture.configuration->snapshot().settings.wingman.enabled);
+    MANNY_CHECK(suite, fixture.configuration->snapshot().settings.wingman.enabled);
     MANNY_CHECK(suite, fixture.configuration->snapshot().settings.twitch.client_id ==
                            "abc123publicclient");
     MANNY_CHECK(suite, fixture.options->snapshot().pending_commands == 1);
@@ -481,6 +506,45 @@ void render_boundary_and_queue_tests(TestSuite& suite) {
     MANNY_CHECK(suite, !rejected.has_value());
     MANNY_CHECK(suite, rejected.error().code == application::NexusOptionsErrorCode::InvalidCommand);
     MANNY_CHECK(suite, !rejected.error().settings_validation_errors.empty());
+}
+
+void destination_toggle_tests(TestSuite& suite) {
+    Fixture fixture;
+    auto initial = fixture.configuration->snapshot().settings;
+    initial.donbot.enabled = true;
+    initial.donbot.selected_guild_id = "123";
+    initial.donbot.discord_delivery_enabled = true;
+    initial.donbot.selected_discord_channel_id = "223";
+    initial.twitch.enabled = true;
+    MANNY_CHECK(suite, fixture.configuration->save_settings(initial).has_value());
+    fixture.events.clear();
+
+    auto ordinary = application::ordinary_options_from(initial);
+    ordinary.general.recent_log_limit = 75;
+    MANNY_CHECK(suite,
+                fixture.options->submit(application::SetDpsReportEnabledCommand{.enabled = false})
+                    .has_value());
+    MANNY_CHECK(suite,
+                fixture.options->submit(application::SetWingmanEnabledCommand{.enabled = false})
+                    .has_value());
+    MANNY_CHECK(suite, fixture.options
+                           ->submit(application::SaveOrdinaryOptionsCommand{
+                               .options = std::move(ordinary),
+                           })
+                           .has_value());
+    const auto updated = fixture.options->tick();
+    MANNY_CHECK(suite, updated && updated->commands_processed == 3);
+    MANNY_CHECK(suite, fixture.events == std::vector<std::string>(3, "settings.save"));
+
+    const auto saved = fixture.configuration->snapshot().settings;
+    MANNY_CHECK(suite, !saved.dps_report.enabled);
+    MANNY_CHECK(suite, !saved.wingman.enabled);
+    MANNY_CHECK(suite, !saved.twitch.enabled);
+    MANNY_CHECK(suite, saved.donbot.enabled);
+    MANNY_CHECK(suite, saved.donbot.discord_delivery_enabled);
+    MANNY_CHECK(suite, saved.donbot.selected_guild_id == "123");
+    MANNY_CHECK(suite, saved.donbot.selected_discord_channel_id == "223");
+    MANNY_CHECK(suite, saved.general.recent_log_limit == 75);
 }
 
 void workflow_owned_settings_tests(TestSuite& suite) {
@@ -601,6 +665,26 @@ void donbot_workflow_tests(TestSuite& suite) {
     MANNY_CHECK(suite, fixture.options->tick().has_value());
     MANNY_CHECK(suite, fixture.events == std::vector<std::string>({"settings.save"}));
     MANNY_CHECK(suite, fixture.configuration->snapshot().settings.donbot.enabled);
+
+    fixture.events.clear();
+    MANNY_CHECK(suite,
+                fixture.options
+                    ->submit(application::SetDonBotDiscordDeliveryEnabledCommand{.enabled = true})
+                    .has_value());
+    MANNY_CHECK(suite, fixture.options->tick().has_value());
+    MANNY_CHECK(suite, fixture.events == std::vector<std::string>({"settings.save"}));
+    MANNY_CHECK(suite, fixture.configuration->snapshot().settings.donbot.discord_delivery_enabled);
+
+    fixture.events.clear();
+    MANNY_CHECK(
+        suite,
+        fixture.options->submit(application::SelectDonBotDiscordChannelCommand{.channel_id = "223"})
+            .has_value());
+    MANNY_CHECK(suite, fixture.options->tick().has_value());
+    MANNY_CHECK(suite, fixture.events == std::vector<std::string>({"settings.save"}));
+    MANNY_CHECK(suite,
+                fixture.configuration->snapshot().settings.donbot.selected_discord_channel_id ==
+                    "223");
 
     fixture.events.clear();
     MANNY_CHECK(suite, fixture.options->submit(application::DisconnectDonBotCommand{}).has_value());
@@ -810,6 +894,7 @@ void configuration_tests(TestSuite& suite) {
 
 void run_nexus_options_controller_tests(TestSuite& suite) {
     render_boundary_and_queue_tests(suite);
+    destination_toggle_tests(suite);
     workflow_owned_settings_tests(suite);
     concurrent_submission_tests(suite);
     donbot_workflow_tests(suite);

@@ -46,7 +46,8 @@ void default_and_selection_tests(TestSuite& suite) {
     MANNY_CHECK(suite, settings.donbot.selected_discord_channel_id.empty());
     MANNY_CHECK(suite, !settings.twitch.enabled);
     MANNY_CHECK(suite, settings.twitch.client_id.empty());
-    MANNY_CHECK(suite, settings.twitch.message_template.find("{url}") != std::string::npos);
+    MANNY_CHECK(suite,
+                settings.twitch.message_template == "{encounter}{mode_suffix} - {result}: {url}");
     MANNY_CHECK(suite, config::validate_settings(settings).empty());
 
     const auto selection = config::enabled_provider_selection(settings);

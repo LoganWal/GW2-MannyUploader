@@ -28,6 +28,7 @@ std::size_t input_deregistration_count{};
 std::size_t quick_access_registration_count{};
 std::size_t quick_access_deregistration_count{};
 std::size_t texture_creation_count{};
+bool textures_pending{};
 Texture_t shortcut_texture{.Width = 32, .Height = 32, .Resource = &shortcut_texture};
 std::vector<std::string> lifecycle_events;
 bool host_contract_valid{true};
@@ -92,7 +93,7 @@ Texture_t* create_texture(const char* identifier, void* bytes, std::uint64_t siz
         png[3] == 0x47;
     ++texture_creation_count;
     lifecycle_events.emplace_back("create_texture");
-    return &shortcut_texture;
+    return textures_pending ? nullptr : &shortcut_texture;
 }
 
 void add_quick_access(const char* identifier, const char* texture_identifier,
@@ -170,6 +171,7 @@ int main(int argument_count, char** arguments) {
 
     bool passed = true;
     for (std::size_t cycle = 0; cycle < hot_load_cycles; ++cycle) {
+        textures_pending = cycle % 2 == 0;
         registered_callbacks.fill(nullptr);
         deregistered_callbacks.fill(nullptr);
         registration_count = 0;

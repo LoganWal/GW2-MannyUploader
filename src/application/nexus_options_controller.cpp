@@ -108,9 +108,11 @@ struct NexusOptionsController::State {
     State(ConfigurationService& configuration_value, DonBotConfigurationController& donbot_value,
           TwitchAuthenticationController& twitch_value,
           ports::ITwitchTestMessenger& twitch_test_messenger_value,
+          ports::IExternalActionLauncher& external_action_launcher_value,
           NexusOptionsControllerConfig config_value, NexusOptionsSnapshot published_value)
         : configuration{configuration_value}, donbot{donbot_value}, twitch{twitch_value},
-          twitch_test_messenger{twitch_test_messenger_value}, config{config_value},
+          twitch_test_messenger{twitch_test_messenger_value},
+          external_action_launcher{external_action_launcher_value}, config{config_value},
           twitch_test_message{published_value.twitch_test_message},
           published{std::move(published_value)} {}
 
@@ -118,6 +120,7 @@ struct NexusOptionsController::State {
     DonBotConfigurationController& donbot;
     TwitchAuthenticationController& twitch;
     ports::ITwitchTestMessenger& twitch_test_messenger;
+    ports::IExternalActionLauncher& external_action_launcher;
     NexusOptionsControllerConfig config;
     mutable std::mutex mutex;
     std::deque<NexusOptionsCommand> commands;
@@ -153,6 +156,8 @@ struct NexusOptionsController::State {
     execute(const DisconnectDonBotCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(const ConnectTwitchCommand& command);
+    [[nodiscard]] std::expected<void, NexusOptionsError>
+    execute(const OpenTwitchAuthorizationCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
     execute(const SetTwitchEnabledCommand& command);
     [[nodiscard]] std::expected<void, NexusOptionsError>
@@ -361,6 +366,36 @@ NexusOptionsController::State::execute([[maybe_unused]] const DisconnectTwitchCo
     return {};
 }
 
+std::expected<void, NexusOptionsError>
+NexusOptionsController::State::execute(const OpenTwitchAuthorizationCommand& command) {
+    const auto current = twitch.snapshot();
+    if (current.state != TwitchConnectionState::AwaitingUser ||
+        current.revision != command.revision || !current.verification_uri) {
+        return std::unexpected(
+            make_error(NexusOptionsErrorCode::ActionFailed,
+                       "Start a Twitch connection before opening authorization"));
+    }
+    const std::string_view uri = *current.verification_uri;
+    constexpr std::string_view base = "https://www.twitch.tv/activate";
+    if (uri.size() > 2048 || !uri.starts_with(base) ||
+        (uri.size() != base.size() && uri[base.size()] != '?') || uri.contains('@') ||
+        uri.contains('#') || uri.contains('\\') ||
+        !std::ranges::all_of(uri,
+                             [](unsigned char byte) { return byte >= 0x21U && byte <= 0x7eU; })) {
+        return std::unexpected(make_error(NexusOptionsErrorCode::ActionFailed,
+                                          "The Twitch authorization address is invalid"));
+    }
+    try {
+        if (external_action_launcher.open_url(uri)) {
+            return {};
+        }
+    } catch (...) {
+    }
+    return std::unexpected(make_error(
+        NexusOptionsErrorCode::ActionFailed,
+        "Could not open Twitch authorization. Check your default browser and try again."));
+}
+
 std::expected<void, NexusOptionsError> NexusOptionsController::State::execute(
     [[maybe_unused]] const SendTwitchTestMessageCommand& command) {
     if (twitch.snapshot().state != TwitchConnectionState::Connected) {
@@ -471,7 +506,7 @@ NexusOrdinaryOptions ordinary_options_from(const config::Settings& settings) {
 std::expected<NexusOptionsController, NexusOptionsError> NexusOptionsController::create(
     ConfigurationService& configuration, DonBotConfigurationController& donbot,
     TwitchAuthenticationController& twitch, ports::ITwitchTestMessenger& twitch_test_messenger,
-    NexusOptionsControllerConfig config) {
+    ports::IExternalActionLauncher& external_action_launcher, NexusOptionsControllerConfig config) {
     if (config.command_capacity == 0 || config.command_capacity > max_command_capacity ||
         config.max_commands_per_tick == 0 ||
         config.max_commands_per_tick > config.command_capacity) {
@@ -488,28 +523,28 @@ std::expected<NexusOptionsController, NexusOptionsError> NexusOptionsController:
             make_error(NexusOptionsErrorCode::ShuttingDown, "Nexus options are shutting down"));
     }
 
-    auto state =
-        std::make_unique<State>(configuration, donbot, twitch, twitch_test_messenger, config,
-                                NexusOptionsSnapshot{
-                                    .configuration = configuration_snapshot,
-                                    .donbot = donbot_snapshot,
-                                    .twitch = twitch_snapshot,
-                                    .twitch_test_message =
-                                        TwitchTestMessageSnapshot{
-                                            .state = TwitchTestMessageState::Idle,
-                                            .diagnostic = {},
-                                            .outcome = std::nullopt,
-                                            .delivery_status = std::nullopt,
-                                            .delivery_ambiguous = false,
-                                            .revision = 1,
-                                            .shutting_down = false,
-                                        },
-                                    .last_error = std::nullopt,
-                                    .pending_commands = 0,
-                                    .revision = 1,
-                                    .accepting_commands = true,
-                                    .shutting_down = false,
-                                });
+    auto state = std::make_unique<State>(configuration, donbot, twitch, twitch_test_messenger,
+                                         external_action_launcher, config,
+                                         NexusOptionsSnapshot{
+                                             .configuration = configuration_snapshot,
+                                             .donbot = donbot_snapshot,
+                                             .twitch = twitch_snapshot,
+                                             .twitch_test_message =
+                                                 TwitchTestMessageSnapshot{
+                                                     .state = TwitchTestMessageState::Idle,
+                                                     .diagnostic = {},
+                                                     .outcome = std::nullopt,
+                                                     .delivery_status = std::nullopt,
+                                                     .delivery_ambiguous = false,
+                                                     .revision = 1,
+                                                     .shutting_down = false,
+                                                 },
+                                             .last_error = std::nullopt,
+                                             .pending_commands = 0,
+                                             .revision = 1,
+                                             .accepting_commands = true,
+                                             .shutting_down = false,
+                                         });
     return NexusOptionsController{std::move(state)};
 }
 

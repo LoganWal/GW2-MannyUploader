@@ -64,6 +64,7 @@ Workflow-owned values use dedicated commands:
 - select DonBot guild defaults or an authorized Discord channel.
 - disconnect DonBot and erase its protected key.
 - begin broadcaster-owned Twitch Device Code authentication.
+- open the current Twitch authorization page in the system browser.
 - enable or disable Twitch posting.
 - send one explicit test message to the connected broadcaster's own chat.
 - disconnect Twitch and revoke/erase its session.
@@ -123,8 +124,19 @@ no credential bytes, raw provider documents, HTTP values, or chat messages.
 - pending-command count, revision, acceptance, and shutdown state.
 
 It never contains a DonBot key, Twitch device code, access token, refresh token, or encoded session.
-The public Twitch user code and activation URI are intentionally visible while authorization is
-pending.
+The public Twitch user code and activation URI remain in the workflow snapshot while authorization
+is pending. The view model exposes only a fixed eight-asterisk mask when a code exists and omits the
+activation URI. The renderer never displays either raw value.
+
+The normal Twitch UI uses the bundled public application identity and has no developer setup field.
+`OpenTwitchAuthorizationCommand` carries only the displayed connection revision. On the application
+owner thread, it requires that revision to still be awaiting authorization and resolves the URI
+from the current workflow snapshot. Only the bounded HTTPS `www.twitch.tv/activate` address with an
+optional query is allowed. The existing external-action port launches the browser on native Windows
+and Wine. Submission performs no shell work. Launch failures and exceptions produce a fixed safe
+diagnostic suggesting that the user check their default browser, without exposing the URI or
+platform error details. A red warning beside the authorization button states that the code will be
+visible in the browser window.
 
 `build_nexus_options_model` is a pure mapping used to test status text and control availability
 without ImGui. It disables credential-dependent controls when protected storage is unavailable,
@@ -153,6 +165,8 @@ Portable deterministic tests must prove:
 - queue overflow and malformed input rejection;
 - DonBot verify/select/enable/disconnect rules and persistence ordering;
 - Twitch connect/enable/disconnect rules using the authenticated broadcaster only;
+- authorization launch isolation, current-revision gating, trusted URL validation, safe launch
+  failures, and shutdown queue cancellation;
 - Twitch test-message render-boundary isolation, connected/in-flight gating, correlation, typed
   terminal status, redaction, and cancellation;
 - protected-storage capability and workflow states drive view-model enablement;

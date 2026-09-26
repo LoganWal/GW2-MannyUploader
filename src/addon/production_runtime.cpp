@@ -169,7 +169,7 @@ class WindowsExternalActionLauncher final : public ports::IExternalActionLaunche
         const std::wstring target{url.begin(), url.end()};
         if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", target.c_str(), nullptr,
                                                     nullptr, SW_SHOWNORMAL)) <= 32) {
-            return std::unexpected(launch_error("Windows could not open the dps.report link"));
+            return std::unexpected(launch_error("Windows could not open the link"));
         }
         return {};
     }
@@ -213,13 +213,13 @@ struct RuntimeComponents {
 
     std::unique_ptr<application::DonBotConfigurationController> donbot_controller;
     std::unique_ptr<application::TwitchAuthenticationController> twitch_controller;
+    std::unique_ptr<WindowsExternalActionLauncher> external_action_launcher;
     std::unique_ptr<application::NexusOptionsController> options_controller;
 
     std::unique_ptr<evtc::ZevtcMetadataReader> metadata_reader;
     std::unique_ptr<evtc::MetadataParserWorker> metadata_worker;
     std::unique_ptr<filesystem::ChangeNotifyingLogCandidateSource> candidate_source;
     std::unique_ptr<application::UploadCoordinator> upload_coordinator;
-    std::unique_ptr<WindowsExternalActionLauncher> external_action_launcher;
     std::unique_ptr<application::RecentLogActionsController> recent_log_actions;
     std::unique_ptr<application::DonBotAggregateDeliveryController> donbot_aggregate_controller;
     std::unique_ptr<application::LogIngestionCoordinator> ingestion_coordinator;
@@ -480,9 +480,10 @@ create_components(const AddonPaths& paths) {
         result->twitch_controller = std::make_unique<application::TwitchAuthenticationController>(
             std::move(*twitch_controller));
 
+        result->external_action_launcher = std::make_unique<WindowsExternalActionLauncher>();
         auto options = application::NexusOptionsController::create(
             *result->configuration, *result->donbot_controller, *result->twitch_controller,
-            *result->twitch_test_message_worker);
+            *result->twitch_test_message_worker, *result->external_action_launcher);
         if (!options) {
             return std::unexpected(runtime_error("Unable to initialize Nexus options"));
         }
@@ -531,7 +532,6 @@ create_components(const AddonPaths& paths) {
             !restored) {
             return std::unexpected(runtime_error("Unable to restore persistent upload history"));
         }
-        result->external_action_launcher = std::make_unique<WindowsExternalActionLauncher>();
         auto recent_log_actions = application::RecentLogActionsController::create(
             *result->upload_coordinator, *result->external_action_launcher);
         if (!recent_log_actions) {
@@ -1121,7 +1121,7 @@ class ProductionRuntime final : public IAddonRuntime {
         render_donbot(snapshot);
         render_twitch(snapshot);
 
-        if (ImGui::Button("Save ordinary settings")) {
+        if (ImGui::Button("Save")) {
             submit_draft();
         }
         ImGui::SameLine();
@@ -1232,7 +1232,6 @@ class ProductionRuntime final : public IAddonRuntime {
         draft_ = snapshot.options_model.ordinary;
         copy_to_buffer(draft_.general.log_directory, log_directory_);
         copy_to_buffer(draft_.twitch_message_template, twitch_template_);
-        copy_to_buffer(components_->twitch_client->client_id(), twitch_client_id_);
         copy_to_buffer(snapshot.options_snapshot.configuration.settings.donbot.api_base_url,
                        donbot_url_);
         draft_initialized_ = true;
@@ -1250,7 +1249,6 @@ class ProductionRuntime final : public IAddonRuntime {
     void submit_draft() {
         draft_.general.log_directory = log_directory_.data();
         draft_.general.window_visible = window_visible_.load(std::memory_order_acquire);
-        draft_.twitch_client_id = twitch_client_id_.data();
         draft_.twitch_message_template = twitch_template_.data();
         submit(application::SaveOrdinaryOptionsCommand{.options = draft_});
     }
@@ -1750,36 +1748,27 @@ class ProductionRuntime final : public IAddonRuntime {
             return;
         }
         if (!snapshot.twitch_application_configured) {
-            ImGui::TextWrapped("Enter the public Client ID from your Twitch developer application, "
-                               "save settings, then connect the broadcaster account. A client "
-                               "secret is not used or stored.");
+            ImGui::TextWrapped("Twitch is unavailable in this build.");
         }
-        const auto twitch_state = snapshot.options_snapshot.twitch.state;
-        const bool client_id_editable =
-            twitch_state == application::TwitchConnectionState::Disconnected ||
-            twitch_state == application::TwitchConnectionState::Error;
-        ImGui::InputText(
-            "Application client ID", twitch_client_id_.data(), twitch_client_id_.size(),
-            client_id_editable ? ImGuiInputTextFlags_None : ImGuiInputTextFlags_ReadOnly);
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip(
-                "Open dev.twitch.tv/console/apps and register an application.\n"
-                "Use a unique name, add http://localhost:3000 as the redirect URL if required, "
-                "choose a suitable category, and select Public as the client type.\n"
-                "After creation, open Manage and copy its Client ID into this field.\n"
-                "Do not create or paste a Client Secret; MannyUploader does not use one.");
-        }
+        ImGui::TextWrapped("Connect your Twitch account to post report links to your own chat.");
         ImGui::TextWrapped("Status: %s", snapshot.options_model.twitch.status_text.c_str());
         if (!snapshot.options_model.twitch.diagnostic.empty()) {
             ImGui::TextWrapped("%s", snapshot.options_model.twitch.diagnostic.c_str());
         }
-        if (snapshot.options_model.twitch.user_code) {
-            ImGui::Text("Code: %s", snapshot.options_model.twitch.user_code->c_str());
+        if (snapshot.options_model.twitch.masked_user_code) {
+            ImGui::Text("Code: %s", snapshot.options_model.twitch.masked_user_code->c_str());
         }
-        if (snapshot.options_model.twitch.verification_uri) {
-            ImGui::TextWrapped("Open: %s", snapshot.options_model.twitch.verification_uri->c_str());
+        if (snapshot.options_model.twitch.authorization_available) {
+            if (ImGui::Button("Open Twitch authorization")) {
+                submit(application::OpenTwitchAuthorizationCommand{
+                    .revision = snapshot.options_snapshot.twitch.revision});
+            }
+            ImGui::SameLine();
+            ImGui::PushTextWrapPos(0.0F);
+            ImGui::TextColored(ImVec4{1.0F, 0.25F, 0.25F, 1.0F},
+                               "The code will be visible in the browser window.");
+            ImGui::PopTextWrapPos();
+            ImGui::TextWrapped("Authorize in your browser, then return here.");
         }
         if (snapshot.twitch_application_configured &&
             snapshot.options_model.twitch.connect_available && ImGui::Button("Connect Twitch")) {
@@ -1787,9 +1776,12 @@ class ProductionRuntime final : public IAddonRuntime {
         }
         if (snapshot.options_model.twitch.enable_toggle_available) {
             bool enabled = snapshot.options_snapshot.configuration.settings.twitch.enabled;
-            if (ImGui::Checkbox("Enable Twitch chat upload", &enabled)) {
+            if (ImGui::Checkbox("Automatically post report links", &enabled)) {
                 submit(application::SetTwitchEnabledCommand{.enabled = enabled});
             }
+        }
+        if (!snapshot.options_snapshot.configuration.settings.dps_report.enabled) {
+            ImGui::TextWrapped("Enable dps.report uploads before enabling automatic Twitch posts.");
         }
         if (snapshot.options_model.twitch.disconnect_available &&
             ImGui::Button("Disconnect Twitch")) {
@@ -1803,6 +1795,20 @@ class ProductionRuntime final : public IAddonRuntime {
                            snapshot.options_model.twitch.test_message_status_text.c_str());
         ImGui::InputTextMultiline("Message template", twitch_template_.data(),
                                   twitch_template_.size(), ImVec2{-1.0F, 70.0F});
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Customize the message posted for each dps.report link.\n\n"
+                              "{url} - dps.report link (required)\n"
+                              "{encounter} - encounter name\n"
+                              "{mode} - encounter mode\n"
+                              "{mode_suffix} - mode in parentheses, omitted when empty\n"
+                              "{result} - Success or Failure\n"
+                              "{boss_id} - numeric boss ID\n\n"
+                              "Use {{ and }} for literal braces. Keep the message on one line.\n"
+                              "Keep your message under 500 characters, including the report link.\n"
+                              "Emoji and some symbols take up more space in the template.\n"
+                              "Save to apply changes.\n\n"
+                              "Example: {encounter}{mode_suffix} - {result}: {url}");
+        }
         ImGui::Checkbox("Post successful encounters", &draft_.twitch_post_success);
         ImGui::Checkbox("Post failed encounters", &draft_.twitch_post_failure);
     }
@@ -2041,7 +2047,6 @@ class ProductionRuntime final : public IAddonRuntime {
     application::NexusOrdinaryOptions draft_;
     std::array<char, 4097> log_directory_{};
     std::array<char, 2049> twitch_template_{};
-    std::array<char, 129> twitch_client_id_{};
     std::array<char, 2049> donbot_url_{};
     std::array<char, 513> donbot_key_{};
 };

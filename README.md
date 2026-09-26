@@ -4,6 +4,14 @@ GW2 Manny Uploader is a native Windows x64 [Raidcore Nexus](https://raidcore.gg/
 that watches completed arcdps `.zevtc` logs and sends them to the services you enable without
 blocking the game thread.
 
+Configure destinations in Nexus options and track uploads in the recent-log window.
+
+![MannyUploader options and recent logs with per-provider upload status](docs/images/addon-overview.png)
+
+Post encounter results and dps.report links directly to your Twitch chat.
+
+![Twitch chat showing MannyUploader encounter results and report links](docs/images/twitch-chat.png)
+
 ## Supported destinations
 
 - [dps.report](https://dps.report/)
@@ -133,19 +141,15 @@ while automatic delivery is off. Reupload processes the log again without repost
 
 ### Twitch broadcaster chat
 
-Twitch uses a public Device Code application and an available protected store. It never asks for or
-stores a client secret.
+MannyUploader includes its public Twitch application identity. No developer account or client
+secret is needed. Connecting requires an available protected credential store.
 
-1. Open the [Twitch developer console](https://dev.twitch.tv/console/apps), choose `Register Your
-   Application`, use a unique name, add `http://localhost:3000` as the redirect URL if required,
-   choose a suitable category, and select the public client type.
-2. Open `Manage` for the application, copy its public Client ID into MannyUploader, and save ordinary
-   settings. Do not create or paste a Client Secret; MannyUploader does not use one. The `(?)` beside
-   the field contains the same setup reminder in-game.
-3. Select `Connect Twitch`.
-4. Open the displayed verification address and enter the displayed Device Code.
-5. Authorize using the broadcaster account whose chat should receive links.
-6. Wait for the connected status, enable Twitch chat upload, and use `Send test message`.
+1. Select `Connect Twitch`, then `Open Twitch authorization`.
+2. Approve access on Twitch using the account whose chat should receive links. The addon masks the
+   code, but the browser window will show it. Keep that window off stream.
+3. Return to the addon and wait for `Connected as` with your Twitch username.
+4. Enable `Automatically post report links` and use `Send test message`. Automatic posts require
+   dps.report uploads to be enabled.
 
 `Disconnect Twitch` disables posting, attempts revocation, and erases the protected local session.
 Successful and failed encounter posting can be enabled independently, but at least one must remain
@@ -156,7 +160,7 @@ selected while Twitch is enabled.
 The default template is:
 
 ```text
-{encounter}{mode_suffix} — {result}: {url}
+{encounter}{mode_suffix} - {result}: {url}
 ```
 
 | Field | Value |
@@ -213,7 +217,7 @@ both existing files are invalid, startup fails closed instead of silently discar
 ### DonBot or Twitch cannot be enabled
 
 - DonBot requires a verified key and one authorized guild selection.
-- Twitch requires a valid public application Client ID, available protected storage, dps.report, and at least one
+- Twitch requires a connected account, available protected storage, dps.report, and at least one
   encounter-result policy.
 - Do not paste credentials into `settings.json`; secret-like JSON keys are rejected.
 
@@ -262,13 +266,13 @@ cmake --build --preset release
 ctest --preset release
 ```
 
-Packagers may optionally provide a default public Twitch Client ID at configure time:
+Builds include MannyUploader's public Twitch Client ID. Packagers can override it at configure time:
 
 ```sh
 cmake -S . -B out/build/release -DMANNY_TWITCH_CLIENT_ID=yourlowercaseclientid
 ```
 
-Users can override that fallback—or configure Twitch in a build without one—through Nexus options.
+An empty build override uses the bundled ID. Existing saved Client ID overrides remain supported.
 
 Check source formatting with:
 

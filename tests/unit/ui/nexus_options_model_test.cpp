@@ -82,6 +82,8 @@ void disconnected_model_tests(TestSuite& suite) {
     MANNY_CHECK(suite, !model.donbot.disconnect_available);
     MANNY_CHECK(suite, model.twitch.status_text == "Not connected");
     MANNY_CHECK(suite, model.twitch.connect_available);
+    MANNY_CHECK(suite, !model.twitch.authorization_available);
+    MANNY_CHECK(suite, !model.twitch.masked_user_code.has_value());
     MANNY_CHECK(suite, !model.twitch.enable_toggle_available);
     MANNY_CHECK(suite, !model.twitch.disconnect_available);
     MANNY_CHECK(suite, model.twitch.test_message_status_text == "No test message sent");
@@ -142,6 +144,8 @@ void connected_model_tests(TestSuite& suite) {
     MANNY_CHECK(suite, !model.twitch.connect_available);
     MANNY_CHECK(suite, model.twitch.enable_toggle_available);
     MANNY_CHECK(suite, model.twitch.disconnect_available);
+
+    MANNY_CHECK(suite, !model.twitch.authorization_available);
     MANNY_CHECK(suite, model.twitch.test_message_available);
     MANNY_CHECK(suite, model.command_pending);
     MANNY_CHECK(suite, model.last_error == "Safe visible diagnostic");
@@ -225,8 +229,19 @@ void authorization_and_disabled_model_tests(TestSuite& suite) {
     authorizing.twitch.verification_uri = "https://www.twitch.tv/activate";
     auto model = ui::build_nexus_options_model(authorizing);
     MANNY_CHECK(suite, model.twitch.status_text == "Waiting for Twitch authorization");
-    MANNY_CHECK(suite, model.twitch.user_code == "ABCD-EFGH");
-    MANNY_CHECK(suite, model.twitch.verification_uri == "https://www.twitch.tv/activate");
+    MANNY_CHECK(suite, model.twitch.masked_user_code == "********");
+    MANNY_CHECK(suite, authorizing.twitch.user_code == "ABCD-EFGH");
+    authorizing.twitch.user_code = "DIFFERENT-CODE";
+    authorizing.twitch.verification_uri =
+        "https://www.twitch.tv/activate?public=true&device-code=DIFFERENT-CODE";
+    MANNY_CHECK(suite,
+                ui::build_nexus_options_model(authorizing).twitch.masked_user_code == "********");
+    MANNY_CHECK(suite, model.twitch.authorization_available);
+    authorizing.accepting_commands = false;
+    MANNY_CHECK(suite, !ui::build_nexus_options_model(authorizing).twitch.authorization_available);
+    authorizing.accepting_commands = true;
+    authorizing.twitch.verification_uri.reset();
+    MANNY_CHECK(suite, !ui::build_nexus_options_model(authorizing).twitch.authorization_available);
     MANNY_CHECK(suite, !model.twitch.connect_available);
     MANNY_CHECK(suite, model.twitch.disconnect_available);
 

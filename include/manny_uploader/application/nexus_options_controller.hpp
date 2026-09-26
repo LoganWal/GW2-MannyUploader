@@ -3,6 +3,7 @@
 #include "manny_uploader/application/configuration_service.hpp"
 #include "manny_uploader/application/donbot_configuration_controller.hpp"
 #include "manny_uploader/application/twitch_authentication_controller.hpp"
+#include "manny_uploader/ports/external_action_launcher.hpp"
 #include "manny_uploader/ports/twitch_test_messenger.hpp"
 
 #include <cstddef>
@@ -73,6 +74,10 @@ struct DisconnectDonBotCommand {};
 
 struct ConnectTwitchCommand {};
 
+struct OpenTwitchAuthorizationCommand {
+    std::uint64_t revision;
+};
+
 struct SetTwitchEnabledCommand {
     bool enabled;
 };
@@ -90,7 +95,7 @@ using NexusOptionsCommand =
                  DisconnectDonBotCommand, SetDonBotDiscordDeliveryEnabledCommand,
                  SelectDonBotDiscordChannelCommand, ConnectTwitchCommand, SetTwitchEnabledCommand,
                  DisconnectTwitchCommand, SendTwitchTestMessageCommand,
-                 DismissNexusOptionsErrorCommand>;
+                 OpenTwitchAuthorizationCommand, DismissNexusOptionsErrorCommand>;
 
 enum class TwitchTestMessageState : std::uint8_t {
     Idle,
@@ -160,6 +165,7 @@ class NexusOptionsController {
     create(ConfigurationService& configuration, DonBotConfigurationController& donbot,
            TwitchAuthenticationController& twitch,
            ports::ITwitchTestMessenger& twitch_test_messenger,
+           ports::IExternalActionLauncher& external_action_launcher,
            NexusOptionsControllerConfig config = {});
 
     ~NexusOptionsController();

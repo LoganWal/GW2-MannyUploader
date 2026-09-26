@@ -499,8 +499,9 @@ settled work and remain separate from provider enablement. Complete policy and t
 The production Windows adapter composes settings, protected-storage capability, Schannel HTTP,
 provider clients/workers, authentication workflows, EVTC polling/parsing, and coordinators before it
 registers the render callbacks, configurable window bind, and quick-access shortcut and opens the
-Nexus callback gate. Normal, idle-grey, and Twitch-purple icon textures are decoded synchronously from
-embedded PNG bytes, avoiding an asynchronous callback that could outlive the DLL. The shortcut's
+Nexus callback gate. Normal, idle-grey, and Twitch-purple icon textures are submitted from embedded
+PNG bytes without asynchronous callbacks that could outlive the DLL. Nexus resolves the registered
+texture identifiers once queued texture creation completes. The shortcut's
 owned multiline tooltip reports enabled destinations and selected DonBot guild; Twitch tint has
 precedence. One background application-owner thread drains commands, updates provider configuration,
 polls the log directory, advances jobs, publishes UI-ready deep copies, and atomically persists

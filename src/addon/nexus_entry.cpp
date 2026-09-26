@@ -143,27 +143,17 @@ class NexusHost final : public IAddonHost {
                 .message = "Cannot register the Nexus quick-access shortcut",
             });
         }
-        Texture_t* texture = api_->Textures_GetOrCreateFromMemory(
+        // Nexus may queue texture creation and return null until a later frame. Register all
+        // identifiers now so the shortcut can resolve the textures when they become available.
+        (void)api_->Textures_GetOrCreateFromMemory(
             quick_access_texture_identifier.data(), quick_access_icon_png.data(),
             static_cast<std::uint64_t>(quick_access_icon_png.size()));
-        if (texture == nullptr) {
-            return std::unexpected(AddonHostError{
-                .code = AddonHostErrorCode::RegistrationFailed,
-                .message = "Nexus could not create the quick-access icon texture",
-            });
-        }
-        Texture_t* idle_texture = api_->Textures_GetOrCreateFromMemory(
+        (void)api_->Textures_GetOrCreateFromMemory(
             quick_access_idle_texture_identifier.data(), quick_access_idle_icon_png.data(),
             static_cast<std::uint64_t>(quick_access_idle_icon_png.size()));
-        Texture_t* twitch_texture = api_->Textures_GetOrCreateFromMemory(
+        (void)api_->Textures_GetOrCreateFromMemory(
             quick_access_twitch_texture_identifier.data(), quick_access_twitch_icon_png.data(),
             static_cast<std::uint64_t>(quick_access_twitch_icon_png.size()));
-        if (idle_texture == nullptr || twitch_texture == nullptr) {
-            return std::unexpected(AddonHostError{
-                .code = AddonHostErrorCode::RegistrationFailed,
-                .message = "Nexus could not create the quick-access status textures",
-            });
-        }
         const auto texture_identifier = quick_access_texture_identifier_for(status.tint);
         quick_access_tooltip_storage_ = status.tooltip;
         api_->QuickAccess_Add(quick_access_identifier.data(), texture_identifier.data(),

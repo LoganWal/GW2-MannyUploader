@@ -16,9 +16,11 @@ application runtime. Native Nexus and ImGui types stop at that entry adapter.
 Callbacks invoked synchronously during registration are safe no-ops. A partial registration failure
 deregisters completed required registrations in reverse order, shuts down the runtime, and returns to
 the unloaded state. Quick access is optional: a texture/shortcut failure emits a warning while main
-rendering, options, the input bind, and the complete upload runtime remain active. Icon creation uses
-Nexus's synchronous memory API; no asynchronous texture callback may retain code or data from the
-addon DLL.
+rendering, options, the input bind, and the complete upload runtime remain active. All three icon
+variants are submitted through Nexus's memory API, which consumes the PNG bytes during the call but
+may return null while GPU texture creation is queued. Null does not abort shortcut registration.
+Nexus resolves the registered texture identifiers as textures become available. No asynchronous
+texture callback may retain code or data from the addon DLL.
 
 ## Callback boundary
 

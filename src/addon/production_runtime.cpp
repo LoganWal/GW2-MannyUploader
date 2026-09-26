@@ -1121,7 +1121,7 @@ class ProductionRuntime final : public IAddonRuntime {
         render_donbot(snapshot);
         render_twitch(snapshot);
 
-        if (ImGui::Button("Save ordinary settings")) {
+        if (ImGui::Button("Save")) {
             submit_draft();
         }
         ImGui::SameLine();
@@ -1806,7 +1806,7 @@ class ProductionRuntime final : public IAddonRuntime {
                               "Use {{ and }} for literal braces. Keep the message on one line.\n"
                               "Keep your message under 500 characters, including the report link.\n"
                               "Emoji and some symbols take up more space in the template.\n"
-                              "Save ordinary settings to apply changes.\n\n"
+                              "Save to apply changes.\n\n"
                               "Example: {encounter}{mode_suffix} - {result}: {url}");
         }
         ImGui::Checkbox("Post successful encounters", &draft_.twitch_post_success);

@@ -92,7 +92,9 @@ performs HTTP/OAuth work, advances jobs, or joins threads.
 The quick-access shortcut and the Nexus-configurable input bind target the same callback-safe window
 toggle. The default chord is `Alt+Shift+M`; Nexus owns rebinding. A press updates an atomic render
 visibility flag immediately and queues a narrow durable visibility command, while a release does
-nothing. Three small embedded PNG variants are decoded synchronously by Nexus during load. An owned
+nothing. Three small embedded PNG variants are submitted to Nexus during load. A pending texture
+result does not prevent submission of the other variants or registration of the shortcut. Nexus
+resolves their identifiers after queued texture creation completes. An owned
 multiline tooltip lists enabled destinations, the selected DonBot guild, and its active Discord
 delivery route. Grey means none enabled, the normal tint means upload enabled, and Twitch purple
 takes precedence when chat is enabled.
@@ -113,4 +115,4 @@ waiting on a blocked callback. The Windows smoke host loads the actual DLL throu
 provides a compatible real ImGui context and minimal Nexus API, renders main/options, invokes the
 window bind, validates exact shortcut identifiers and all embedded PNG handoffs, verifies complete reverse
 resource teardown, unloads the composed runtime, and calls `FreeLibrary` across ten consecutive
-hot-load cycles.
+hot-load cycles, alternating cached and pending texture responses.

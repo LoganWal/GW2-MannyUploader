@@ -12,7 +12,7 @@ namespace manny_uploader::config {
 inline constexpr std::uint32_t current_settings_schema_version = 1;
 inline constexpr std::string_view default_donbot_api_base = "https://donbot-api.walmslo.com";
 inline constexpr std::string_view default_twitch_message_template =
-    "{encounter}{mode_suffix} — {result}: {url}";
+    "{encounter}{mode_suffix} - {result}: {url}";
 
 struct GeneralSettings {
     std::string log_directory;

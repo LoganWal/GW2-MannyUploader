@@ -37,7 +37,7 @@ not a secret store. It may be copied into diagnostics after path/account identif
   "twitch": {
     "enabled": false,
     "client_id": "",
-    "message_template": "{encounter}{mode_suffix} — {result}: {url}",
+    "message_template": "{encounter}{mode_suffix} - {result}: {url}",
     "post_success": true,
     "post_failure": true
   }

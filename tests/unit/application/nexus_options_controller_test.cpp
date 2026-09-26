@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -262,13 +263,13 @@ class FakeTwitchAuthenticator final : public ports::ITwitchAuthenticator {
         results.clear();
     }
 
-    void respond_start() {
+    void respond_start(std::string uri = "https://www.twitch.tv/activate") {
         auto request = take(ports::TwitchAuthenticationOperation::Start);
         succeed(std::move(request),
                 ports::TwitchAuthorizationStarted{
                     .device_code = support::SecretValue::from_text("PRIVATE-DEVICE"),
                     .user_code = "ABCD-EFGH",
-                    .verification_uri = "https://www.twitch.tv/activate",
+                    .verification_uri = std::move(uri),
                     .expires_in = 600s,
                     .polling_interval = 5s,
                 });
@@ -380,6 +381,31 @@ class FakeTwitchTestMessenger final : public ports::ITwitchTestMessenger {
     bool fail_enqueue{};
 };
 
+class RecordingLauncher final : public ports::IExternalActionLauncher {
+  public:
+    std::vector<std::string> urls;
+    bool fail{};
+    bool throw_on_open{};
+
+    std::expected<void, ports::ExternalActionError> open_url(std::string_view url) override {
+        urls.emplace_back(url);
+        if (throw_on_open) {
+            throw std::runtime_error("PRIVATE-LAUNCH-DETAIL");
+        }
+        if (fail) {
+            return std::unexpected(
+                ports::ExternalActionError{.code = ports::ExternalActionErrorCode::LaunchFailed,
+                                           .message = "PRIVATE-LAUNCH-DETAIL"});
+        }
+        return {};
+    }
+
+    std::expected<void, ports::ExternalActionError>
+    open_directory(const std::filesystem::path&) override {
+        return {};
+    }
+};
+
 struct Fixture {
     explicit Fixture(application::NexusOptionsControllerConfig controller_config = {})
         : donbot_verifier{events}, twitch_authenticator{events}, twitch_test_messenger{events} {
@@ -399,7 +425,7 @@ struct Fixture {
             *configuration, twitch_authenticator, *session_owner, clock);
         twitch.emplace(std::move(*twitch_created));
         auto options_created = application::NexusOptionsController::create(
-            *configuration, *donbot, *twitch, twitch_test_messenger, controller_config);
+            *configuration, *donbot, *twitch, twitch_test_messenger, launcher, controller_config);
         options.emplace(std::move(*options_created));
         events.clear();
     }
@@ -414,6 +440,7 @@ struct Fixture {
     FakeTwitchAuthenticator twitch_authenticator;
     FakeTwitchTestMessenger twitch_test_messenger;
     FakeClock clock;
+    RecordingLauncher launcher;
     std::optional<application::TwitchSessionOwner> session_owner;
     std::optional<application::TwitchAuthenticationController> twitch;
     std::optional<application::NexusOptionsController> options;
@@ -915,17 +942,80 @@ void shutdown_tests(TestSuite& suite) {
     MANNY_CHECK(suite, !fixture.options->submit(application::ConnectTwitchCommand{}).has_value());
 }
 
+void twitch_authorization_launcher_tests(TestSuite& suite) {
+    Fixture fixture;
+    const auto open = [&] {
+        return application::OpenTwitchAuthorizationCommand{.revision =
+                                                               fixture.twitch->snapshot().revision};
+    };
+    MANNY_CHECK(suite, fixture.options->submit(open()).has_value());
+    MANNY_CHECK(suite, fixture.options->tick()->action_failures == 1);
+    MANNY_CHECK(suite, fixture.launcher.urls.empty());
+
+    MANNY_CHECK(suite, fixture.options->submit(application::ConnectTwitchCommand{}).has_value());
+    MANNY_CHECK(suite, fixture.options->tick().has_value());
+    const auto stale = open();
+    const std::string uri = "https://www.twitch.tv/activate?public=true&device-code=ABCD-EFGH";
+    fixture.twitch_authenticator.respond_start(uri);
+    MANNY_CHECK(suite, fixture.options->tick().has_value());
+    MANNY_CHECK(suite, fixture.options->submit(stale).has_value());
+    MANNY_CHECK(suite, fixture.options->tick()->action_failures == 1);
+    MANNY_CHECK(suite, fixture.launcher.urls.empty());
+
+    fixture.events.clear();
+    MANNY_CHECK(suite, fixture.options->submit(open()).has_value());
+    MANNY_CHECK(suite, fixture.launcher.urls.empty());
+    MANNY_CHECK(suite, fixture.events.empty());
+    MANNY_CHECK(suite, fixture.options->tick()->action_failures == 0);
+    MANNY_CHECK(suite, fixture.launcher.urls == std::vector<std::string>{uri});
+    MANNY_CHECK(suite, fixture.events.empty());
+
+    fixture.launcher.fail = true;
+    MANNY_CHECK(suite, fixture.options->submit(open()).has_value());
+    MANNY_CHECK(suite, fixture.options->tick()->action_failures == 1);
+    MANNY_CHECK(suite, !snapshot_contains(fixture.options->snapshot(), "PRIVATE-LAUNCH-DETAIL"));
+    MANNY_CHECK(suite, fixture.options->snapshot().last_error->message.contains("default browser"));
+    fixture.launcher.throw_on_open = true;
+    MANNY_CHECK(suite, fixture.options->submit(open()).has_value());
+    MANNY_CHECK(suite, fixture.options->tick()->action_failures == 1);
+    MANNY_CHECK(suite, !snapshot_contains(fixture.options->snapshot(), "PRIVATE-LAUNCH-DETAIL"));
+
+    fixture.launcher.urls.clear();
+    MANNY_CHECK(suite, fixture.options->submit(open()).has_value());
+    fixture.options->shutdown();
+    MANNY_CHECK(suite, !fixture.options->tick().has_value());
+    MANNY_CHECK(suite, fixture.launcher.urls.empty());
+    MANNY_CHECK(suite, !fixture.options->submit(open()).has_value());
+
+    for (const auto* invalid :
+         {"https://www.twitch.tv/activate.evil.test/", "https://www.twitch.tv/activate/other",
+          "https://www.twitch.tv/activate?x=@evil.test", "https://www.twitch.tv/activate#fragment",
+          "https://www.twitch.tv/activate?x=\n", "http://www.twitch.tv/activate"}) {
+        Fixture unsafe;
+        MANNY_CHECK(suite, unsafe.options->submit(application::ConnectTwitchCommand{}).has_value());
+        MANNY_CHECK(suite, unsafe.options->tick().has_value());
+        unsafe.twitch_authenticator.respond_start(invalid);
+        MANNY_CHECK(suite, unsafe.options->tick().has_value());
+        MANNY_CHECK(suite, unsafe.options
+                               ->submit(application::OpenTwitchAuthorizationCommand{
+                                   .revision = unsafe.twitch->snapshot().revision})
+                               .has_value());
+        MANNY_CHECK(suite, unsafe.options->tick()->action_failures == 1);
+        MANNY_CHECK(suite, unsafe.launcher.urls.empty());
+    }
+}
+
 void configuration_tests(TestSuite& suite) {
     Fixture fixture;
     const auto zero_capacity = application::NexusOptionsController::create(
         *fixture.configuration, *fixture.donbot, *fixture.twitch, fixture.twitch_test_messenger,
-        {.command_capacity = 0, .max_commands_per_tick = 1});
+        fixture.launcher, {.command_capacity = 0, .max_commands_per_tick = 1});
     MANNY_CHECK(suite, !zero_capacity.has_value());
     MANNY_CHECK(suite, zero_capacity.error().code ==
                            application::NexusOptionsErrorCode::InvalidConfiguration);
     const auto excessive_tick = application::NexusOptionsController::create(
         *fixture.configuration, *fixture.donbot, *fixture.twitch, fixture.twitch_test_messenger,
-        {.command_capacity = 1, .max_commands_per_tick = 2});
+        fixture.launcher, {.command_capacity = 1, .max_commands_per_tick = 2});
     MANNY_CHECK(suite, !excessive_tick.has_value());
 }
 
@@ -938,6 +1028,7 @@ void run_nexus_options_controller_tests(TestSuite& suite) {
     concurrent_submission_tests(suite);
     donbot_workflow_tests(suite);
     twitch_workflow_tests(suite);
+    twitch_authorization_launcher_tests(suite);
     twitch_test_message_workflow_tests(suite);
     shutdown_tests(suite);
     configuration_tests(suite);

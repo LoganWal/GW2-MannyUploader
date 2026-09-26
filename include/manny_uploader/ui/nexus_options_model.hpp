@@ -32,9 +32,9 @@ struct TwitchOptionsModel {
     std::string diagnostic;
     std::string test_message_status_text;
     std::string test_message_diagnostic;
-    std::optional<std::string> user_code;
-    std::optional<std::string> verification_uri;
+    std::optional<std::string> masked_user_code;
     bool connect_available{};
+    bool authorization_available{};
     bool enable_toggle_available{};
     bool disconnect_available{};
     bool test_message_available{};

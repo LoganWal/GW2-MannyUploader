@@ -21,7 +21,7 @@ until a verified guild has been persisted.
 
 If native protected storage is unavailable, dps.report continues anonymously while DonBot and Twitch
 credential operations expose the unavailable capability. Twitch connection additionally requires the
-public Client ID saved through Nexus options or provided as the optional packager fallback. Missing
+public Client ID bundled by default, with optional packager or saved-settings overrides. Missing
 Twitch configuration never prevents dps.report, GW2Wingman, or DonBot from running.
 
 ## Application owner

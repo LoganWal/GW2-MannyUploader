@@ -190,9 +190,14 @@ NexusOptionsModel build_nexus_options_model(const application::NexusOptionsSnaps
                 .test_message_status_text =
                     twitch_test_message_status(snapshot.twitch_test_message),
                 .test_message_diagnostic = snapshot.twitch_test_message.diagnostic,
-                .user_code = snapshot.twitch.user_code,
-                .verification_uri = snapshot.twitch.verification_uri,
+                .masked_user_code = snapshot.twitch.user_code
+                                        ? std::optional<std::string>{"********"}
+                                        : std::nullopt,
                 .connect_available = active && storage_available && twitch_idle,
+                .authorization_available =
+                    active &&
+                    snapshot.twitch.state == application::TwitchConnectionState::AwaitingUser &&
+                    snapshot.twitch.verification_uri.has_value(),
                 .enable_toggle_available =
                     active && (snapshot.configuration.settings.twitch.enabled || twitch_connected),
                 .disconnect_available =

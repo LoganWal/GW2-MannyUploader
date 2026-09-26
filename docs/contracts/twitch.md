@@ -14,9 +14,11 @@ Verified 2026-08-20 against Twitch's official documentation for:
 
 ## Application identity and scope
 
-The addon is a public Twitch application using the Device Code flow. Its public Client ID is ordinary
-user configuration, with an optional packager-provided build default. It may be replaced only while
-the workflow is disconnected or in error. No client secret is compiled in, persisted, displayed,
+The addon is a public Twitch application using the Device Code flow. Builds include MannyUploader's
+public Client ID by default, including when the build override is empty. Packagers may supply another
+public Client ID. Existing ordinary-settings overrides remain supported and may be replaced only
+while the workflow is disconnected or in error. The normal options UI has no Client ID field or
+developer registration step. No client secret is compiled in, persisted, displayed,
 requested from the broadcaster, or sent by this client.
 
 The only requested and accepted scope is `user:write:chat`. The integration does not read chat, join

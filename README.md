@@ -1,256 +1,50 @@
 # GW2 Manny Uploader
 
-GW2 Manny Uploader is a native Windows x64 [Raidcore Nexus](https://raidcore.gg/gw2/nexus) addon
-that watches completed arcdps `.zevtc` logs and sends them to the services you enable without
-blocking the game thread.
+Automatically upload arcdps logs to dps.report, GW2Wingman, and DonBot, and post report links to your Twitch chat. Supports Windows and Wine/Proton.
 
-Configure destinations in Nexus options and track uploads in the recent-log window.
+## Install
+
+Requires [Raidcore Nexus](https://raidcore.gg/gw2/nexus) and arcdps saving compressed `.zevtc` logs.
+
+1. Download the Windows x64 ZIP from the [latest release](https://github.com/LoganWal/GW2-MannyUploader/releases/latest).
+2. Extract `manny_uploader.dll` into `<Guild Wars 2>\addons\`.
+3. Launch the game, enable MannyUploader in Nexus, and choose destinations in Nexus options > MannyUploader.
+
+To update, unload the addon in Nexus before replacing the DLL.
+
+## Use
+
+Open the list from the quick-access icon or Alt+Shift+M.
+
+- Log folder: defaults to `<Guild Wars 2>\arcdps.cbtlogs`. Change it in options if needed.
+- Show New: watches logs completed after the addon loads. Show Last 24 Hours: includes the previous day's logs.
+- Copy links: copy dps.report URLs or one DonBot aggregate URL for selected fights.
+- Reupload / Rechat: explicitly resend a log or Twitch message. Upload history prevents automatic repeats across restarts.
 
 ![MannyUploader options and recent logs with per-provider upload status](docs/images/addon-overview.png)
 
-Post encounter results and dps.report links directly to your Twitch chat.
+## Connect destinations
+
+- dps.report / GW2Wingman: enabled by default. Toggle them in the list or options.
+- DonBot: enter your GW2 API key, select Verify DonBot, choose an authorized server, then enable uploads. Discord summaries are optional.
+- Twitch: select Connect Twitch, authorize your broadcaster account, then enable Automatically post report links. Requires dps.report. Keep the authorization browser window off stream.
+
+With dps.report enabled, the other destinations wait for its link. Without it, Wingman and DonBot upload directly.
 
 ![Twitch chat showing MannyUploader encounter results and report links](docs/images/twitch-chat.png)
 
-## Supported destinations
-
-- [dps.report](https://dps.report/)
-- Direct GW2Wingman
-- DonBot
-- The authenticated broadcaster's own Twitch chat
-
-When dps.report is enabled for a log, GW2Wingman, DonBot, and Twitch wait for its successful result.
-Wingman and DonBot then import the trusted permalink instead of uploading the same archive again. If
-dps.report is disabled, Wingman and DonBot use their independent direct archive-upload paths. Twitch
-has no channel setting: the authenticated account is always both sender and broadcaster.
-
-## Requirements
-
-- Guild Wars 2 on native Windows x64 or through Wine/Proton
-- Raidcore Nexus
-- arcdps configured to save compressed `.zevtc` combat logs
-- HTTPS access to each enabled provider
-
-The addon is one native DLL and does not require .NET or a companion runtime DLL. DonBot and Twitch
-work under Wine, but Wine DPAPI provides weaker protection than native Windows; the options UI shows
-an explicit compatibility warning.
-
-## Installation
-
-Until GW2 Manny Uploader has a public Nexus listing, install a verified Windows artifact manually:
-
-1. Download `GW2-Manny-Uploader-<version>-windows-x64.zip` and its `.sha256` sidecar from the same CI
-   or release run.
-2. Verify the archive in PowerShell:
-
-   ```powershell
-   (Get-FileHash .\GW2-Manny-Uploader-<version>-windows-x64.zip -Algorithm SHA256).Hash.ToLower()
-   Get-Content .\GW2-Manny-Uploader-<version>-windows-x64.zip.sha256
-   ```
-
-   The calculated value must match the first value in the sidecar.
-3. Confirm the ZIP contains only `manny_uploader.dll`.
-4. Copy the DLL directly to `<Guild Wars 2>\addons\manny_uploader.dll`.
-5. Launch Guild Wars 2 and load or enable `MannyUploader` through Nexus.
-
-Do not install the separately published PDB or its checksum. Those files are retained only with
-release evidence or a matching crash investigation.
-
-## Using the addon
-
-Open the uploader from its quick-access icon or the Nexus-managed `Alt+Shift+M` default keybind. The
-keybind can be changed through Nexus. Hovering the icon shows every enabled destination. It is grey
-when none are enabled, uses the normal accent when one or more upload providers are enabled, and uses
-Twitch purple whenever Twitch reporting is enabled. If Nexus cannot create the optional textures,
-the addon remains active through its keybind and options entry.
-
-The main window shows recent logs and each provider's state. Successful encounter cells are green.
-Failed encounter cells are red and include the remaining boss health when the EVTC recorded it.
-The controls above the table toggle dps.report, GW2Wingman, DonBot, and automatic DonBot Discord delivery.
-The same row selects the verified DonBot server and either its default Discord route or an authorized
-channel.
-Completed rows can open their dps.report, GW2Wingman, and DonBot fight pages. `Copy dps.report URLs`
-copies the visible report links, while `Copy DonBot aggregate URL` copies one aggregate page for the
-visible DonBot fight IDs. Eligible rows are selected by default and can be deselected. `Send selected
-logs via DonBot aggregate` asks DonBot to post one aggregate through the selected default or channel
-route. Each row can open its source folder. `Reupload` deliberately submits that
-log to dps.report, GW2Wingman, and DonBot again; `Rechat` deliberately sends its dps.report link to
-Twitch again. The status bar identifies the selected DonBot server while DonBot is enabled.
-
-`Show New` is the safe startup default and accepts only logs completed after the addon loaded.
-`Show Last 24 Hours` includes logs completed during the rolling previous 24 hours. Upload
-history is persisted across game restarts, so switching modes or disabling and re-enabling a provider
-does not resubmit an already-seen log. Only the explicit `Reupload` and `Rechat` actions replay work.
-
-All configuration is under `MannyUploader` in Nexus options. Saved settings apply without
-reloading; active parses and uploads keep the inputs captured when they started. The dps.report and
-GW2Wingman toggles remain available here as well as above the recent-log table.
-
-### General options
-
-| Option | Default | Range or meaning |
-| --- | ---: | --- |
-| Log directory | `<Guild Wars 2>\arcdps.cbtlogs` | Directory containing `.zevtc` logs; it may be created after startup. |
-| Watch subdirectories | On | Include nested encounter directories. |
-| Parallel uploads per provider | 5 | 1–32 concurrent requests for each destination independently. |
-
-Only `.zevtc` files are supported in version 1. If arcdps writes elsewhere, select that exact
-directory. A missing directory is a waiting state and is discovered when it appears. Internal scan,
-stability, parser, and candidate limits use validated defaults. The recent table retains up to 100
-settled rows by default.
-
-### dps.report
-
-`Upload to dps.report` is enabled by default. Its result supplies the report link shown in the recent
-log table and is required before Twitch posting can be enabled. `Detailed WvW reports` is off by
-default and can be changed above the recent-log table or in Nexus options. New dps.report uploads
-capture the current choice. dps.report warns that detailed WvW processing can fail for logs larger
-than 50 MB.
-
-### Direct GW2Wingman
-
-`Upload to GW2Wingman` is enabled by default. With dps.report enabled, the addon queues its permalink
-through Wingman's public import API. With dps.report disabled, it uses the isolated raw-EVTC
-compatibility endpoint because Wingman's direct workflow is based on processed Elite Insights data.
-
-### DonBot
-
-1. Leave the default API URL unless the DonBot operator supplied another HTTPS endpoint.
-2. Enter the Guild Wars 2 API key associated with the DonBot account and select `Verify DonBot`.
-3. Once verified, the API-key field is hidden. Select one authorized server from the dropdown.
-4. Enable uploads with the checkbox beside the server dropdown.
-5. If that server supports MannyUploader delivery, enable `Post DonBot summaries to Discord` for
-   automatic per-log delivery.
-6. `Guild defaults` is selected initially. Choose an authorized Discord channel only when that
-   server needs an explicit override.
-
-MannyUploader refreshes DonBot server permissions and delivery settings when uploads are enabled and
-then every 5 minutes. `Refresh DonBot servers` requests an immediate update. The current dropdown
-stays visible while the refresh runs.
-
-The key is protected separately from ordinary JSON. With dps.report enabled, DonBot imports its
-permalink for the selected server. With dps.report disabled, DonBot uploads the archive through TUS.
-Both routes disable DonBot's own Wingman submission, so enabling Wingman does not create a duplicate.
-`Deverify DonBot` disables the workflow and erases its locally protected key. Completed DonBot
-processing IDs are retained so the main window can compose its aggregate URL.
-
-DonBot creates the PvE or WvW summaries selected by the server. Advanced WvW and stream output are
-included only when enabled in DonBot. Automatic delivery is off by default. If the server advertises
-aggregate support, the main grid can explicitly send selected completed fights as one aggregate even
-while automatic delivery is off. Reupload processes the log again without reposting Discord messages.
-
-### Twitch broadcaster chat
-
-MannyUploader includes its public Twitch application identity. No developer account or client
-secret is needed. Connecting requires an available protected credential store.
-
-1. Select `Connect Twitch`, then `Open Twitch authorization`.
-2. Approve access on Twitch using the account whose chat should receive links. The addon masks the
-   code, but the browser window will show it. Keep that window off stream.
-3. Return to the addon and wait for `Connected as` with your Twitch username.
-4. Enable `Automatically post report links` and use `Send test message`. Automatic posts require
-   dps.report uploads to be enabled.
-
-`Disconnect Twitch` disables posting, attempts revocation, and erases the protected local session.
-Successful and failed encounter posting can be enabled independently, but at least one must remain
-selected while Twitch is enabled.
-
-### Twitch message template
-
-The default template is:
-
-```text
-{encounter}{mode_suffix} - {result}: {url}
-```
-
-| Field | Value |
-| --- | --- |
-| `{url}` | Trusted dps.report permalink; required. |
-| `{encounter}` | Encounter name returned by dps.report. |
-| `{mode}` | dps.report mode text. |
-| `{mode_suffix}` | Empty when mode is empty, otherwise the mode in parentheses. |
-| `{result}` | Exactly `Success` or `Failure`. |
-| `{boss_id}` | Unsigned decimal dps.report boss ID. |
-
-Use `{{` or `}}` for a literal brace. Templates must be valid UTF-8, contain `{url}`, and remain
-within the displayed limit after expansion. Unknown or unbalanced fields are rejected on save.
-
-## Stored data and credentials
-
-Nexus supplies the addon data directory. The current storage identity produces:
-
-```text
-<Guild Wars 2>\addons\GW2MannyUploader\
-├── settings.json
-├── settings.json.bak
-├── upload-history.json
-└── secrets\
-```
-
-`settings.json` contains ordinary options, including the public Twitch Client ID; `.bak` is its last
-known-good document. `upload-history.json` contains log identities, provider states, public report
-links, and delivery receipts used to prevent automatic replay. DonBot keys and Twitch OAuth sessions
-are bounded DPAPI records under `secrets` and are never written into ordinary JSON. Native Windows
-DPAPI is user-scoped. Wine DPAPI encryption does not provide the same protection against a copied
-profile or local attacker. Do not edit these files or include them in support bundles.
-
-If the primary settings file is corrupt, the addon attempts the valid backup and reports recovery. If
-both existing files are invalid, startup fails closed instead of silently discarding configuration.
+Credentials use protected storage. Wine provides weaker protection, flagged in options. Disconnect DonBot and Twitch before permanently removing the addon.
 
 ## Troubleshooting
 
-### Nexus does not detect the addon
+- Missing logs: check the log folder, subdirectory option, and that arcdps saves `.zevtc` files.
+- Addon missing: check that `manny_uploader.dll` is directly inside the game's `addons` folder.
+- Upload failed: check the row's status and use the offered retry.
+- [Report an issue](https://github.com/LoganWal/GW2-MannyUploader/issues) with versions, status text, and reproduction steps. Leave out credentials and private data.
 
-- Confirm the file is exactly `<Guild Wars 2>\addons\manny_uploader.dll`.
-- Confirm Nexus is active in the same Guild Wars 2 installation.
-- Use the Windows x64 ZIP, not a source archive, Linux module, or PDB.
-- Check `<Guild Wars 2>\addons\Nexus\Nexus.log` for the GW2 Manny Uploader channel.
+## Development
 
-### No logs are detected
-
-- Confirm arcdps creates compressed `.zevtc` files.
-- Compare the configured directory with the newest log's location.
-- Enable subdirectory watching if arcdps creates encounter-specific folders.
-- Use `Show New` for logs completed after addon load or `Show Last 24 Hours` for the rolling previous
-  24 hours.
-
-### DonBot or Twitch cannot be enabled
-
-- DonBot requires a verified key and one authorized guild selection.
-- Twitch requires a connected account, available protected storage, dps.report, and at least one
-  encounter-result policy.
-- Do not paste credentials into `settings.json`; secret-like JSON keys are rejected.
-
-### An upload or Twitch message fails
-
-Inspect the recent-log row and retry only when the UI offers an explicit retry. A failed dps.report
-attempt skips its waiting Wingman, DonBot, and Twitch imports until dps.report is retried. Direct
-Wingman and DonBot attempts still fail independently when dps.report is disabled. Ambiguous Twitch
-delivery is not retried automatically because that could create a duplicate message.
-
-Issue reports should include the addon, Windows, and Nexus versions, safe status text, and
-reproduction steps. Never include API keys, OAuth tokens, Device Codes, protected files, raw provider
-responses, or unredacted account/path information.
-
-## Updating or removing
-
-Unload or disable the addon through Nexus before replacing or deleting its DLL. A verified update can
-replace `manny_uploader.dll` while preserving the addon data directory.
-
-Before permanent removal, disconnect DonBot and Twitch through options so protected records are
-erased and Twitch revocation is attempted. After unloading, delete the DLL. Delete the
-`GW2MannyUploader` directory only if its settings and remaining records should also be removed.
-
-## Build and test
-
-Development requires CMake 3.25+, Ninja, and a C++23 compiler. MSVC x64 is the production toolchain;
-current GCC and Clang builds exercise the portable core.
-
-Dependencies are pinned and hash-verified through CMake: Nexus API v6, compatible Raidcore ImGui
-1.80, miniz 3.1.2, Glaze 8.0.0, and static libcurl 8.21.0 with Schannel. A fresh dependency cache
-requires network access.
-
-Development build:
+Requires CMake 3.25+, Ninja, and C++23. Production builds use MSVC x64. GCC/Clang cover the portable core. Dependencies download automatically.
 
 ```sh
 cmake --preset dev
@@ -258,54 +52,6 @@ cmake --build --preset dev
 ctest --preset dev
 ```
 
-Optimized build:
+Use `release` instead of `dev` for an optimized build. Full maintainer preflight: `./tools/preflight-msvc-wine.sh`. Native Windows CI remains the OS validation gate.
 
-```sh
-cmake --preset release
-cmake --build --preset release
-ctest --preset release
-```
-
-Builds include MannyUploader's public Twitch Client ID. Packagers can override it at configure time:
-
-```sh
-cmake -S . -B out/build/release -DMANNY_TWITCH_CLIENT_ID=yourlowercaseclientid
-```
-
-An empty build override uses the bundled ID. Existing saved Client ID overrides remain supported.
-
-Check source formatting with:
-
-```sh
-cmake -DMANNY_SOURCE_DIRECTORY=. -P cmake/CheckSourceFormatting.cmake
-```
-
-On the maintainer Linux workstation, run the complete local CI preflight before pushing:
-
-```sh
-./tools/preflight-msvc-wine.sh
-```
-
-It checks formatting and the Linux suite, then builds and tests Debug and Release with genuine MSVC
-under Wine, including the release package, packaged DLL smoke test, and linker symbols. The local
-Microsoft toolchain is licensed separately and is never stored in this repository.
-
-Windows CI builds and tests Release with MSVC, verifies the CPack ZIP/checksum, runs ten hot-load
-cycles against the packaged DLL, and publishes verified linker symbols separately. See the
-[native Windows validation matrix](docs/release/native-windows-validation.md) and
-[release evidence template](docs/release/evidence-template.md).
-
-## Architecture and development policy
-
-The code is organized into addon, application, configuration, EVTC, filesystem, HTTP, provider, UI,
-platform, and support layers. The ownership model and dependency rules are documented in the
-[architecture overview](docs/architecture/overview.md); independently frozen behavior is under
-[`docs/contracts`](docs/contracts/README.md).
-
-This is a clean-slate implementation. Public service contracts, Nexus ABI documentation, sample
-`.zevtc` files, and observable behavior may be used as specifications, but implementation code from
-the previous uploader is not copied or translated.
-
-Pinned third-party licenses are reproduced in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-Local AI-assistant instructions, prompts, state, and generated context are ignored by Git and must not
-be committed.
+[Architecture](docs/architecture/overview.md) | [Behavior contracts](docs/contracts/README.md) | [Windows validation](docs/release/native-windows-validation.md) | [Release evidence](docs/release/evidence-template.md) | [Third-party licenses](THIRD_PARTY_NOTICES.md)

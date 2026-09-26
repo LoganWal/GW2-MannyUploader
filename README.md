@@ -4,6 +4,14 @@ GW2 Manny Uploader is a native Windows x64 [Raidcore Nexus](https://raidcore.gg/
 that watches completed arcdps `.zevtc` logs and sends them to the services you enable without
 blocking the game thread.
 
+Configure destinations in Nexus options and track uploads in the recent-log window.
+
+![MannyUploader options and recent logs with per-provider upload status](docs/images/addon-overview.png)
+
+Post encounter results and dps.report links directly to your Twitch chat.
+
+![Twitch chat showing MannyUploader encounter results and report links](docs/images/twitch-chat.png)
+
 ## Supported destinations
 
 - [dps.report](https://dps.report/)

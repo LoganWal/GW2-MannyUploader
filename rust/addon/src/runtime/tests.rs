@@ -1,0 +1,217 @@
+use super::*;
+use std::ffi::{CStr, c_void};
+use std::mem::MaybeUninit;
+use std::sync::atomic::AtomicUsize;
+
+static EVENTS: Mutex<Vec<&str>> = Mutex::new(Vec::new());
+static FAIL_OPTIONS: AtomicBool = AtomicBool::new(false);
+static FAIL_TEXTURE: AtomicBool = AtomicBool::new(false);
+static HOOK_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+unsafe extern "C-unwind" fn register(kind: RenderType, callback: nexus::gui::RawGuiRender) {
+    EVENTS.lock().unwrap().push(if kind == RenderType::Render {
+        "main"
+    } else {
+        "options"
+    });
+    // Invoked before a frame exists. A registration callback must be rejected by the gate.
+    callback();
+    if kind == RenderType::OptionsRender && FAIL_OPTIONS.load(Ordering::Relaxed) {
+        panic!("synthetic registration failure");
+    }
+}
+
+unsafe extern "C-unwind" fn deregister(callback: nexus::gui::RawGuiRender) {
+    let main = std::ptr::fn_addr_eq(callback, render_main as nexus::gui::RawGuiRender);
+    EVENTS.lock().unwrap().push(if main {
+        "remove main"
+    } else {
+        "remove options"
+    });
+    callback();
+}
+
+unsafe extern "C-unwind" fn register_input(
+    _: *const c_char,
+    callback: nexus::keybind::RawKeybindHandler,
+    _: *const c_char,
+) {
+    EVENTS.lock().unwrap().push("input");
+    callback(ptr::null(), false);
+}
+
+unsafe extern "C-unwind" fn remove_input(_: *const c_char) {
+    EVENTS.lock().unwrap().push("remove input");
+}
+unsafe extern "C-unwind" fn texture(
+    _: *const c_char,
+    _: *const c_void,
+    _: usize,
+) -> *const nexus::texture::Texture {
+    if FAIL_TEXTURE.load(Ordering::Relaxed) {
+        panic!("synthetic texture failure");
+    }
+    ptr::null()
+}
+unsafe extern "C-unwind" fn shortcut(
+    _: *const c_char,
+    _: *const c_char,
+    _: *const c_char,
+    _: *const c_char,
+    _: *const c_char,
+) {
+    EVENTS.lock().unwrap().push("shortcut");
+}
+unsafe extern "C-unwind" fn remove_shortcut(_: *const c_char) {
+    EVENTS.lock().unwrap().push("remove shortcut");
+}
+unsafe extern "C-unwind" fn path() -> *const c_char {
+    c"C:/synthetic".as_ptr()
+}
+unsafe extern "C-unwind" fn addon_path(_: *const c_char) -> *const c_char {
+    c"C:/synthetic/addons".as_ptr()
+}
+unsafe extern "C-unwind" fn log(_: nexus::log::LogLevel, _: *const c_char, message: *const c_char) {
+    assert_eq!(
+        // SAFETY: The addon supplies its static diagnostic C string.
+        unsafe { CStr::from_ptr(message) },
+        c"An addon callback failed"
+    );
+    EVENTS.lock().unwrap().push("diagnostic");
+}
+
+unsafe extern "C" {
+    fn malloc(size: usize) -> *mut c_void;
+    fn free(memory: *mut c_void);
+}
+
+unsafe extern "C" fn allocate(size: usize, _: *mut c_void) -> *mut c_void {
+    // SAFETY: Forward the allocator contract unchanged to this test executable's CRT.
+    unsafe { malloc(size) }
+}
+unsafe extern "C" fn deallocate(memory: *mut c_void, _: *mut c_void) {
+    // SAFETY: ImGui returns allocations obtained through allocate.
+    unsafe { free(memory) }
+}
+
+#[test]
+fn native_lifecycle_contains_panics_rolls_back_and_can_reload() {
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {
+        HOOK_CALLS.fetch_add(1, Ordering::Relaxed);
+    }));
+    // SAFETY: This fixture owns the ImGui context. The API allocation stays MaybeUninit because
+    // unused nullable host slots cannot be represented by a valid Rust AddonApi value.
+    unsafe {
+        imgui::igSetAllocatorFunctions(Some(allocate), Some(deallocate), ptr::null_mut());
+        let context = imgui::igCreateContext(ptr::null_mut());
+        let mut storage = Box::new(MaybeUninit::<AddonApi>::zeroed());
+        let api = storage.as_mut_ptr();
+        ptr::addr_of_mut!((*api).imgui_context).write(context);
+        ptr::addr_of_mut!((*api).imgui_malloc).write(Some(allocate));
+        ptr::addr_of_mut!((*api).imgui_free).write(Some(deallocate));
+        ptr::addr_of_mut!((*api).renderer.register).write(register);
+        ptr::addr_of_mut!((*api).renderer.deregister).write(deregister);
+        ptr::addr_of_mut!((*api).input_binds.register_with_string).write(register_input);
+        ptr::addr_of_mut!((*api).input_binds.deregister).write(remove_input);
+        ptr::addr_of_mut!((*api).texture.get_or_create_from_memory).write(texture);
+        ptr::addr_of_mut!((*api).quick_access.add).write(shortcut);
+        ptr::addr_of_mut!((*api).quick_access.remove).write(remove_shortcut);
+        ptr::addr_of_mut!((*api).path.get_game_dir).write(path);
+        ptr::addr_of_mut!((*api).path.get_addon_dir).write(addon_path);
+        ptr::addr_of_mut!((*api).log).write(log);
+
+        FAIL_OPTIONS.store(true, Ordering::Relaxed);
+        load(api);
+        assert_eq!(
+            *EVENTS.lock().unwrap(),
+            [
+                "main",
+                "options",
+                "diagnostic",
+                "remove options",
+                "remove main"
+            ]
+        );
+        assert!(STATE.lock().unwrap().is_none());
+        assert!(GATE.enter().is_none());
+        assert_eq!(HOOK_CALLS.load(Ordering::Relaxed), 0);
+        FAIL_OPTIONS.store(false, Ordering::Relaxed);
+        EVENTS.lock().unwrap().clear();
+
+        load(api);
+        let count = EVENTS.lock().unwrap().len();
+        load(api);
+        assert_eq!(EVENTS.lock().unwrap().len(), count);
+        input(ptr::null(), true);
+        assert!(
+            !STATE
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .runtime
+                .visible
+                .load(Ordering::Acquire)
+        );
+        input(ptr::null(), false);
+        assert!(
+            STATE
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .runtime
+                .visible
+                .load(Ordering::Acquire)
+        );
+        callback(|_| panic!("synthetic callback failure"));
+        assert_eq!(HOOK_CALLS.load(Ordering::Relaxed), 0);
+        unload();
+        unload();
+        assert_eq!(
+            *EVENTS.lock().unwrap(),
+            [
+                "main",
+                "options",
+                "input",
+                "shortcut",
+                "diagnostic",
+                "remove shortcut",
+                "remove input",
+                "remove options",
+                "remove main"
+            ]
+        );
+        render_main();
+        render_options();
+        input(ptr::null(), false);
+        assert!(STATE.lock().unwrap().is_none());
+
+        EVENTS.lock().unwrap().clear();
+        FAIL_TEXTURE.store(true, Ordering::Relaxed);
+        load(api);
+        assert!(STATE.lock().unwrap().is_some());
+        unload();
+        assert_eq!(
+            *EVENTS.lock().unwrap(),
+            [
+                "main",
+                "options",
+                "input",
+                "diagnostic",
+                "remove input",
+                "remove options",
+                "remove main"
+            ]
+        );
+        FAIL_TEXTURE.store(false, Ordering::Relaxed);
+
+        // Restore the fixture's allocators before destroying the context it owns.
+        imgui::igSetAllocatorFunctions(Some(allocate), Some(deallocate), ptr::null_mut());
+        imgui::igDestroyContext(context);
+    }
+    let _ = catch_unwind(|| panic!("synthetic hook restoration check"));
+    assert_eq!(HOOK_CALLS.load(Ordering::Relaxed), 1);
+    std::panic::set_hook(original_hook);
+}

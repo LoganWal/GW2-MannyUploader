@@ -1,0 +1,24 @@
+[package]
+name = "manny-uploader-addon"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Logan"]
+publish = false
+
+[lib]
+name = "manny_uploader"
+crate-type = ["cdylib"]
+
+[dependencies]
+manny-core = { package = "manny-uploader", path = "../.." }
+
+[target.'cfg(windows)'.dependencies]
+nexus = { git = "https://github.com/Zerthox/nexus-rs", rev = "091a2b1cb3bf7607302f1ea8647a280225fa62e0", default-features = false }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"
+undocumented_unsafe_blocks = "deny"

@@ -7,6 +7,11 @@ authors = ["Logan"]
 description = "GW2 Manny Uploader core"
 publish = false
 
+[workspace]
+members = ["rust/addon"]
+default-members = ["."]
+resolver = "3"
+
 [lib]
 path = "rust/src/lib.rs"
 

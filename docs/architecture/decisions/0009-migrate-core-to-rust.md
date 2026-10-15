@@ -41,9 +41,10 @@ Rust core tests can run independently on Linux and Windows. CI adds formatting, 
 denied, and Debug/Release tests on Linux and Windows MSVC. Local Windows GNU results establish only
 that compiler's coverage.
 
-The existing C++ addon remains the shipping implementation. Rust has no discovery, coordinator,
-provider workers, credentials, persistence adapter, UI, or Nexus entry point yet. The current package
-does not alter installed settings or delivery history.
+The existing C++ addon remains the shipping implementation. The initial Rust slice has no discovery,
+coordinator, provider workers, credentials, persistence adapter, UI, or Nexus entry point.
+[ADR 0010](0010-own-rust-nexus-lifecycle.md) adds a separate development lifecycle DLL. Neither slice
+alters installed settings or delivery history.
 
 Before replacing the C++ DLL, Rust must prove Nexus/ImGui ABI compatibility, callback draining,
 panic containment, cancellation and joined worker shutdown, Windows/Wine parity, existing-data

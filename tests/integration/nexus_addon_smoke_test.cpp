@@ -11,6 +11,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -29,6 +30,7 @@ std::size_t quick_access_registration_count{};
 std::size_t quick_access_deregistration_count{};
 std::size_t texture_creation_count{};
 bool textures_pending{};
+bool lifecycle_proof{};
 Texture_t shortcut_texture{.Width = 32, .Height = 32, .Resource = &shortcut_texture};
 std::vector<std::string> lifecycle_events;
 bool host_contract_valid{true};
@@ -48,6 +50,9 @@ void register_render(ERenderType type, GUI_RENDER callback) {
         registered_callbacks[registration_count++] = callback;
     }
     lifecycle_events.emplace_back(type == RT_Render ? "register_main" : "register_options");
+    if (lifecycle_proof) {
+        callback();
+    }
 }
 
 void deregister_render(GUI_RENDER callback) {
@@ -56,6 +61,9 @@ void deregister_render(GUI_RENDER callback) {
     }
     lifecycle_events.emplace_back(callback == registered_callbacks[1] ? "deregister_options"
                                                                       : "deregister_main");
+    if (lifecycle_proof) {
+        callback();
+    }
 }
 
 void register_input_bind(const char* identifier, INPUTBINDS_PROCESS callback,
@@ -66,6 +74,9 @@ void register_input_bind(const char* identifier, INPUTBINDS_PROCESS callback,
     registered_input_bind = callback;
     ++input_registration_count;
     lifecycle_events.emplace_back("register_input");
+    if (lifecycle_proof) {
+        callback(identifier, false);
+    }
 }
 
 void deregister_input_bind(const char* identifier) {
@@ -142,9 +153,16 @@ const char* get_addon_directory(const char*) {
 } // namespace
 
 int main(int argument_count, char** arguments) {
-    if (argument_count != 2) {
-        std::cerr << "Expected the addon DLL path\n";
+    if (argument_count != 2 && argument_count != 3) {
+        std::cerr << "Expected the addon DLL path and optional --lifecycle-proof\n";
         return 1;
+    }
+    if (argument_count == 3) {
+        if (std::string{arguments[2]} != "--lifecycle-proof") {
+            std::cerr << "Unknown smoke-test option\n";
+            return 1;
+        }
+        lifecycle_proof = true;
     }
 
     const auto root = std::filesystem::temp_directory_path() /
@@ -170,6 +188,7 @@ int main(int argument_count, char** arguments) {
     io.Fonts->GetTexDataAsRGBA32(&font_pixels, &font_width, &font_height);
 
     bool passed = true;
+    HMODULE retained_module{};
     for (std::size_t cycle = 0; cycle < hot_load_cycles; ++cycle) {
         textures_pending = cycle % 2 == 0;
         registered_callbacks.fill(nullptr);
@@ -185,7 +204,10 @@ int main(int argument_count, char** arguments) {
         lifecycle_events.clear();
         host_contract_valid = true;
 
-        HMODULE module = LoadLibraryA(arguments[1]);
+        HMODULE module = std::exchange(retained_module, nullptr);
+        if (module == nullptr) {
+            module = LoadLibraryA(arguments[1]);
+        }
         if (!check(module != nullptr, "Unable to load the addon DLL")) {
             passed = false;
             break;
@@ -223,7 +245,22 @@ int main(int argument_count, char** arguments) {
         api.QuickAccess_Add = add_quick_access;
         api.QuickAccess_Remove = remove_quick_access;
 
+        if (lifecycle_proof) {
+            definition->Load(nullptr);
+            AddonAPI_t incomplete{};
+            definition->Load(&incomplete);
+            incomplete = api;
+            incomplete.InputBinds_Deregister = nullptr;
+            definition->Load(&incomplete);
+            passed = check(registration_count == 0 && input_registration_count == 0 &&
+                               quick_access_registration_count == 0,
+                           "Invalid API registered host resources") &&
+                     passed;
+        }
         definition->Load(&api);
+        if (lifecycle_proof) {
+            definition->Load(&api);
+        }
         passed =
             check(registration_count == 2, "Addon did not register both render callbacks") &&
             check(input_registration_count == 1 && registered_input_bind != nullptr,
@@ -252,9 +289,26 @@ int main(int argument_count, char** arguments) {
             registered_input_bind("KB_GW2_MANNY_UPLOADER_TOGGLE", false);
             registered_input_bind("KB_GW2_MANNY_UPLOADER_TOGGLE", true);
         }
+        if (lifecycle_proof && registration_count == 2) {
+            ImGui::NewFrame();
+            registered_callbacks[0]();
+            registered_callbacks[1]();
+            ImGui::Render();
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds{20});
 
         definition->Unload();
+        if (lifecycle_proof) {
+            definition->Unload();
+            for (const auto callback : registered_callbacks) {
+                if (callback != nullptr) {
+                    callback();
+                }
+            }
+            if (registered_input_bind != nullptr) {
+                registered_input_bind("KB_MANNY_UPLOADER_TOGGLE_WINDOW", false);
+            }
+        }
         passed =
             check(deregistration_count == 2, "Addon did not deregister both callbacks") &&
             check(input_deregistration_count == 1, "Addon did not deregister its window keybind") &&
@@ -276,7 +330,11 @@ int main(int argument_count, char** arguments) {
                       lifecycle_events.back() == "deregister_main",
                   "Addon resources were not released in reverse order") &&
             passed;
-        passed = check(FreeLibrary(module) != 0, "Unable to unload the addon DLL") && passed;
+        if (lifecycle_proof && cycle % 2 == 0) {
+            retained_module = module;
+        } else {
+            passed = check(FreeLibrary(module) != 0, "Unable to unload the addon DLL") && passed;
+        }
     }
     ImGui::DestroyContext(context);
     std::filesystem::remove_all(root, filesystem_error);

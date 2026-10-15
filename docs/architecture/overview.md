@@ -3,6 +3,10 @@
 GW2 Manny Uploader uses a layered ports-and-adapters architecture. The core workflow is testable
 without Guild Wars 2, Nexus, ImGui, the filesystem, or public HTTP services.
 
+The production addon remains C++. A portable Rust core is being developed alongside it under
+`rust/src`, starting with job state and receipt policy. See
+[`ADR 0009`](decisions/0009-migrate-core-to-rust.md) for the migration boundary and validation policy.
+
 ## Dependency direction
 
 ```text

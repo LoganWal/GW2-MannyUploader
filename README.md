@@ -54,4 +54,7 @@ ctest --preset dev
 
 Use `release` instead of `dev` for an optimized build. Full maintainer preflight: `./tools/preflight-msvc-wine.sh`. Native Windows CI remains the OS validation gate.
 
+The Rust core is being developed alongside the C++ addon. It does not yet produce an installable DLL.
+With stable Rust installed, run `cargo test --locked` and `cargo clippy --locked --all-targets -- -D warnings`.
+
 [Architecture](docs/architecture/overview.md) | [Behavior contracts](docs/contracts/README.md) | [Windows validation](docs/release/native-windows-validation.md) | [Release evidence](docs/release/evidence-template.md) | [Third-party licenses](THIRD_PARTY_NOTICES.md)

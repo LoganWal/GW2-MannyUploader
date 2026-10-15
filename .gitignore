@@ -25,6 +25,7 @@ $RECYCLE.BIN/
 /dist/
 /install/
 /cmake-build-*/
+/target/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

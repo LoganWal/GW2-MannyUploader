@@ -1,0 +1,21 @@
+[package]
+name = "manny-uploader"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Logan"]
+description = "GW2 Manny Uploader core"
+publish = false
+
+[lib]
+path = "rust/src/lib.rs"
+
+[[test]]
+name = "upload_job"
+path = "rust/tests/upload_job.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

@@ -19,6 +19,10 @@ path = "rust/src/lib.rs"
 name = "upload_job"
 path = "rust/tests/upload_job.rs"
 
+[[test]]
+name = "upload_coordinator"
+path = "rust/tests/upload_coordinator.rs"
+
 [lints.rust]
 unsafe_code = "forbid"
 

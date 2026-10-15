@@ -8,6 +8,14 @@ The root package forbids unsafe code. `rust/addon` contains the native boundary 
 bindings with the matching ImGui 1.80 dependency. See
 [ADR 0010](../docs/architecture/decisions/0010-own-rust-nexus-lifecycle.md).
 
+The portable application layer now owns a coordinator and clock/provider ports. Deterministic tests
+cover dps.report fanout, direct uploads, WvW exclusion, bounded history, retry deadlines, attempt
+correlation, atomic result validation and replay admission, restore, and cancellation. Requests retain
+Reupload intent across retries, and ambiguous delivery requires an explicit action. See
+[ADR 0011](../docs/architecture/decisions/0011-correlate-rust-upload-attempts.md).
+Provider worker queues and runtime integration are the next slice. The coordinator is not connected
+to the development DLL yet.
+
 ## Portable core
 
 ```sh

@@ -83,7 +83,11 @@ impl ProviderState {
             ),
             Self::Active => matches!(
                 next,
-                Self::Succeeded | Self::RetryScheduled(_) | Self::Failed | Self::Cancelled
+                Self::Succeeded
+                    | Self::Skipped
+                    | Self::RetryScheduled(_)
+                    | Self::Failed
+                    | Self::Cancelled
             ),
             Self::RetryScheduled(_) => {
                 matches!(next, Self::Active | Self::Failed | Self::Cancelled)
@@ -167,6 +171,7 @@ pub struct UploadJobRecord {
     pub providers: [ProviderStatus; 4],
 }
 
+#[derive(Clone)]
 pub struct UploadJob {
     id: UploadJobId,
     record: UploadJobRecord,

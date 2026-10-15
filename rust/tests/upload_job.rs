@@ -131,7 +131,7 @@ fn every_state_pair_obeys_the_transition_contract() {
     let allowed = [
         [false, false, false, false, false, false, false, false],
         [false, false, true, false, true, false, true, true],
-        [false, false, false, true, false, true, true, true],
+        [false, false, false, true, true, true, true, true],
         [false, false, false, false, false, false, false, false],
         [false, false, false, false, false, false, false, false],
         [false, false, true, false, false, false, true, true],
@@ -173,6 +173,14 @@ fn every_state_pair_obeys_the_transition_contract() {
             }
         }
     }
+}
+
+#[test]
+fn dispatched_provider_can_report_a_skip() {
+    let mut job = job();
+    transition(&mut job, Provider::Wingman, ProviderState::Active).unwrap();
+    transition(&mut job, Provider::Wingman, ProviderState::Skipped).unwrap();
+    assert_eq!(job.provider_status(Provider::Wingman).attempts, 1);
 }
 
 #[test]

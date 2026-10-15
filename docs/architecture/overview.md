@@ -4,10 +4,12 @@ GW2 Manny Uploader uses a layered ports-and-adapters architecture. The core work
 without Guild Wars 2, Nexus, ImGui, the filesystem, or public HTTP services.
 
 The production addon remains C++. A portable Rust core is being developed alongside it under
-`rust/src`, starting with job state and receipt policy. A separate development DLL in `rust/addon`
+`rust/src`, with job state, receipt policy, and an application coordinator tested through fake ports.
+A separate development DLL in `rust/addon`
 exercises the Nexus lifecycle without uploading. See
 [`ADR 0009`](decisions/0009-migrate-core-to-rust.md) for the migration boundary and
-[`ADR 0010`](decisions/0010-own-rust-nexus-lifecycle.md) for native ownership and validation.
+[`ADR 0010`](decisions/0010-own-rust-nexus-lifecycle.md) for native ownership and validation, and
+[`ADR 0011`](decisions/0011-correlate-rust-upload-attempts.md) for coordinator result and replay rules.
 
 ## Dependency direction
 

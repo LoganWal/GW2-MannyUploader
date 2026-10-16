@@ -1,6 +1,7 @@
 mod application_pump;
 mod cancellation;
 mod configuration_service;
+mod donbot;
 mod history_store;
 mod http;
 mod log_candidates;
@@ -17,6 +18,7 @@ mod upload_coordinator;
 pub use application_pump::*;
 pub use cancellation::{CancellationSource, StopToken};
 pub use configuration_service::*;
+pub use donbot::*;
 pub use history_store::*;
 pub use http::*;
 pub use log_candidates::*;

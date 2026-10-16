@@ -99,7 +99,7 @@ impl DpsProcessor {
 impl Processor for DpsProcessor {
     type Request = CapturedUpload;
     type Output = UploadResult;
-    fn process(&self, request: &CapturedUpload, stop: &StopToken) -> UploadResult {
+    fn process(&self, request: &mut CapturedUpload, stop: &StopToken) -> UploadResult {
         Self::result(request, self.upload(request, stop))
     }
     fn failed(&self, request: &CapturedUpload) -> UploadResult {

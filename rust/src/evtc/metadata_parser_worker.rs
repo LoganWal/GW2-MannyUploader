@@ -26,7 +26,7 @@ impl Processor for ParseTask {
     type Request = MetadataRequest;
     type Output = MetadataResult;
 
-    fn process(&self, request: &MetadataRequest, stop: &StopToken) -> MetadataResult {
+    fn process(&self, request: &mut MetadataRequest, stop: &StopToken) -> MetadataResult {
         MetadataResult {
             job_id: request.job_id,
             metadata: self.0.parse(&request.file, stop),

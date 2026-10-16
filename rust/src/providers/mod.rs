@@ -1,4 +1,5 @@
 mod async_upload_worker;
+mod donbot;
 mod dps_report;
 mod json;
 mod wingman;
@@ -8,4 +9,5 @@ pub use wingman::*;
 pub use async_upload_worker::{
     AsyncUploadWorker, UploadProcessor, WorkerError, WorkerOptions, WorkerSnapshot,
 };
+pub use donbot::*;
 pub use dps_report::*;

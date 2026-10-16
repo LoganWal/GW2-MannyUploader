@@ -131,3 +131,11 @@ path = "rust/tests/wingman_client.rs"
 [[test]]
 name = "wingman_worker"
 path = "rust/tests/wingman_worker.rs"
+
+[[test]]
+name = "donbot_verification"
+path = "rust/tests/donbot_verification.rs"
+
+[[test]]
+name = "donbot_verification_worker"
+path = "rust/tests/donbot_verification_worker.rs"

@@ -1,4 +1,6 @@
-use serde::de::{DeserializeOwned, MapAccess, Visitor, value::MapAccessDeserializer};
+use serde::de::{
+    DeserializeOwned, IgnoredAny, MapAccess, SeqAccess, Visitor, value::MapAccessDeserializer,
+};
 use serde::{Deserialize, Deserializer};
 use std::fmt;
 use std::marker::PhantomData;
@@ -33,6 +35,32 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {
     }
 }
 pub(super) struct Text<const LIMIT: usize>(pub String);
+pub(super) struct List<T, const LIMIT: usize>(pub Vec<T>);
+impl<'de, T: Deserialize<'de>, const LIMIT: usize> Deserialize<'de> for List<T, LIMIT> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ListVisitor<T, const N: usize>(PhantomData<T>);
+        impl<'de, T: Deserialize<'de>, const N: usize> Visitor<'de> for ListVisitor<T, N> {
+            type Value = List<T, N>;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a bounded array")
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while values.len() < N {
+                    match seq.next_element()? {
+                        Some(value) => values.push(value),
+                        None => return Ok(List(values)),
+                    }
+                }
+                if seq.next_element::<IgnoredAny>()?.is_some() {
+                    return Err(serde::de::Error::custom("array limit"));
+                }
+                Ok(List(values))
+            }
+        }
+        deserializer.deserialize_seq(ListVisitor::<T, LIMIT>(PhantomData))
+    }
+}
 impl<'de, const LIMIT: usize> Deserialize<'de> for Text<LIMIT> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct TextVisitor<const N: usize>;

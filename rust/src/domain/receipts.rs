@@ -80,7 +80,7 @@ impl DonBotUploadReceipt {
     }
 }
 
-pub(super) fn canonical_discord_id(value: &str) -> bool {
+pub(crate) fn canonical_discord_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 19
         && !value.starts_with('0')

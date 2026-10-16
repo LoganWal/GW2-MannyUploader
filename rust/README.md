@@ -87,7 +87,10 @@ The Wingman client now supports same-job permalink import, direct bridge uploads
 polling, and public fight-link discovery. Its worker preserves queued/duplicate notices and receipts
 while sharing bounded queues and joined cancellation. Fake time verifies polling deadlines without
 public uploads. See [ADR 0024](../docs/architecture/decisions/0024-upload-to-wingman-in-rust.md).
-DonBot, Twitch, authentication workflows, and production runtime composition remain pending.
+DonBot verification now decodes bounded authorized guilds, channels, and delivery capabilities. Its
+single-thread worker transfers the candidate key into a correlated successful result without copying,
+retrying, or persisting it. See [ADR 0025](../docs/architecture/decisions/0025-verify-donbot-identity-in-rust.md).
+DonBot uploads and configuration workflows, Twitch, and production runtime composition remain pending.
 
 ## Portable core
 

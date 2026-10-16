@@ -27,7 +27,7 @@ impl Processor for UploadTask {
     type Request = UploadRequest;
     type Output = UploadResult;
 
-    fn process(&self, request: &UploadRequest, stop: &StopToken) -> UploadResult {
+    fn process(&self, request: &mut UploadRequest, stop: &StopToken) -> UploadResult {
         Self::result(request, self.0.process(request, stop))
     }
 

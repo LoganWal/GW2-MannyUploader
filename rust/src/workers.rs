@@ -12,7 +12,7 @@ const MAX_PARALLELISM: usize = 32;
 pub(crate) trait Processor: Send + Sync + 'static {
     type Request: Send + 'static;
     type Output: Send + 'static;
-    fn process(&self, request: &Self::Request, stop: &StopToken) -> Self::Output;
+    fn process(&self, request: &mut Self::Request, stop: &StopToken) -> Self::Output;
     fn failed(&self, request: &Self::Request) -> Self::Output;
 }
 
@@ -93,7 +93,7 @@ impl<P: Processor> Shared<P> {
     fn run(&self, index: usize) {
         let token = self.stop.token();
         loop {
-            let request = {
+            let mut request = {
                 let queues = self.lock();
                 let mut queues = self
                     .changed
@@ -111,7 +111,7 @@ impl<P: Processor> Shared<P> {
                 queues.requests.pop_front().expect("admitted request")
             };
             let result = catch_unwind(AssertUnwindSafe(|| {
-                self.processor.process(&request, &token)
+                self.processor.process(&mut request, &token)
             }))
             .unwrap_or_else(|_| self.processor.failed(&request));
             let mut queues = self.lock();
@@ -323,7 +323,7 @@ mod tests {
     impl Processor for Echo {
         type Request = u64;
         type Output = u64;
-        fn process(&self, request: &u64, _: &StopToken) -> u64 {
+        fn process(&self, request: &mut u64, _: &StopToken) -> u64 {
             *request
         }
         fn failed(&self, _: &u64) -> u64 {

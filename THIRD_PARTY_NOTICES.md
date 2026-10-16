@@ -29,6 +29,8 @@ Versions are fixed by Cargo.lock.
   Author: David Tolnay
 - memchr 2.8.2, <https://github.com/BurntSushi/memchr>
   Copyright (c) 2015 Andrew Gallant
+- zeroize 1.8.2, <https://github.com/RustCrypto/utils/tree/master/zeroize>
+  Copyright (c) 2018-2021 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction,

@@ -20,6 +20,7 @@ flate2 = { version = "=1.1.10", default-features = false, features = ["rust_back
 crc32fast = "=1.5.2"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.154"
+zeroize = { version = "=1.8.2", default-features = false, features = ["alloc"] }
 
 [[test]]
 name = "upload_job"
@@ -90,3 +91,7 @@ path = "rust/tests/history_json.rs"
 [[test]]
 name = "history_store"
 path = "rust/tests/history_store.rs"
+
+[[test]]
+name = "secret_store"
+path = "rust/tests/secret_store.rs"

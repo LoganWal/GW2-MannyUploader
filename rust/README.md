@@ -57,6 +57,13 @@ without rewriting invalid files during load. Startup restoration seeds all retai
 displaying only the configured recent rows. Fault-injection, replay-suppression, and native long-path
 tests cover the composition. The development DLL still needs its application runtime connected.
 
+Protected credentials now have move-only, redacted, wiping values and application-owned storage
+ports. The bounded protected-file adapter preserves existing envelopes and filenames. Its native
+DPAPI adapter exposes Windows versus Wine protection mode and wipes Windows allocations before
+release. Native round-trip, tamper, locked-file, erasure, and C++ interoperability checks pass. Wine
+execution and runtime configuration/UI composition remain outstanding. See
+[ADR 0018](../docs/architecture/decisions/0018-preserve-rust-protected-credentials.md).
+
 ## Portable core
 
 ```sh

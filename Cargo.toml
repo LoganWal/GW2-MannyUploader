@@ -50,6 +50,14 @@ path = "rust/tests/metadata_ingestion.rs"
 unsafe_code = "forbid"
 
 [[test]]
+name = "nexus_options_model"
+path = "rust/tests/nexus_options_model.rs"
+
+[[test]]
+name = "nexus_options_controller"
+path = "rust/tests/nexus_options_controller.rs"
+
+[[test]]
 name = "log_discovery"
 path = "rust/tests/log_discovery.rs"
 

@@ -112,6 +112,13 @@ remote message IDs or automatic resend. See
 Recent-log actions now resolve stable job IDs through a bounded application queue. The Windows
 launcher preserves Unicode targets, and DonBot selection retains user choices across temporary
 unavailability. See [ADR 0036](../docs/architecture/decisions/0036-run-rust-recent-log-actions.md).
+
+Options now use a bounded command queue and a separate snapshot-only render handle. Ordinary drafts
+preserve current destination and verified-route state. DonBot and Twitch commands execute on the
+application owner, and authorization links resolve the current connection revision before launching.
+Pure view models cover reactive controls, masked authorization details, and honest Wine protection
+wording. See [ADR 0037](../docs/architecture/decisions/0037-coordinate-rust-options.md). Runtime startup,
+live client reconfiguration, and native options rendering remain pending.
 Production runtime composition and options/list presentation remain pending.
 
 ## Portable core

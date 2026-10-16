@@ -79,7 +79,8 @@ class WineRunTests(unittest.TestCase):
             for call in run.call_args_list:
                 self.assertEqual(call.kwargs["env"]["MANNY_REQUIRE_WINE_DPAPI"], "1")
                 self.assertNotIn("MANNY_REQUIRE_NATIVE_DPAPI", call.kwargs["env"])
-                self.assertEqual(call.kwargs["env"]["WINEPREFIX"], str(root / "prefix"))
+                # Windows TEMP can contain an 8.3 alias, while the owned prefix is canonical.
+                self.assertEqual(call.kwargs["env"]["WINEPREFIX"], str((root / "prefix").resolve()))
                 self.assertTrue(call.kwargs["check"])
                 self.assertGreater(call.kwargs["timeout"], 0)
 

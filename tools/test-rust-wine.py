@@ -80,6 +80,9 @@ def main():
         run("cmake", f"-DMANNY_PACKAGE_OUTPUT_DIRECTORY={args.package.resolve()}",
             f"-DMANNY_PACKAGE_EXTRACT_DIRECTORY={extracted}", "-P",
             str(repository / "cmake/VerifyWindowsPackage.cmake"))
+        run("cmake", f"-DMANNY_DLL_FILE={extracted / 'manny_uploader.dll'}",
+            f"-DMANNY_NOTICES_FILE={repository / 'THIRD_PARTY_NOTICES.md'}", "-P",
+            str(repository / "cmake/VerifyWindowsNotices.cmake"))
         smoke(extracted / "manny_uploader.dll")
         smoke(extracted / "manny_uploader.dll", "--lifecycle-proof")
     finally:

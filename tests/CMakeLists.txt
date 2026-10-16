@@ -74,6 +74,14 @@ add_test(
 set_tests_properties(windows_image_verification_contract PROPERTIES LABELS "deterministic;packaging")
 
 add_test(
+    NAME windows_notices_verification_contract
+    COMMAND "${CMAKE_COMMAND}"
+        "-DMANNY_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/windows-notices-verification-contract"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_notices_verification_test.cmake"
+)
+set_tests_properties(windows_notices_verification_contract PROPERTIES LABELS "deterministic;packaging")
+
+add_test(
     NAME windows_package_verification_contract
     COMMAND
         "${CMAKE_COMMAND}"

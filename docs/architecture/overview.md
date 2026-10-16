@@ -26,6 +26,8 @@ Separate Rust migration packages and matching symbols are validated under
 [ADR 0044](decisions/0044-package-rust-migration-builds.md). The C++ package remains the shipping artifact.
 The hosted Wine gate runs MSVC-built Rust artifacts under
 [ADR 0045](decisions/0045-run-msvc-rust-tests-under-wine.md).
+The Rust DLL embeds its dependency notices under
+[ADR 0046](decisions/0046-embed-rust-third-party-notices.md).
 
 ## Dependency direction
 

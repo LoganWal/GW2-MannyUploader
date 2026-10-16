@@ -337,6 +337,13 @@ jobs:
           & out/build/windows-release/tests/Release/manny_nexus_addon_smoke_test.exe $dll --lifecycle-proof
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Verify packaged Rust notices
+        run: >-
+          cmake
+          "-DMANNY_DLL_FILE=out/build/rust-package/package-verified/manny_uploader.dll"
+          "-DMANNY_NOTICES_FILE=THIRD_PARTY_NOTICES.md"
+          -P cmake/VerifyWindowsNotices.cmake
+
       - name: Upload verified Rust migration package
         uses: actions/upload-artifact@v7
         with:

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.30)
 cmake_policy(SET CMP0091 NEW)
-project(MannyRustHttp LANGUAGES C)
+project(MannyRustHttp LANGUAGES C RC)
 
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "The native Rust HTTP backend requires Windows x64")
@@ -12,6 +12,13 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
 set(MANNY_CURL_COMPACT_PATHS ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../../../cmake")
 include(MannyCurl)
+
+get_filename_component(MANNY_NOTICES_FILE
+    "${CMAKE_CURRENT_LIST_DIR}/../../../THIRD_PARTY_NOTICES.md" ABSOLUTE)
+configure_file(notices.rc.in notices.rc @ONLY)
+add_library(manny_notices OBJECT "${CMAKE_CURRENT_BINARY_DIR}/notices.rc")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/notices-resource-$<CONFIG>.txt"
+    CONTENT "$<TARGET_OBJECTS:manny_notices>\n")
 
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/curl-library-$<CONFIG>.txt"
     CONTENT "$<TARGET_FILE:libcurl_static>\n")

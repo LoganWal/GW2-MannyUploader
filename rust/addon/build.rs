@@ -32,7 +32,9 @@ fn main() {
         "build.rs",
         "build_configuration.rs",
         "native/CMakeLists.txt",
+        "native/notices.rc.in",
         "../../cmake/MannyCurl.cmake",
+        "../../THIRD_PARTY_NOTICES.md",
     ] {
         println!("cargo:rerun-if-changed={file}");
     }
@@ -96,6 +98,7 @@ fn main() {
             profile,
             "--target",
             "libcurl_static",
+            "manny_notices",
             "--parallel",
         ])
         .arg(env::var("NUM_JOBS").unwrap_or_else(|_| "4".into())));
@@ -112,6 +115,14 @@ fn main() {
     };
     println!("cargo:rustc-link-search=native={}", directory.display());
     println!("cargo:rustc-link-lib=static={name}");
+    let resource = std::fs::read_to_string(build.join(format!("notices-resource-{profile}.txt")))
+        .expect("third-party notices resource manifest is missing");
+    let resource = PathBuf::from(resource.trim());
+    assert!(
+        resource.is_file(),
+        "third-party notices resource is missing"
+    );
+    println!("cargo:rustc-link-arg-cdylib={}", resource.display());
     for library in [
         "ws2_32", "crypt32", "secur32", "bcrypt", "advapi32", "normaliz", "iphlpapi",
     ] {

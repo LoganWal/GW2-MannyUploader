@@ -233,7 +233,9 @@ These lifecycle checks do not replace Linux/Wine coverage or native credential a
 Release builds retain full debug information in a separate linker PDB. The package project takes
 the explicit Cargo Release output, checks the x64 image, sole GetAddonDef export, system-only imports,
 and matching PDB, then stages a DLL-only CPack ZIP and separate symbols. It rejects lifecycle-test
-DLLs and symbols from another build. Reconfigure after each Cargo build to refresh the staged pair.
+DLLs and symbols from another build. The DLL carries the complete third-party notices in the
+`MANNY_THIRD_PARTY_NOTICES` RCDATA resource, verified against the current source document.
+Reconfigure after each Cargo build to refresh the staged pair.
 
 From a Visual Studio developer PowerShell, after the Release build above:
 

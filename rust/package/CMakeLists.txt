@@ -9,6 +9,8 @@ if(NOT IS_ABSOLUTE "${MANNY_RUST_RELEASE_DIRECTORY}")
 endif()
 set(MANNY_DLL_FILE "${MANNY_RUST_RELEASE_DIRECTORY}/manny_uploader.dll")
 include("${repository}/cmake/VerifyWindowsImage.cmake")
+set(MANNY_NOTICES_FILE "${repository}/THIRD_PARTY_NOTICES.md")
+include("${repository}/cmake/VerifyWindowsNotices.cmake")
 
 # Cargo also puts this PDB in deps. Select its documented top-level output explicitly.
 set(MANNY_SYMBOL_FILE "${MANNY_RUST_RELEASE_DIRECTORY}/manny_uploader.pdb")
@@ -22,6 +24,7 @@ set(MANNY_SYMBOL_FILE "${CMAKE_BINARY_DIR}/symbols/Release/manny_uploader.pdb")
 include("${repository}/cmake/VerifyWindowsSymbols.cmake")
 set(MANNY_DLL_FILE "${CMAKE_BINARY_DIR}/input/manny_uploader.dll")
 include("${repository}/cmake/VerifyWindowsSymbolMatch.cmake")
+include("${repository}/cmake/VerifyWindowsNotices.cmake")
 
 file(STRINGS "${repository}/rust/addon/Cargo.toml" version_line REGEX "^version = \"[0-9]+\\.[0-9]+\\.[0-9]+\"$")
 if(NOT version_line MATCHES "^version = \"([0-9]+\\.[0-9]+\\.[0-9]+)\"$")

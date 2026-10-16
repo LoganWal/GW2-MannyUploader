@@ -66,6 +66,12 @@ pub struct TwitchSessionOwnerSnapshot {
     pub access_expires_at: SystemTime,
     pub revision: u64,
 }
+pub(crate) enum TwitchSessionOwnerState {
+    Disconnected,
+    Updating,
+    Connected(TwitchSessionOwnerSnapshot),
+    ShuttingDown,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TwitchSessionOwnerError {
     Busy,
@@ -101,7 +107,7 @@ impl TwitchSessionOwnerError {
 }
 struct Pending {
     id: u64,
-    user_id: String,
+    user_id: Option<String>,
     restorable: bool,
 }
 struct State {
@@ -129,7 +135,7 @@ impl State {
         self.next_transaction += 1;
         self.pending = Some(Pending {
             id,
-            user_id: session.user_id.clone(),
+            user_id: Some(session.user_id.clone()),
             restorable,
         });
         TwitchSessionTransaction { id, session }
@@ -148,7 +154,12 @@ impl State {
         id: u64,
         session: &TwitchSession,
     ) -> Result<(), TwitchSessionOwnerError> {
-        if self.check(id)?.user_id != session.user_id {
+        if self
+            .check(id)?
+            .user_id
+            .as_ref()
+            .is_some_and(|user_id| *user_id != session.user_id)
+        {
             return Err(TwitchSessionOwnerError::IdentityMismatch);
         }
         Ok(())
@@ -250,6 +261,22 @@ impl TwitchSessionOwner {
         }
         Ok(state.start(session, false))
     }
+    /// Reserves a new authorization flow before Twitch has returned a validated identity.
+    pub(crate) fn reserve_new(&self) -> Result<u64, TwitchSessionOwnerError> {
+        let mut state = self.lock()?;
+        state.idle()?;
+        if state.active.is_some() {
+            return Err(TwitchSessionOwnerError::Busy);
+        }
+        let id = state.next_transaction;
+        state.next_transaction += 1;
+        state.pending = Some(Pending {
+            id,
+            user_id: None,
+            restorable: false,
+        });
+        Ok(id)
+    }
     pub fn checkout_active(&self) -> Result<TwitchSessionTransaction, TwitchSessionOwnerError> {
         let mut state = self.lock()?;
         state.idle()?;
@@ -266,6 +293,9 @@ impl TwitchSessionOwner {
     ) -> Result<(), TwitchSessionOwnerError> {
         let mut state = self.lock()?;
         state.check_identity(id, session)?;
+        if state.check(id)?.user_id.is_none() {
+            return Err(TwitchSessionOwnerError::IdentityMismatch);
+        }
         // A rotation cannot return to the prior generation, even if persistence fails.
         state
             .pending
@@ -330,6 +360,20 @@ impl TwitchSessionOwner {
             .active
             .as_ref()
             .map(|session| owner_snapshot(session, state.revision))
+    }
+    pub(crate) fn connection_state(
+        &self,
+    ) -> Result<TwitchSessionOwnerState, TwitchSessionOwnerError> {
+        let state = self.lock()?;
+        Ok(if state.stopping {
+            TwitchSessionOwnerState::ShuttingDown
+        } else if state.pending.is_some() {
+            TwitchSessionOwnerState::Updating
+        } else if let Some(session) = &state.active {
+            TwitchSessionOwnerState::Connected(owner_snapshot(session, state.revision))
+        } else {
+            TwitchSessionOwnerState::Disconnected
+        })
     }
     pub fn shutdown(&self) {
         let mut state = self

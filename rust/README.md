@@ -102,8 +102,10 @@ DonBot configuration and aggregate-action controllers now enforce verified guild
 persist changes before publication, and correlate asynchronous results. Twitch HTTP primitives,
 authentication workers, protected sessions, and exclusive session recovery are implemented. See
 [ADR 0033](../docs/architecture/decisions/0033-own-rust-twitch-session-transactions.md) for rotation
-ordering and shared credential ownership. Twitch authentication scheduling, chat delivery, and
-production runtime composition remain pending.
+ordering and shared credential ownership. The authentication controller now schedules Device Code
+polls, saved-session validation, periodic refresh, and fail-safe disconnect. See
+[ADR 0034](../docs/architecture/decisions/0034-coordinate-rust-twitch-authentication.md).
+Chat delivery and production runtime composition remain pending.
 
 ## Portable core
 

@@ -21,6 +21,8 @@ mod host;
 pub mod http;
 #[cfg(windows)]
 mod icons;
+#[cfg(all(windows, feature = "lifecycle-test"))]
+mod lifecycle_test;
 #[cfg(windows)]
 pub mod random;
 #[cfg(windows)]

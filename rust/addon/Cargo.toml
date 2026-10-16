@@ -6,6 +6,10 @@ rust-version = "1.85"
 authors = ["Logan"]
 publish = false
 
+[features]
+default = []
+lifecycle-test = []
+
 [lib]
 name = "manny_uploader"
 crate-type = ["cdylib"]

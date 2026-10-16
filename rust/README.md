@@ -205,8 +205,25 @@ immediate texture creation. These tests run in a separate process without Guild 
 
 Rust tests additionally exercise partial registration rollback, optional texture failure, panic
 redaction and hook restoration, and draining admitted callbacks. The DLL now owns the application
-and worker threads. The smoke host creates fresh settings with uploads disabled. Active provider
-HTTP during real-DLL unload remains a separate required gate.
+and worker threads. Normal smoke mode creates fresh settings with uploads disabled.
+
+For active-provider unload coverage, build the explicit test-only DLL into a separate directory:
+
+```powershell
+cargo build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --target-dir target/lifecycle-test --features lifecycle-test
+cargo build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --target-dir target/lifecycle-test --features lifecycle-test --release
+foreach ($configuration in @('debug', 'release')) {
+    $dll = "target/lifecycle-test/x86_64-pc-windows-msvc/$configuration/manny_uploader.dll"
+    & out/build/native-msvc/tests/Debug/manny_nexus_addon_smoke_test.exe $dll --active-runtime-proof
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+```
+
+The test feature replaces HTTP with a synthetic blocking adapter. Three generated archives reach
+two active uploads and one queued request before unload cancels and joins them. Counters verify
+completion and destruction before FreeLibrary. It sends no network requests. Never install or
+package this test DLL. Normal smoke and package verification reject its instrumentation.
+See [ADR 0043](../docs/architecture/decisions/0043-prove-active-rust-dll-unload.md).
 
 These checks do not replace Linux/Wine coverage, native credential and HTTP validation, packaging,
 or symbol verification. Full Rust release and existing-data compatibility gates remain outstanding.

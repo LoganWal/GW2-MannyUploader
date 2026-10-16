@@ -11,7 +11,7 @@ use std::{
 use crate::{
     directory_monitor::WindowsDirectoryMonitor, dpapi::DpapiSecretProtector,
     external_actions::WindowsExternalActionLauncher, file_commit::WindowsFileCommit,
-    http::CurlHttpClient, random::WindowsRandom,
+    random::WindowsRandom,
 };
 
 #[cfg(test)]
@@ -98,15 +98,14 @@ pub fn compose(
     addon: &Path,
     twitch_client_id: String,
 ) -> Result<ApplicationRuntime<NativeClock>, CompositionError> {
-    let http =
-        CurlHttpClient::new(HttpTransportPolicy::HttpsOnly).map_err(|_| CompositionError::Http)?;
-    compose_with(
-        game,
-        addon,
-        twitch_client_id,
-        Arc::new(http),
-        protected_store(addon),
-    )
+    #[cfg(not(feature = "lifecycle-test"))]
+    let http: Arc<dyn HttpClient> = Arc::new(
+        crate::http::CurlHttpClient::new(HttpTransportPolicy::HttpsOnly)
+            .map_err(|_| CompositionError::Http)?,
+    );
+    #[cfg(feature = "lifecycle-test")]
+    let http: Arc<dyn HttpClient> = Arc::new(crate::lifecycle_test::BlockingHttp::new());
+    compose_with(game, addon, twitch_client_id, http, protected_store(addon))
 }
 
 fn compose_with(

@@ -104,3 +104,6 @@ expect_failure("${extra_entry_package}" extra-entry "must contain only manny_upl
 
 create_package(bad-pe "ZZ" FALSE bad_pe_package)
 expect_failure("${bad_pe_package}" bad-pe "is not a Windows PE image")
+
+create_package(lifecycle-test "MZMannyLifecycleTestState" FALSE lifecycle_test_package)
+expect_failure("${lifecycle_test_package}" lifecycle-test "contains test-only lifecycle instrumentation")

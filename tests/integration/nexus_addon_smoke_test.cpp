@@ -2,6 +2,8 @@
 #include <imgui.h>
 #include <windows.h>
 
+#include "nexus_active_runtime_fixture.hpp"
+
 #include <array>
 #include <bit>
 #include <chrono>
@@ -19,6 +21,7 @@
 namespace {
 
 using GetAddonDefinition = AddonDefinition_t* (*)();
+using LifecycleProbe = std::uint64_t(__stdcall*)();
 constexpr std::size_t hot_load_cycles = 10;
 
 std::array<GUI_RENDER, 2> registered_callbacks{};
@@ -33,6 +36,7 @@ std::size_t quick_access_deregistration_count{};
 std::size_t texture_creation_count{};
 bool textures_pending{};
 bool lifecycle_proof{};
+bool active_runtime_proof{};
 Texture_t shortcut_texture{.Width = 32, .Height = 32, .Resource = &shortcut_texture};
 std::vector<std::string> lifecycle_events;
 bool host_contract_valid{true};
@@ -156,11 +160,13 @@ const char* get_addon_directory(const char*) {
 
 int main(int argument_count, char** arguments) {
     if (argument_count != 2 && argument_count != 3) {
-        std::cerr << "Expected the addon DLL path and optional --lifecycle-proof\n";
+        std::cerr << "Expected the addon DLL path and optional --lifecycle-proof or "
+                     "--active-runtime-proof\n";
         return 1;
     }
     if (argument_count == 3) {
-        if (std::string{arguments[2]} != "--lifecycle-proof") {
+        active_runtime_proof = std::string{arguments[2]} == "--active-runtime-proof";
+        if (std::string{arguments[2]} != "--lifecycle-proof" && !active_runtime_proof) {
             std::cerr << "Unknown smoke-test option\n";
             return 1;
         }
@@ -184,9 +190,11 @@ int main(int argument_count, char** arguments) {
     addon_directory = addon.string();
     {
         std::ofstream settings{addon / "settings.json", std::ios::binary};
-        settings << R"({"schema_version":1,"general":{"log_directory":)"
-                 << std::quoted((game / "arcdps.cbtlogs").generic_string())
-                 << R"(},"dps_report":{"enabled":false},"wingman":{"enabled":false}})";
+        settings
+            << R"({"schema_version":1,"general":{"log_directory":)"
+            << std::quoted((game / "arcdps.cbtlogs").generic_string())
+            << R"(,"poll_interval_ms":250,"parallel_uploads_per_provider":2},"dps_report":{"enabled":)"
+            << (active_runtime_proof ? "true" : "false") << R"(},"wingman":{"enabled":false}})";
         settings.close();
         if (!check(!settings.fail(), "Unable to write isolated smoke-test settings")) {
             return 1;
@@ -228,6 +236,21 @@ int main(int argument_count, char** arguments) {
             passed = false;
             break;
         }
+        const auto probe =
+            std::bit_cast<LifecycleProbe>(GetProcAddress(module, "MannyLifecycleTestState"));
+        const auto jobs_probe =
+            std::bit_cast<LifecycleProbe>(GetProcAddress(module, "MannyLifecycleTestJobs"));
+        if (!check((probe != nullptr) == active_runtime_proof &&
+                       (jobs_probe != nullptr) == active_runtime_proof,
+                   "Lifecycle-test DLLs require --active-runtime-proof and cannot serve as normal "
+                   "packages")) {
+            passed = false;
+            (void)FreeLibrary(module);
+            break;
+        }
+        const auto before = probe == nullptr ? std::uint64_t{} : probe();
+        const auto entered_before = before & 0xffffU;
+        const auto exited_before = (before >> 16) & 0xffffU;
         const auto get_definition =
             std::bit_cast<GetAddonDefinition>(GetProcAddress(module, "GetAddonDef"));
         if (!check(get_definition != nullptr, "GetAddonDef is not exported")) {
@@ -313,7 +336,37 @@ int main(int argument_count, char** arguments) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds{20});
 
+        if (active_runtime_proof) {
+            passed = check(active_runtime_fixture::stage(game, cycle),
+                           "Unable to stage synthetic archives") &&
+                     passed;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+            auto state = probe();
+            while ((((state >> 32) & 0xffffU) != 2 || (jobs_probe() >> 16) != 3) &&
+                   (state >> 63) == 0 && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(std::chrono::milliseconds{5});
+                state = probe();
+            }
+            passed = check((jobs_probe() >> 16) == 3 && (state >> 63) == 0 &&
+                               (state & 0xffffU) == entered_before + 2 &&
+                               ((state >> 32) & 0xffffU) == 2 && ((state >> 48) & 0x7fffU) == 1,
+                           "Two active and one queued upload did not reach the test boundary") &&
+                     passed;
+        }
+
+        const auto unload_started = std::chrono::steady_clock::now();
         definition->Unload();
+        if (active_runtime_proof) {
+            const auto state = probe();
+            passed =
+                check(std::chrono::steady_clock::now() - unload_started < std::chrono::seconds{5},
+                      "Active runtime unload exceeded its cancellation deadline") &&
+                check(jobs_probe() == 0 && (state >> 32) == 0 &&
+                          (state & 0xffffU) == entered_before + 2 &&
+                          ((state >> 16) & 0xffffU) == exited_before + 2,
+                      "Unload returned before HTTP calls and their shared client were destroyed") &&
+                passed;
+        }
         if (lifecycle_proof) {
             definition->Unload();
             for (const auto callback : registered_callbacks) {

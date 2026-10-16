@@ -42,9 +42,17 @@ jobs:
         run: cargo +stable clippy --locked --workspace --all-targets --target ${{ matrix.target }} -- -D warnings
 
       - name: Test Rust debug
+        env:
+          MANNY_REQUIRE_NATIVE_DPAPI: ${{ runner.os == 'Windows' && '1' || '' }}
         run: cargo +stable test --locked --workspace --target ${{ matrix.target }}
 
+      - name: Check lifecycle-test instrumentation warnings
+        if: runner.os == 'Windows'
+        run: cargo +stable clippy --locked --workspace --all-targets --target x86_64-pc-windows-msvc --features manny-uploader-addon/lifecycle-test -- -D warnings
+
       - name: Test Rust release
+        env:
+          MANNY_REQUIRE_NATIVE_DPAPI: ${{ runner.os == 'Windows' && '1' || '' }}
         run: cargo +stable test --locked --workspace --release --target ${{ matrix.target }}
 
   source-format:
@@ -111,6 +119,24 @@ jobs:
             & out/build/ci/tests/Debug/manny_nexus_addon_smoke_test.exe $dll --lifecycle-proof
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+      - name: Prove Rust DLL unload with active provider work
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $arguments = @('--locked', '-p', 'manny-uploader-addon', '--target', 'x86_64-pc-windows-msvc', '--target-dir', 'target/lifecycle-test', '--features', 'lifecycle-test')
+          cargo +stable build @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +stable build @arguments --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($configuration in @('debug', 'release')) {
+            $dll = "target/lifecycle-test/x86_64-pc-windows-msvc/$configuration/manny_uploader.dll"
+            & out/build/ci/tests/Debug/manny_nexus_addon_smoke_test.exe $dll --active-runtime-proof
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & out/build/ci/tests/Debug/manny_nexus_addon_smoke_test.exe $dll
+            if ($LASTEXITCODE -eq 0) { throw 'Normal smoke validation accepted a test-only DLL' }
+          }
+          exit 0
 
   windows-release-package:
     name: Windows x64 release package

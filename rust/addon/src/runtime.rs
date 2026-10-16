@@ -111,13 +111,36 @@ static DEFINITION: AddonDefinition = AddonDefinition {
         revision: 0,
     },
     author: c"Logan".as_ptr(),
-    description: c"Upload arcdps logs and share report links. Rust development build.".as_ptr(),
+    description: DESCRIPTION.as_ptr(),
     load,
     unload: Some(unload),
     flags: AddonFlags::None,
     provider: UpdateProvider::GitHub,
     update_link: c"https://github.com/LoganWal/GW2-MannyUploader".as_ptr(),
 };
+
+#[cfg(not(feature = "lifecycle-test"))]
+const DESCRIPTION: &std::ffi::CStr =
+    c"Upload arcdps logs and share report links. Rust development build.";
+#[cfg(feature = "lifecycle-test")]
+const DESCRIPTION: &std::ffi::CStr =
+    c"TEST ONLY. Synthetic blocking HTTP. Never install this DLL in Guild Wars 2.";
+
+#[cfg(feature = "lifecycle-test")]
+pub(crate) fn lifecycle_test_jobs() -> u64 {
+    let Ok(state) = STATE.try_lock() else {
+        return u64::MAX;
+    };
+    let Some(state) = state.as_ref() else {
+        return 0;
+    };
+    let jobs = state.runtime.handle.snapshot().jobs;
+    let active = jobs
+        .iter()
+        .filter(|job| job.record.providers[0].state == manny_core::domain::ProviderState::Active)
+        .count();
+    (jobs.len() as u64).min(0xffff) | ((active as u64).min(0xffff) << 16)
+}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn GetAddonDef() -> *const AddonDefinition {

@@ -1,10 +1,12 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use super::{
-    CandidateError, CandidateIssue, CandidateSourceOptions, Clock, DrainSummary, IngestionError,
-    LogCandidateSource, LogIngestionCoordinator, MetadataDrainSummary, StopToken,
+    CandidateError, CandidateIssue, CandidateSourceOptions, Clock, CoordinatorError, DrainSummary,
+    IngestionError, LogCandidateSource, LogIngestionCoordinator, MetadataDrainSummary, StopToken,
 };
-use crate::domain::{DiscoveryError, LogDiscovery, LogFileIdentity, ProviderSelection};
+use crate::domain::{
+    DiscoveryError, LogDiscovery, LogFileIdentity, ProviderSelection, UploadJobRecord,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PumpError {
@@ -13,6 +15,7 @@ pub enum PumpError {
     Source(CandidateError),
     Discovery(DiscoveryError),
     Ingestion(IngestionError),
+    Coordinator(CoordinatorError),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -174,7 +177,33 @@ impl<C: Clock> ApplicationPump<C> {
         }
         self.discovery
             .set_required_matches(matches)
-            .map_err(PumpError::Discovery)
+            .map_err(PumpError::Discovery)?;
+        self.options.required_matches = matches;
+        Ok(())
+    }
+
+    /// Startup restores only the UI tail while seeding every retained identity, without dispatch.
+    pub fn restore_history(&mut self, records: &[UploadJobRecord]) -> Result<(), PumpError> {
+        if self.stopping {
+            return Err(PumpError::ShuttingDown);
+        }
+        if records.len() > self.options.history_limit {
+            return Err(PumpError::Discovery(DiscoveryError::ResourceLimit));
+        }
+        let mut discovery = LogDiscovery::new(
+            self.options.required_matches,
+            self.options.pending_limit,
+            self.options.history_limit,
+        )
+        .map_err(PumpError::Discovery)?;
+        let files: Vec<_> = records.iter().map(|record| record.file.clone()).collect();
+        discovery.seed(&files).map_err(PumpError::Discovery)?;
+        self.ingestion
+            .uploads_mut()
+            .restore(records.to_vec())
+            .map_err(PumpError::Coordinator)?;
+        self.discovery = discovery;
+        Ok(())
     }
 
     pub fn seed_processed_logs(&mut self, files: &[LogFileIdentity]) -> Result<(), PumpError> {

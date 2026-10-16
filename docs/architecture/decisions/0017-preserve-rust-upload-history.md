@@ -39,6 +39,16 @@ Persist numeric busy states without retry deadlines. Decoding passes interrupted
 domain restoration, producing a failed state and the existing interrupted-session detail. Neither
 decoding nor restoration dispatches work. Validate outgoing records before any persistence operation.
 
+The application owns the history-store port. Its JSON adapter loads missing files as empty history
+and reports invalid or unreadable files through a typed recovery diagnostic without rewriting them.
+Merges validate all updates before cloning, replace matching identities in place, retain records
+outside the visible UI, and trim only the oldest excess records. Duplicate identities within one
+update batch are rejected. Memory and recovery state change only after atomic persistence succeeds.
+
+Startup restoration stages discovery deduplication before restoring the coordinator. It commits
+both only after validation succeeds, seeds every retained identity, and lets the coordinator retain
+only its configured recent-row tail. Failed restoration leaves both owners unchanged.
+
 ## Verification
 
 A synthetic probe linked against the genuine MSVC C++ core writes all receipt fields and an exact
@@ -52,3 +62,10 @@ Automated codec tests cover both timestamp epochs, signed detection times, Unico
 UNC compatibility, all enum codes, interrupted normalization, legacy optional fields, trusted links,
 malformed objects and receipts, duplicate identities, and byte/count limits. Native Windows and Wine
 release gates remain required before replacing the shipping DLL.
+
+Store tests inject read, write, flush, and replacement failures and check recovery, hidden-row
+retention, update ordering, and oldest-first trimming. Pump tests restore more retained identities
+than visible rows and prove that polling and selection changes do not resubmit them. A changed file
+still passes the configured stability checks. Native long-path tests compose the JSON store with
+real flushed Windows replacement, locked-file failure, reopen, corruption recovery, and metadata
+identity comparisons.

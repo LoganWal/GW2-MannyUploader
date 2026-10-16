@@ -52,10 +52,13 @@ fn native_path(path: &Path) -> Result<Vec<u16>, FileError> {
 mod tests {
     use super::*;
     use manny_core::application::{
-        FileStore, SettingsLoadSource, SettingsReadIssue, SettingsStore,
+        FileStore, HistoryRecovery, HistoryStoreError, SettingsLoadSource, SettingsReadIssue,
+        SettingsStore, UploadHistoryStore,
     };
-    use manny_core::config::JsonSettingsStore;
-    use manny_core::domain::Settings;
+    use manny_core::config::{JsonSettingsStore, JsonUploadHistoryStore};
+    use manny_core::domain::{
+        LogFileIdentity, ProviderSelection, Settings, UploadJob, UploadJobId,
+    };
     use manny_core::filesystem::{FilesystemStore, temporary_path};
     use std::fs;
     use std::os::windows::fs::OpenOptionsExt;
@@ -63,7 +66,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     #[test]
-    fn native_atomic_replace_and_settings_recovery_support_long_unicode_paths() {
+    fn native_atomic_replace_settings_and_history_support_long_unicode_paths() {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
             "manny-native-store-{}-{}",
@@ -123,5 +126,61 @@ mod tests {
         assert_eq!(recovered.settings, defaults);
         settings.save(&changed).unwrap();
         assert_eq!(settings.load().unwrap().settings, changed);
+
+        let history_path = path.with_file_name("history-\u{96ea}.json");
+        let log_path = path.with_file_name("sample-\u{96ea}.zevtc");
+        fs::write(&log_path, b"fixture").unwrap();
+        let metadata = fs::metadata(&log_path).unwrap();
+        let record = UploadJob::new(
+            UploadJobId::new(1).unwrap(),
+            LogFileIdentity {
+                canonical_path: fs::canonicalize(&log_path).unwrap(),
+                size: metadata.len(),
+                last_write_time: metadata.modified().unwrap(),
+            },
+            std::time::SystemTime::UNIX_EPOCH,
+            ProviderSelection::default(),
+        )
+        .unwrap()
+        .snapshot()
+        .clone();
+        let open_history = || {
+            JsonUploadHistoryStore::new(
+                Box::new(FilesystemStore::new(WindowsFileCommit)),
+                history_path.clone(),
+                10,
+            )
+            .unwrap()
+        };
+        let mut history = open_history();
+        history
+            .merge_and_save(std::slice::from_ref(&record))
+            .unwrap();
+        assert_eq!(open_history().records(), std::slice::from_ref(&record));
+        let locked = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&history_path)
+            .unwrap();
+        let mut changed = record.clone();
+        changed.providers[0].detail = "Updated local state".into();
+        assert_eq!(
+            history.merge_and_save(std::slice::from_ref(&changed)),
+            Err(HistoryStoreError::File(FileError::ReplaceFailed))
+        );
+        assert_eq!(history.records(), std::slice::from_ref(&record));
+        drop(locked);
+        assert_eq!(open_history().records(), std::slice::from_ref(&record));
+        history
+            .merge_and_save(std::slice::from_ref(&changed))
+            .unwrap();
+        assert_eq!(open_history().records(), std::slice::from_ref(&changed));
+        fs::write(&history_path, b"invalid history").unwrap();
+        let mut recovered = open_history();
+        assert_eq!(recovered.recovery(), Some(HistoryRecovery::InvalidDocument));
+        recovered
+            .merge_and_save(std::slice::from_ref(&changed))
+            .unwrap();
+        assert_eq!(open_history().records(), std::slice::from_ref(&changed));
     }
 }

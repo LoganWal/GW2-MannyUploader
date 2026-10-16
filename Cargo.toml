@@ -86,3 +86,7 @@ all = "warn"
 [[test]]
 name = "history_json"
 path = "rust/tests/history_json.rs"
+
+[[test]]
+name = "history_store"
+path = "rust/tests/history_store.rs"

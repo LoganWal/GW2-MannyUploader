@@ -85,7 +85,7 @@ pub(super) fn validate_capacity(capacity: usize) -> Result<(), Error> {
     }
 }
 
-fn validate_records(records: &[UploadJobRecord], capacity: usize) -> Result<(), Error> {
+pub(super) fn validate_records(records: &[UploadJobRecord], capacity: usize) -> Result<(), Error> {
     validate_capacity(capacity)?;
     if records.len() > capacity {
         return Err(Error::TooLarge);

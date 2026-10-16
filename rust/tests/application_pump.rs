@@ -266,3 +266,83 @@ fn source_errors_panics_cancellation_and_shutdown_remain_contained() {
     drop(f.pump);
     assert_eq!(f.parser.lock().unwrap().stopped, 1);
 }
+
+fn retained(name: &str) -> UploadJobRecord {
+    UploadJob::new(
+        UploadJobId::new(1).unwrap(),
+        file(name),
+        SystemTime::UNIX_EPOCH,
+        ProviderSelection::default(),
+    )
+    .unwrap()
+    .snapshot()
+    .clone()
+}
+
+#[test]
+fn history_restore_seeds_hidden_identities_and_only_displays_recent_rows() {
+    let mut f = Fixture::new(4, 1);
+    let mut latest = retained("b.zevtc");
+    latest.providers[0].state = ProviderState::Active;
+    latest.providers[0].attempts = 2;
+    f.pump.set_required_matches(3).unwrap();
+    f.pump
+        .restore_history(&[retained("a.zevtc"), latest])
+        .unwrap();
+    let snapshots = f.pump.ingestion().uploads().snapshots();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].record.file, file("b.zevtc"));
+    assert_eq!(
+        snapshots[0].record.providers[0].state,
+        ProviderState::Failed
+    );
+    assert_eq!(snapshots[0].record.providers[0].attempts, 2);
+    assert!(f.parser.lock().unwrap().requests.is_empty());
+    for _ in 0..4 {
+        assert_eq!(f.tick().unwrap().submitted, 0);
+    }
+    f.reconfigure("changed-selection").unwrap();
+    for _ in 0..4 {
+        assert_eq!(f.tick().unwrap().submitted, 0);
+    }
+    f.source.lock().unwrap().batch.observations[0].size += 1;
+    assert_eq!(f.tick().unwrap().submitted, 0);
+    assert_eq!(f.tick().unwrap().submitted, 0);
+    assert_eq!(f.tick().unwrap().submitted, 1);
+    assert_eq!(f.parser.lock().unwrap().requests.len(), 1);
+}
+
+#[test]
+fn failed_restore_preserves_coordinator_and_discovery_and_shutdown_rejects_restore() {
+    let mut f = Fixture::new(4, 1);
+    f.pump.seed_processed_logs(&[file("a.zevtc")]).unwrap();
+    let mut invalid = retained("b.zevtc");
+    invalid.twitch_delivery_receipt = Some(TwitchDeliveryReceipt {
+        status: TwitchDeliveryStatus::Sent,
+        message_id: None,
+    });
+    assert_eq!(
+        f.pump.restore_history(&[invalid]),
+        Err(PumpError::Coordinator(CoordinatorError::Domain(
+            JobError::InvalidTwitchDelivery
+        )))
+    );
+    assert!(f.pump.ingestion().uploads().snapshots().is_empty());
+    assert_eq!(f.tick().unwrap().submitted, 0);
+    assert_eq!(f.tick().unwrap().submitted, 1);
+    assert_eq!(f.parser.lock().unwrap().requests[0].file, file("b.zevtc"));
+    assert_eq!(
+        f.pump.restore_history(&[]),
+        Err(PumpError::Coordinator(
+            CoordinatorError::RestoreRequiresEmptyCoordinator
+        ))
+    );
+    f.pump.cancel_all();
+    assert_eq!(f.pump.restore_history(&[]), Err(PumpError::ShuttingDown));
+    let mut f = Fixture::new(4, 1);
+    assert_eq!(
+        f.pump.restore_history(&[retained("invalid.extension")]),
+        Err(PumpError::Discovery(DiscoveryError::InvalidCandidate))
+    );
+    assert!(f.pump.ingestion().uploads().snapshots().is_empty());
+}

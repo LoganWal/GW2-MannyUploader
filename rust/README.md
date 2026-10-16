@@ -52,7 +52,10 @@ MSVC timestamp format, ordinary Windows path prefixes, and normalized receipts. 
 verifies complete C++ to Rust to C++ record compatibility. Bounded decoding rejects malformed history
 and normalizes interrupted work without dispatch. See
 [ADR 0017](../docs/architecture/decisions/0017-preserve-rust-upload-history.md).
-Atomic history merging and runtime composition remain to be implemented.
+Atomic history merging now preserves hidden rows, trims only the oldest records, and reports recovery
+without rewriting invalid files during load. Startup restoration seeds all retained identities while
+displaying only the configured recent rows. Fault-injection, replay-suppression, and native long-path
+tests cover the composition. The development DLL still needs its application runtime connected.
 
 ## Portable core
 

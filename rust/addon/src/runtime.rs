@@ -1,11 +1,10 @@
-use std::ffi::c_char;
+use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, PanicHookInfo, catch_unwind};
-use std::path::PathBuf;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use manny_core::addon::CallbackGate;
+use manny_core::{application::*, ui::*};
 use nexus::AddonApi;
 use nexus::addon::{AddonDefinition, AddonFlags, AddonVersion, UpdateProvider};
 use nexus::gui::RenderType;
@@ -13,6 +12,7 @@ use nexus::imgui::sys as imgui;
 
 use crate::host::{self, Attachment, Host};
 use crate::icons;
+use crate::{composition, ui::Renderer};
 
 #[cfg(test)]
 mod tests;
@@ -23,9 +23,65 @@ static GATE: CallbackGate = CallbackGate::new();
 
 type PanicHook = Box<dyn Fn(&PanicHookInfo<'_>) + Send + Sync + 'static>;
 
+struct Presentation {
+    renderer: Renderer,
+    visible: bool,
+    pending_visibility: Option<u64>,
+}
+impl Presentation {
+    fn synchronize_visibility(&mut self, snapshot: &RuntimeSnapshot) {
+        let options = &snapshot.options;
+        if let Some(revision) = self.pending_visibility {
+            if options.revision <= revision || options.pending_commands != 0 {
+                return;
+            }
+            self.pending_visibility = None;
+        }
+        self.visible = options.configuration.settings.general.window_visible;
+    }
+    fn set_visible(&mut self, visible: bool, snapshot: &RuntimeSnapshot, handle: &RuntimeHandle) {
+        if handle
+            .submit_options(NexusOptionsCommand::SetWindowVisible(visible))
+            .is_ok()
+        {
+            self.visible = visible;
+            self.pending_visibility = Some(snapshot.options.revision);
+        }
+    }
+}
+
+struct Shortcut {
+    status: QuickAccessStatus,
+    tooltip: CString,
+    registered: bool,
+}
+impl Shortcut {
+    fn new(snapshot: &RuntimeSnapshot) -> Self {
+        let status = build_quick_access_status(
+            &snapshot.options.configuration.settings,
+            &snapshot.options.donbot,
+        );
+        let tooltip = CString::new(status.tooltip.as_str()).expect("status contains no NUL");
+        Self {
+            status,
+            tooltip,
+            registered: false,
+        }
+    }
+    fn texture(&self) -> &std::ffi::CStr {
+        match self.status.tint {
+            QuickAccessTint::Idle => host::IDLE,
+            QuickAccessTint::Upload => host::NORMAL,
+            QuickAccessTint::Twitch => host::TWITCH,
+        }
+    }
+}
+
 struct Runtime {
-    _paths: [PathBuf; 2],
-    visible: AtomicBool,
+    handle: RuntimeHandle,
+    presentation: Mutex<Presentation>,
+    shortcut: Mutex<Shortcut>,
+    host: Host,
 }
 
 #[derive(Clone, Copy)]
@@ -39,6 +95,7 @@ enum Resource {
 struct RuntimeState {
     host: Host,
     runtime: Arc<Runtime>,
+    owner: ApplicationRuntimeThread,
     resources: Vec<Resource>,
     previous_hook: Option<PanicHook>,
 }
@@ -54,7 +111,7 @@ static DEFINITION: AddonDefinition = AddonDefinition {
         revision: 0,
     },
     author: c"Logan".as_ptr(),
-    description: c"Development lifecycle shell. Uploads are not available yet.".as_ptr(),
+    description: c"Upload arcdps logs and share report links. Rust development build.".as_ptr(),
     load,
     unload: Some(unload),
     flags: AddonFlags::None,
@@ -77,21 +134,49 @@ unsafe extern "C-unwind" fn load(api: *const AddonApi) {
         return;
     }
     let gate = &GATE;
+    // Keep ownership outside the unwind boundary until construction and registration finish.
+    // set_hook cannot run from a destructor on a panicking thread.
+    let mut previous_hook = None;
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Nexus supplies a readable API allocation. Attachment validates all used slots.
         let attachment = unsafe { Attachment::read(api) }?;
-        let previous_hook = std::panic::take_hook();
-        // Panic payloads can contain credentials later in the migration. Only static host diagnostics
+        previous_hook = Some(std::panic::take_hook());
+        // Panic payloads can contain credentials. Only static host diagnostics
         // are emitted by boundaries. Restore the previous hook before unloading this module.
         std::panic::set_hook(Box::new(|_| {}));
+        let application = composition::compose(
+            &attachment.paths[0],
+            &attachment.paths[1],
+            composition::PACKAGED_TWITCH_CLIENT_ID.into(),
+        )
+        .map_err(|_| {
+            attachment.host.report_failure();
+        })?;
+        let handle = application.handle();
+        let snapshot = handle.snapshot();
+        let owner = ApplicationRuntimeThread::start(application).map_err(|_| {
+            attachment.host.report_failure();
+        })?;
         let mut state = RuntimeState {
             host: attachment.host,
             runtime: Arc::new(Runtime {
-                _paths: attachment.paths,
-                visible: AtomicBool::new(false),
+                handle,
+                presentation: Mutex::new(Presentation {
+                    renderer: Renderer::new(&snapshot),
+                    visible: snapshot
+                        .options
+                        .configuration
+                        .settings
+                        .general
+                        .window_visible,
+                    pending_visibility: None,
+                }),
+                shortcut: Mutex::new(Shortcut::new(&snapshot)),
+                host: attachment.host,
             }),
+            owner,
             resources: Vec::with_capacity(4),
-            previous_hook: Some(previous_hook),
+            previous_hook: None,
         };
         // SAFETY: Validated host context and allocators use the pinned ImGui 1.80 ABI. Calls are
         // serialized with unload, and admission stays closed until registration completes.
@@ -136,12 +221,18 @@ unsafe extern "C-unwind" fn load(api: *const AddonApi) {
                     );
                 }
                 state.resources.push(Resource::Shortcut);
+                let mut shortcut = state
+                    .runtime
+                    .shortcut
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                shortcut.registered = true;
                 (state.host.add_shortcut)(
                     host::SHORTCUT.as_ptr(),
-                    host::IDLE.as_ptr(),
-                    host::IDLE.as_ptr(),
+                    shortcut.texture().as_ptr(),
+                    shortcut.texture().as_ptr(),
                     host::INPUT.as_ptr(),
-                    c"View MannyUploader list".as_ptr(),
+                    shortcut.tooltip.as_ptr(),
                 );
             }
         }));
@@ -154,6 +245,15 @@ unsafe extern "C-unwind" fn load(api: *const AddonApi) {
     }));
     if !matches!(outcome, Ok(Ok(()))) {
         shutdown();
+    } else if let Some(state) = STATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_mut()
+    {
+        state.previous_hook = previous_hook.take();
+    }
+    if let Some(hook) = previous_hook {
+        std::panic::set_hook(hook);
     }
 }
 
@@ -182,7 +282,17 @@ fn release(mut state: RuntimeState) {
             // synchronous callbacks during deregistration no-ops. The host is still alive.
             unsafe {
                 match resource {
-                    Resource::Shortcut => (state.host.remove_shortcut)(host::SHORTCUT.as_ptr()),
+                    Resource::Shortcut => {
+                        // An admitted render may be updating this resource while unload starts.
+                        // Serialize its last update with removal and prevent later re-registration.
+                        let mut shortcut = state
+                            .runtime
+                            .shortcut
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
+                        shortcut.registered = false;
+                        (state.host.remove_shortcut)(host::SHORTCUT.as_ptr());
+                    }
                     Resource::Input => (state.host.deregister_input)(host::INPUT.as_ptr()),
                     Resource::Options => (state.host.deregister_render)(render_options),
                     Resource::Main => (state.host.deregister_render)(render_main),
@@ -194,6 +304,7 @@ fn release(mut state: RuntimeState) {
         }
     }
     GATE.wait();
+    state.owner.shutdown();
     drop(state.runtime);
     // SAFETY: Every admitted callback has returned. Clear borrowed host state without destroying
     // its context or textures. A later load installs fresh allocator functions before any UI work.
@@ -228,29 +339,34 @@ fn callback(action: impl FnOnce(&Runtime)) {
 
 extern "C-unwind" fn render_main() {
     callback(|runtime| {
-        if runtime.visible.load(Ordering::Acquire) {
-            // SAFETY: Nexus calls rendering inside its active ImGui frame on the render thread.
-            unsafe {
-                if imgui::igBegin(c"MannyUploader".as_ptr(), ptr::null_mut(), 0) {
-                    imgui::igTextUnformatted(
-                        c"Development build. Uploads are not available yet.".as_ptr(),
-                        ptr::null(),
-                    );
-                }
-                imgui::igEnd();
-            }
+        let snapshot = runtime.handle.snapshot();
+        runtime.refresh_shortcut(&snapshot);
+        let Ok(mut presentation) = runtime.presentation.try_lock() else {
+            return;
+        };
+        presentation.synchronize_visibility(&snapshot);
+        let mut visible = presentation.visible;
+        // SAFETY: Nexus calls rendering inside its active ImGui frame on the render thread.
+        unsafe {
+            presentation
+                .renderer
+                .main(&snapshot, &runtime.handle, &mut visible);
+        }
+        if visible != presentation.visible {
+            presentation.set_visible(visible, &snapshot, &runtime.handle);
         }
     });
 }
 
 extern "C-unwind" fn render_options() {
-    callback(|_| {
+    callback(|runtime| {
+        let snapshot = runtime.handle.snapshot();
+        let Ok(mut presentation) = runtime.presentation.try_lock() else {
+            return;
+        };
         // SAFETY: Nexus invokes the options callback inside an active ImGui frame.
         unsafe {
-            imgui::igTextUnformatted(
-                c"MannyUploader development build. Uploads are not available yet.".as_ptr(),
-                ptr::null(),
-            );
+            presentation.renderer.options(&snapshot, &runtime.handle);
         }
     });
 }
@@ -258,7 +374,43 @@ extern "C-unwind" fn render_options() {
 extern "C-unwind" fn input(_identifier: *const c_char, is_release: bool) {
     if !is_release {
         callback(|runtime| {
-            runtime.visible.fetch_xor(true, Ordering::AcqRel);
+            let snapshot = runtime.handle.snapshot();
+            let Ok(mut presentation) = runtime.presentation.try_lock() else {
+                return;
+            };
+            presentation.synchronize_visibility(&snapshot);
+            let visible = !presentation.visible;
+            presentation.set_visible(visible, &snapshot, &runtime.handle);
         });
+    }
+}
+
+impl Runtime {
+    fn refresh_shortcut(&self, snapshot: &RuntimeSnapshot) {
+        let Ok(mut shortcut) = self.shortcut.try_lock() else {
+            return;
+        };
+        let status = build_quick_access_status(
+            &snapshot.options.configuration.settings,
+            &snapshot.options.donbot,
+        );
+        if !shortcut.registered || shortcut.status == status {
+            return;
+        }
+        let tooltip = CString::new(status.tooltip.as_str()).expect("status contains no NUL");
+        // SAFETY: The callback gate keeps the validated host alive. Remove/add is balanced and
+        // the owned tooltip remains live until the next replacement or final deregistration.
+        unsafe {
+            (self.host.remove_shortcut)(host::SHORTCUT.as_ptr());
+            shortcut.status = status;
+            shortcut.tooltip = tooltip;
+            (self.host.add_shortcut)(
+                host::SHORTCUT.as_ptr(),
+                shortcut.texture().as_ptr(),
+                shortcut.texture().as_ptr(),
+                host::INPUT.as_ptr(),
+                shortcut.tooltip.as_ptr(),
+            );
+        }
     }
 }

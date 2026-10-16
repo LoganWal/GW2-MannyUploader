@@ -54,7 +54,7 @@ ctest --preset dev
 
 Use `release` instead of `dev` for an optimized build. Full maintainer preflight: `./tools/preflight-msvc-wine.sh`. Native Windows CI remains the OS validation gate.
 
-The Rust implementation is being developed alongside the C++ addon. Its development DLL does not upload logs yet.
+The Rust implementation is being developed alongside the C++ addon. Its development DLL now includes uploads and the Nexus UI, with release validation still in progress.
 With stable Rust installed, run `cargo test --locked` and `cargo clippy --locked --all-targets -- -D warnings`.
 See [Rust development](rust/README.md) for the native DLL and lifecycle checks.
 

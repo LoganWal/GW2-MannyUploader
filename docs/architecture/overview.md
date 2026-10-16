@@ -6,20 +6,20 @@ without Guild Wars 2, Nexus, ImGui, the filesystem, or public HTTP services.
 The production addon remains C++. A portable Rust core is being developed alongside it under
 `rust/src`, with job state, receipt policy, and an application coordinator tested through fake ports.
 A separate development DLL in `rust/addon`
-exercises the Nexus lifecycle without uploading. See
+owns the native upload runtime and options/list renderer. See
 [`ADR 0009`](decisions/0009-migrate-core-to-rust.md) for the migration boundary and
 [`ADR 0010`](decisions/0010-own-rust-nexus-lifecycle.md) for native ownership and validation, and
 [`ADR 0011`](decisions/0011-correlate-rust-upload-attempts.md) for coordinator result and replay rules.
 The portable Rust provider pool owns bounded queues and joined workers under
-[`ADR 0012`](decisions/0012-own-rust-provider-worker-pools.md). Application runtime integration remains
-separate from the development DLL's lifecycle proof.
+[`ADR 0012`](decisions/0012-own-rust-provider-worker-pools.md).
 Rust discovery policy, the portable filesystem poller, and bounded application ticks are implemented
 under [ADR 0014](decisions/0014-own-rust-discovery-and-polling.md), with native notification fallback
 and session-selection timing. Rust durable history and the portable application runtime are implemented
-under [ADR 0040](decisions/0040-compose-rust-application-runtime.md). Native runtime attachment and
-the full options/list renderer remain pending. Native dependencies are assembled and tested separately
+under [ADR 0040](decisions/0040-compose-rust-application-runtime.md). Native dependencies are assembled
 under [ADR 0041](decisions/0041-compose-rust-native-dependencies.md), including the shared protected
-store and real provider workers. The exported DLL remains a lifecycle shell until UI integration.
+store and real provider workers. The exported DLL attaches that runtime and renders immutable
+snapshots under [ADR 0042](decisions/0042-attach-rust-runtime-and-rendering.md). Full Windows/Wine
+release parity and packaging remain outstanding.
 
 ## Dependency direction
 

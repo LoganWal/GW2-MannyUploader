@@ -1,8 +1,9 @@
 # Rust development
 
 The C++ addon remains the shipping implementation. The Rust workspace contains the portable core
-and a Windows x64 development DLL that exercises Nexus lifecycle and rendering. The development DLL
-has no log discovery, uploads, credentials, or persistence.
+and a Windows x64 development DLL with log discovery, provider uploads, protected credentials,
+persistence, and Nexus options/list rendering. Release packaging and Windows/Wine validation remain
+in progress. The development DLL uses the same configuration and history formats as the C++ addon.
 
 The root package forbids unsafe code. `rust/addon` contains the native boundary and pins Nexus
 bindings with the matching ImGui 1.80 dependency. See
@@ -34,8 +35,7 @@ saturation defers candidates, and rejected admission releases their dedupe ident
 Native directory notifications now cache complete observations with a three-failure polling fallback.
 The native handle has creation, modification, rename, deletion, and root-recovery tests. Session
 selection fixes Show New at load time and limits rolling discovery cutoff changes to once per minute.
-Persistence and runtime scheduling remain separate work. The coordinator and workers are not
-connected to the development DLL yet.
+Persistence and runtime scheduling are connected to the development DLL under ADR 0042 below.
 
 The settings domain now carries version-1 defaults, numeric/path/identifier validation, provider
 dependencies, and explicit legacy Discord-channel normalization. One shared Twitch template parser
@@ -55,13 +55,13 @@ and normalizes interrupted work without dispatch. See
 Atomic history merging now preserves hidden rows, trims only the oldest records, and reports recovery
 without rewriting invalid files during load. Startup restoration seeds all retained identities while
 displaying only the configured recent rows. Fault-injection, replay-suppression, and native long-path
-tests cover the composition. The development DLL still needs its application runtime connected.
+tests cover the composition, which is now connected to the development DLL.
 
 Protected credentials now have move-only, redacted, wiping values and application-owned storage
 ports. The bounded protected-file adapter preserves existing envelopes and filenames. Its native
 DPAPI adapter exposes Windows versus Wine protection mode and wipes Windows allocations before
 release. Native round-trip, tamper, locked-file, erasure, and C++ interoperability checks pass. Wine
-execution and runtime configuration/UI composition remain outstanding. See
+execution remains outstanding. Native runtime configuration and UI composition are connected. See
 [ADR 0018](../docs/architecture/decisions/0018-preserve-rust-protected-credentials.md).
 The application configuration service now owns both stores, preserves recovery and protection mode
 in secret-free snapshots, commits settings only after durable writes, and isolates adapters after
@@ -117,8 +117,7 @@ Options now use a bounded command queue and a separate snapshot-only render hand
 preserve current destination and verified-route state. DonBot and Twitch commands execute on the
 application owner, and authorization links resolve the current connection revision before launching.
 Pure view models cover reactive controls, masked authorization details, and honest Wine protection
-wording. See [ADR 0037](../docs/architecture/decisions/0037-coordinate-rust-options.md). Runtime startup,
-live client reconfiguration, and native options rendering remain pending.
+wording. See [ADR 0037](../docs/architecture/decisions/0037-coordinate-rust-options.md).
 
 Recent-log presentation now derives rows, trusted copied links, replay controls, and selected DonBot
 aggregate availability from immutable snapshots. Current destination selection drives visibility
@@ -139,7 +138,12 @@ the archive parser, and all provider/authentication workers. Configuration and p
 serialized protected store. Synthetic native integration tests exercise discovery through durable
 upload receipts and token rotation, plus joined shutdown during active authentication HTTP. See
 [ADR 0041](../docs/architecture/decisions/0041-compose-rust-native-dependencies.md).
-The exported DLL still needs this composition attached together with the full options/list renderer.
+The exported DLL now attaches this composition and joins its owner thread after callback drainage.
+Options and recent logs render through bounded command handles, with live destination columns,
+DonBot guild/route controls, Twitch authorization, clipboard links, replay actions, and quick-access
+updates. Bounded input buffers preserve drafts and wipe submitted keys. Native tests drive actual
+ImGui input, verify command isolation and redaction, and export synthetic frames for visual review.
+See [ADR 0042](../docs/architecture/decisions/0042-attach-rust-runtime-and-rendering.md).
 
 ## Portable core
 
@@ -200,8 +204,9 @@ visible-window rendering, and two load/unload sessions per DLL mapping. Both alt
 immediate texture creation. These tests run in a separate process without Guild Wars 2.
 
 Rust tests additionally exercise partial registration rollback, optional texture failure, panic
-redaction and hook restoration, and draining admitted callbacks. The native shell owns no worker
-threads yet. Worker cancellation and joined shutdown must be added with the application runtime.
+redaction and hook restoration, and draining admitted callbacks. The DLL now owns the application
+and worker threads. The smoke host creates fresh settings with uploads disabled. Active provider
+HTTP during real-DLL unload remains a separate required gate.
 
 These checks do not replace Linux/Wine coverage, native credential and HTTP validation, packaging,
 or symbol verification. Full Rust release and existing-data compatibility gates remain outstanding.

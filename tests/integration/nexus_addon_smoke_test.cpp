@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -170,12 +172,26 @@ int main(int argument_count, char** arguments) {
     const auto game = root / "Guild Wars 2";
     const auto addon = game / "addons" / "GW2MannyUploader";
     std::error_code filesystem_error;
-    std::filesystem::create_directories(game, filesystem_error);
+    if (!check(std::filesystem::create_directory(root, filesystem_error) && !filesystem_error,
+               "Unable to create a fresh smoke-test root")) {
+        return 1;
+    }
+    std::filesystem::create_directories(addon, filesystem_error);
     if (!check(!filesystem_error, "Unable to create smoke-test directories")) {
         return 1;
     }
     game_directory = game.string();
     addon_directory = addon.string();
+    {
+        std::ofstream settings{addon / "settings.json", std::ios::binary};
+        settings << R"({"schema_version":1,"general":{"log_directory":)"
+                 << std::quoted((game / "arcdps.cbtlogs").generic_string())
+                 << R"(},"dps_report":{"enabled":false},"wingman":{"enabled":false}})";
+        settings.close();
+        if (!check(!settings.fail(), "Unable to write isolated smoke-test settings")) {
+            return 1;
+        }
+    }
 
     ImGui::SetAllocatorFunctions(host_allocate, host_free);
     ImGuiContext* context = ImGui::CreateContext();

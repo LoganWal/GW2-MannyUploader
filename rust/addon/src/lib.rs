@@ -1,4 +1,4 @@
-//! Development lifecycle shell. Uploading is not implemented in this DLL yet.
+//! Rust development addon with native composition and snapshot-driven Nexus rendering.
 
 #[cfg(all(windows, not(target_arch = "x86_64")))]
 compile_error!("Nexus requires Windows x64");
@@ -25,3 +25,8 @@ mod icons;
 pub mod random;
 #[cfg(windows)]
 mod runtime;
+#[cfg(windows)]
+mod ui;
+
+#[cfg(all(test, windows))]
+pub(crate) static IMGUI_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

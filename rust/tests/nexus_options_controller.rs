@@ -409,6 +409,30 @@ fn narrow_changes_and_stale_drafts_preserve_destinations() {
 }
 
 #[test]
+fn stale_ordinary_save_preserves_queued_visibility_changes() {
+    for visible in [false, true] {
+        for max_commands_per_tick in [1, 8] {
+            let mut h = Harness::new(NexusOptionsControllerConfig {
+                command_capacity: 8,
+                max_commands_per_tick,
+            });
+            h.run(Command::SetWindowVisible(!visible));
+            let mut draft = NexusOrdinaryOptions::from(&h.handle.snapshot().configuration.settings);
+            draft.general.poll_interval_ms = 2500;
+            h.handle.submit(Command::SetWindowVisible(visible)).unwrap();
+            h.handle.submit(Command::SaveOrdinary(draft)).unwrap();
+            while h.handle.snapshot().pending_commands != 0 {
+                assert_eq!(h.tick().action_failures, 0);
+            }
+            let settings = h.handle.snapshot().configuration.settings;
+            assert_eq!(settings.general.window_visible, visible);
+            assert_eq!(settings.general.poll_interval_ms, 2500);
+            assert_eq!(h.events.lock().unwrap().saves.last(), Some(&settings));
+        }
+    }
+}
+
+#[test]
 fn failed_saves_leave_published_settings_unchanged_and_can_be_dismissed() {
     let mut h = Harness::new(Default::default());
     let before = h.handle.snapshot().configuration;

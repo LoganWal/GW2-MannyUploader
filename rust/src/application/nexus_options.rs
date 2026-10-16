@@ -42,6 +42,8 @@ impl NexusOrdinaryOptions {
         }
         let mut merged = current.clone();
         merged.general = self.general.clone();
+        // A queued close/open can run after the snapshot used to create this draft.
+        merged.general.window_visible = current.general.window_visible;
         merged.twitch.client_id = self.twitch_client_id.clone();
         merged.twitch.message_template = self.twitch_message_template.clone();
         merged.twitch.post_success = self.twitch_post_success;

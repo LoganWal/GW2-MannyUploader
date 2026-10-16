@@ -17,7 +17,11 @@ during an external action wait until another tick. Queue locks never cross persi
 dispatch, or browser launching. Popping a command advances the public revision before external work.
 
 Ordinary drafts merge against current settings when executed. Destination flags and verified DonBot
-routing are absent from drafts. Visibility and destination toggles use dedicated commands. Disabling
+routing are absent from drafts. Visibility and destination toggles use dedicated commands. The Rust
+ordinary merge preserves execution-time window visibility even though GeneralSettings carries it.
+Copying visibility from the renderer's last snapshot is insufficient when an earlier queued toggle
+has not yet published. A regression covers both visibility directions within and across tick budgets.
+This tightens the existing C++ merge without changing the persisted settings format. Disabling
 dps.report disables Twitch posting while retaining authentication. Client ID changes require a
 disconnected or error state. ConfigurationService still validates and saves before publishing.
 

@@ -23,3 +23,21 @@ pub trait FileStore: Send {
     /// Idempotently removes the primary and its interrupted-write temporary file.
     fn erase(&self, path: &Path) -> Result<(), FileError>;
 }
+
+pub(crate) fn validate_storage_path(path: &Path) -> Result<(), FileError> {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    let last = bytes
+        .rsplit(|byte| *byte == b'/' || (cfg!(windows) && *byte == b'\\'))
+        .next()
+        .unwrap_or_default();
+    if path.file_name().is_none()
+        || last.is_empty()
+        || last == b"."
+        || last == b".."
+        || bytes.contains(&0)
+    {
+        Err(FileError::InvalidPath)
+    } else {
+        Ok(())
+    }
+}

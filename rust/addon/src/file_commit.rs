@@ -51,7 +51,11 @@ fn native_path(path: &Path) -> Result<Vec<u16>, FileError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use manny_core::application::FileStore;
+    use manny_core::application::{
+        FileStore, SettingsLoadSource, SettingsReadIssue, SettingsStore,
+    };
+    use manny_core::config::JsonSettingsStore;
+    use manny_core::domain::Settings;
     use manny_core::filesystem::{FilesystemStore, temporary_path};
     use std::fs;
     use std::os::windows::fs::OpenOptionsExt;
@@ -59,7 +63,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     #[test]
-    fn native_atomic_replace_supports_long_unicode_paths_and_preserves_locked_primary() {
+    fn native_atomic_replace_and_settings_recovery_support_long_unicode_paths() {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
             "manny-native-store-{}-{}",
@@ -100,5 +104,24 @@ mod tests {
         store.erase(&path).unwrap();
         store.erase(&path).unwrap();
         assert_eq!(store.read(&path, 64), Ok(None));
+        let defaults = Settings::new("D:/logs".into());
+        let settings =
+            JsonSettingsStore::new(Box::new(store), path.clone(), defaults.clone()).unwrap();
+        assert_eq!(
+            settings.load().unwrap().source,
+            SettingsLoadSource::Defaults
+        );
+        settings.save(&defaults).unwrap();
+        let mut changed = defaults.clone();
+        changed.general.recent_log_limit = 123;
+        settings.save(&changed).unwrap();
+        assert_eq!(settings.load().unwrap().settings, changed);
+        fs::write(&path, b"invalid settings").unwrap();
+        let recovered = settings.load().unwrap();
+        assert_eq!(recovered.source, SettingsLoadSource::Backup);
+        assert_eq!(recovered.recovery, Some(SettingsReadIssue::InvalidJson));
+        assert_eq!(recovered.settings, defaults);
+        settings.save(&changed).unwrap();
+        assert_eq!(settings.load().unwrap().settings, changed);
     }
 }

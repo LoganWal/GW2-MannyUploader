@@ -2,7 +2,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 
-use crate::application::{FileError, FileStore};
+use crate::application::{FileError, FileStore, validate_storage_path as validate_path};
 
 const MAX_PERSISTENT_BYTES: usize = 32 * 1024 * 1024;
 
@@ -25,24 +25,6 @@ pub fn temporary_path(path: &Path) -> PathBuf {
     let mut temporary = path.as_os_str().to_os_string();
     temporary.push(".tmp");
     temporary.into()
-}
-
-fn validate_path(path: &Path) -> Result<(), FileError> {
-    let bytes = path.as_os_str().as_encoded_bytes();
-    let last = bytes
-        .rsplit(|byte| *byte == b'/' || (cfg!(windows) && *byte == b'\\'))
-        .next()
-        .unwrap_or_default();
-    if path.file_name().is_none()
-        || last.is_empty()
-        || last == b"."
-        || last == b".."
-        || bytes.contains(&0)
-    {
-        Err(FileError::InvalidPath)
-    } else {
-        Ok(())
-    }
 }
 
 impl<C: AtomicFileCommit> FileStore for FilesystemStore<C> {

@@ -76,5 +76,9 @@ path = "rust/tests/settings_json.rs"
 name = "file_store"
 path = "rust/tests/file_store.rs"
 
+[[test]]
+name = "settings_store"
+path = "rust/tests/settings_store.rs"
+
 [lints.clippy]
 all = "warn"

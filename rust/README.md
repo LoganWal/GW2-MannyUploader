@@ -45,7 +45,10 @@ UTF-8, non-object settings, and oversized documents. Serde remains inside the co
 under [ADR 0015](../docs/architecture/decisions/0015-bound-rust-settings-json.md). Bounded atomic file
 storage now supplies flushed sibling-file replacement, interrupted-write cleanup, and native
 long-path tests under [ADR 0016](../docs/architecture/decisions/0016-own-rust-atomic-file-storage.md).
-Settings backup recovery and existing-history compatibility remain to be implemented.
+The settings store now validates before writing, preserves a valid previous primary as its backup,
+reports recovery explicitly, and returns defaults only when both files are absent. Fault-injection
+and native Windows filesystem tests cover recovery ordering. Existing-history compatibility remains
+to be implemented.
 
 ## Portable core
 

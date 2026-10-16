@@ -37,12 +37,23 @@ with a final newline. Public errors contain only typed categories and static val
 Discard Serde's detailed errors so keys, values, local paths, or accidentally supplied secrets cannot
 enter diagnostics.
 
+`JsonSettingsStore` implements the application-owned settings port over `FileStore`. Loading tries
+primary then backup, reports the primary failure category when recovery succeeds, and returns defaults
+only when both files are absent. Existing invalid files produce typed failures with no silent reset.
+
+Saving validates and serializes before storage access. A valid previous primary is written unchanged
+to the backup before primary replacement. Invalid or oversized documents never replace a valid
+backup. Read failures stop saving, and backup-write failure prevents primary replacement. A failed
+primary replacement leaves the previous primary and its newly confirmed backup available.
+
 ## Consequences
 
 Tests cover all field round trips, defaults, legacy normalization, exact document bounds, deep
 nesting, malformed Unicode, duplicate keys, nulls, positional arrays, comments, trailing content,
 and secret-like unknown keys at every level. The domain remains standard-library-only.
 
-This codec has no filesystem access. Atomic writes, last-known-good backup recovery, protected
-credentials, and upload-history compatibility remain separate migration work. Production settings
-are unchanged.
+The codec itself has no filesystem access. The store composes the atomic file adapter from
+[ADR 0016](0016-own-rust-atomic-file-storage.md). Fault-injection tests cover read, backup-write, and
+primary-replacement failures. Native Windows integration exercises backup recovery through the real
+adapter on extended-length Unicode paths. Protected credentials and upload-history compatibility
+remain separate migration work. Production settings are unchanged.

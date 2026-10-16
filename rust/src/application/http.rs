@@ -45,6 +45,18 @@ pub struct HttpHeader {
     sensitivity: HttpHeaderSensitivity,
 }
 impl HttpHeader {
+    pub(crate) fn response(name: String, value: SecretValue) -> Self {
+        let sensitivity = if is_sensitive_http_header_name(&name) {
+            HttpHeaderSensitivity::Sensitive
+        } else {
+            HttpHeaderSensitivity::Public
+        };
+        Self {
+            name,
+            value,
+            sensitivity,
+        }
+    }
     pub fn public(name: impl Into<String>, value: impl Into<String>) -> Self {
         Self {
             name: name.into(),

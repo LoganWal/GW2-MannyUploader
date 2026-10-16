@@ -73,7 +73,10 @@ policy, framing headers, sensitive annotations, and timeouts. Wiping headers and
 keep credentials out of diagnostics. Memory/file sources stream incrementally, and a length guard
 contains source failures and verifies exact EOF. File bodies recheck accepted identity before their
 final bytes. See [ADR 0020](../docs/architecture/decisions/0020-bound-rust-http-requests-and-bodies.md).
-Network execution and multipart composition are not implemented yet.
+Multipart bodies stream bounded fields using platform-generated boundaries. Response collection
+preserves ordered headers and trailers, counts interim responses toward limits, and discards partial
+data on failure or cancellation. See [ADR 0021](../docs/architecture/decisions/0021-stream-rust-http-framing.md).
+Native network execution is not implemented yet.
 
 ## Portable core
 

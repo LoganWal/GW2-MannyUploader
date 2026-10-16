@@ -107,3 +107,11 @@ path = "rust/tests/http_request.rs"
 [[test]]
 name = "http_body_sources"
 path = "rust/tests/http_body_sources.rs"
+
+[[test]]
+name = "http_multipart"
+path = "rust/tests/http_multipart.rs"
+
+[[test]]
+name = "http_response"
+path = "rust/tests/http_response.rs"

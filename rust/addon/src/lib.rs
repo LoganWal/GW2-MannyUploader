@@ -16,4 +16,6 @@ mod host;
 #[cfg(windows)]
 mod icons;
 #[cfg(windows)]
+pub mod random;
+#[cfg(windows)]
 mod runtime;

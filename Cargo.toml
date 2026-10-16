@@ -155,3 +155,7 @@ path = "rust/tests/donbot_configuration.rs"
 [[test]]
 name = "donbot_aggregate_controller"
 path = "rust/tests/donbot_aggregate_controller.rs"
+
+[[test]]
+name = "twitch_session"
+path = "rust/tests/twitch_session.rs"

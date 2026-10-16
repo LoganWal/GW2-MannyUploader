@@ -15,6 +15,7 @@ mod random;
 mod secrets;
 mod settings_store;
 mod storage;
+mod twitch;
 mod twitch_session;
 mod upload_coordinator;
 
@@ -35,5 +36,6 @@ pub use random::*;
 pub use secrets::*;
 pub use settings_store::*;
 pub use storage::*;
+pub use twitch::*;
 pub use twitch_session::*;
 pub use upload_coordinator::*;

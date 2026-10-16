@@ -98,7 +98,12 @@ DonBot upload and aggregate workers now capture ordinary settings, load protecte
 and retain typed receipts and safe notices. Explicit retries suppress per-log Discord delivery.
 Aggregate delivery permits one outstanding operation and never retries automatically. See
 [ADR 0027](../docs/architecture/decisions/0027-run-donbot-workers-in-rust.md).
-DonBot configuration/action controllers, Twitch, and production runtime composition remain pending.
+DonBot configuration and aggregate-action controllers now enforce verified guild and route choices,
+persist changes before publication, and correlate asynchronous results. Twitch HTTP primitives,
+authentication workers, protected sessions, and exclusive session recovery are implemented. See
+[ADR 0033](../docs/architecture/decisions/0033-own-rust-twitch-session-transactions.md) for rotation
+ordering and shared credential ownership. Twitch authentication scheduling, chat delivery, and
+production runtime composition remain pending.
 
 ## Portable core
 

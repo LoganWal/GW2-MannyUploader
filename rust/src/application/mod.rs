@@ -18,6 +18,7 @@ mod storage;
 mod twitch;
 mod twitch_authentication;
 mod twitch_session;
+mod twitch_session_owner;
 mod upload_coordinator;
 
 pub use application_pump::*;
@@ -40,4 +41,5 @@ pub use storage::*;
 pub use twitch::*;
 pub use twitch_authentication::*;
 pub use twitch_session::*;
+pub use twitch_session_owner::*;
 pub use upload_coordinator::*;

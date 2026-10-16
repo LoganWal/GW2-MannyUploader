@@ -6,6 +6,27 @@ pub const MAX_DONBOT_CHANNELS_PER_GUILD: usize = 256;
 pub const MAX_DONBOT_CHANNELS: usize = 2048;
 pub const MAX_DONBOT_AGGREGATE_FIGHTS: u16 = 100;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DonBotDeliveryRoute {
+    #[default]
+    None,
+    GuildDefaults,
+    ChannelOverride {
+        channel_id: String,
+    },
+}
+impl DonBotDeliveryRoute {
+    pub fn requested(&self) -> bool {
+        !matches!(self, Self::None)
+    }
+    pub(crate) fn is_valid(&self) -> bool {
+        match self {
+            Self::ChannelOverride { channel_id } => crate::domain::canonical_discord_id(channel_id),
+            _ => true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DonBotChannel {
     pub channel_id: String,

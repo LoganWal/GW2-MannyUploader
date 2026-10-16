@@ -1,5 +1,8 @@
+mod upload;
+mod upload_response;
 mod verification;
 mod verification_worker;
+pub use upload::{DonBotAggregateSuccess, DonBotOptions, DonBotUploadSuccess, DonBotUploader};
 pub use verification_worker::DonBotVerificationWorker;
 
 use crate::application::*;
@@ -23,6 +26,11 @@ pub enum DonBotErrorCode {
     InvalidKey,
     InvalidInput,
     BodyFailed,
+    FileUnavailable,
+    InvalidLocation,
+    UnconfirmedUpload,
+    ProcessingFailed,
+    UnconfirmedDelivery,
     Transport,
     HttpStatus,
     InvalidResponse,

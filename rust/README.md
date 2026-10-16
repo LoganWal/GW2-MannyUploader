@@ -90,7 +90,12 @@ public uploads. See [ADR 0024](../docs/architecture/decisions/0024-upload-to-win
 DonBot verification now decodes bounded authorized guilds, channels, and delivery capabilities. Its
 single-thread worker transfers the candidate key into a correlated successful result without copying,
 retrying, or persisting it. See [ADR 0025](../docs/architecture/decisions/0025-verify-donbot-identity-in-rust.md).
-DonBot uploads and configuration workflows, Twitch, and production runtime composition remain pending.
+The DonBot client also supports TUS uploads, trusted permalink imports, completion streams, and
+explicit aggregate delivery. TUS failures after creation cannot request automatic retries, and
+Discord receipts must match the captured request. See
+[ADR 0026](../docs/architecture/decisions/0026-upload-to-donbot-in-rust.md).
+DonBot upload/action workers and configuration workflows, Twitch, and production runtime composition
+remain pending.
 
 ## Portable core
 

@@ -13,8 +13,12 @@ cover dps.report fanout, direct uploads, WvW exclusion, bounded history, retry d
 correlation, atomic result validation and replay admission, restore, and cancellation. Requests retain
 Reupload intent across retries, and ambiguous delivery requires an explicit action. See
 [ADR 0011](../docs/architecture/decisions/0011-correlate-rust-upload-attempts.md).
-Provider worker queues and runtime integration are the next slice. The coordinator is not connected
-to the development DLL yet.
+The provider pool now supplies bounded FIFO queues, result backpressure, live parallelism from 1
+through 32, cooperative stop tokens, and joined destruction. Its processors return typed outcomes
+without access to mutable jobs. See
+[ADR 0012](../docs/architecture/decisions/0012-own-rust-provider-worker-pools.md).
+Metadata ingestion and application-owner integration are next. The coordinator and worker pool are
+not connected to the development DLL yet.
 
 ## Portable core
 

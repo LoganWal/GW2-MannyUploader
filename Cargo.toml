@@ -23,6 +23,10 @@ path = "rust/tests/upload_job.rs"
 name = "upload_coordinator"
 path = "rust/tests/upload_coordinator.rs"
 
+[[test]]
+name = "async_upload_worker"
+path = "rust/tests/async_upload_worker.rs"
+
 [lints.rust]
 unsafe_code = "forbid"
 

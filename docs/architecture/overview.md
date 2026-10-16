@@ -10,6 +10,9 @@ exercises the Nexus lifecycle without uploading. See
 [`ADR 0009`](decisions/0009-migrate-core-to-rust.md) for the migration boundary and
 [`ADR 0010`](decisions/0010-own-rust-nexus-lifecycle.md) for native ownership and validation, and
 [`ADR 0011`](decisions/0011-correlate-rust-upload-attempts.md) for coordinator result and replay rules.
+The portable Rust provider pool owns bounded queues and joined workers under
+[`ADR 0012`](decisions/0012-own-rust-provider-worker-pools.md). Application runtime integration remains
+separate from the development DLL's lifecycle proof.
 
 ## Dependency direction
 

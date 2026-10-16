@@ -119,6 +119,11 @@ application owner, and authorization links resolve the current connection revisi
 Pure view models cover reactive controls, masked authorization details, and honest Wine protection
 wording. See [ADR 0037](../docs/architecture/decisions/0037-coordinate-rust-options.md). Runtime startup,
 live client reconfiguration, and native options rendering remain pending.
+
+Recent-log presentation now derives rows, trusted copied links, replay controls, and selected DonBot
+aggregate availability from immutable snapshots. Current destination selection drives visibility
+without changing retained job state. UTC timestamps and reactive quick-access text/tint are portable
+and tested. See [ADR 0038](../docs/architecture/decisions/0038-present-rust-recent-logs.md).
 Production runtime composition and options/list presentation remain pending.
 
 ## Portable core

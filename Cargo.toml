@@ -58,6 +58,10 @@ name = "nexus_options_controller"
 path = "rust/tests/nexus_options_controller.rs"
 
 [[test]]
+name = "recent_logs_model"
+path = "rust/tests/recent_logs_model.rs"
+
+[[test]]
 name = "log_discovery"
 path = "rust/tests/log_discovery.rs"
 

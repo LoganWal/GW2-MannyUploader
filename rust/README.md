@@ -47,8 +47,12 @@ storage now supplies flushed sibling-file replacement, interrupted-write cleanup
 long-path tests under [ADR 0016](../docs/architecture/decisions/0016-own-rust-atomic-file-storage.md).
 The settings store now validates before writing, preserves a valid previous primary as its backup,
 reports recovery explicitly, and returns defaults only when both files are absent. Fault-injection
-and native Windows filesystem tests cover recovery ordering. Existing-history compatibility remains
-to be implemented.
+and native Windows filesystem tests cover recovery ordering. The history codec preserves the existing
+MSVC timestamp format, ordinary Windows path prefixes, and normalized receipts. A synthetic probe
+verifies complete C++ to Rust to C++ record compatibility. Bounded decoding rejects malformed history
+and normalizes interrupted work without dispatch. See
+[ADR 0017](../docs/architecture/decisions/0017-preserve-rust-upload-history.md).
+Atomic history merging and runtime composition remain to be implemented.
 
 ## Portable core
 

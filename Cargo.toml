@@ -82,3 +82,7 @@ path = "rust/tests/settings_store.rs"
 
 [lints.clippy]
 all = "warn"
+
+[[test]]
+name = "history_json"
+path = "rust/tests/history_json.rs"

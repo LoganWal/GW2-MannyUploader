@@ -45,7 +45,8 @@ LogFileIdentity equality and hashing normalize equivalent verbatim drive/UNC pre
 the complete original PathBuf for I/O. This prevents a seeded C++ identity from being treated as a new
 Rust log. Size and exact modification time remain part of identity. A regression test first reproduced
 automatic replay after two observations and now covers both drive and UNC paths. History encoding
-still needs explicit timestamp conversion and rollback-compatible path serialization.
+now supplies explicit timestamp conversion and rollback-compatible path serialization under
+[ADR 0017](0017-preserve-rust-upload-history.md).
 
 ## Consequences
 

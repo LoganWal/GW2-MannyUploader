@@ -67,6 +67,18 @@ impl MetadataParserWorker {
 }
 
 impl LogMetadataParser for MetadataParserWorker {
+    fn update_queue_capacity(&mut self, capacity: usize) -> Result<(), ParserError> {
+        if !(1..=64).contains(&capacity) {
+            return Err(ParserError::InvalidRequest);
+        }
+        self.pool
+            .update_queue_capacity(capacity)
+            .map_err(|error| match error {
+                WorkerError::Stopping => ParserError::Stopping,
+                WorkerError::InvalidCapacity => ParserError::InvalidRequest,
+                _ => ParserError::Unavailable,
+            })
+    }
     fn enqueue(&mut self, request: MetadataRequest) -> Result<(), ParserError> {
         if request.file.canonical_path.as_os_str().is_empty() {
             return Err(ParserError::InvalidRequest);

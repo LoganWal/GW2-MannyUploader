@@ -124,6 +124,10 @@ Recent-log presentation now derives rows, trusted copied links, replay controls,
 aggregate availability from immutable snapshots. Current destination selection drives visibility
 without changing retained job state. UTC timestamps and reactive quick-access text/tint are portable
 and tested. See [ADR 0038](../docs/architecture/decisions/0038-present-rust-recent-logs.md).
+
+Runtime configuration can now reach provider policies and parallelism through the upload coordinator,
+and parser capacity through metadata ingestion. Queue shrink preserves accepted work and results.
+See [ADR 0039](../docs/architecture/decisions/0039-reconfigure-owned-rust-workers.md).
 Production runtime composition and options/list presentation remain pending.
 
 ## Portable core

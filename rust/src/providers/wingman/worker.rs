@@ -72,6 +72,16 @@ impl WingmanProviderWorker {
     }
 }
 impl UploadProvider for WingmanProviderWorker {
+    fn configure(
+        &mut self,
+        configuration: ProviderConfiguration,
+    ) -> Result<(), ProviderConfigurationError> {
+        if configuration.policy != ProviderPolicy::Wingman {
+            return Err(ProviderConfigurationError::InvalidConfiguration);
+        }
+        self.update_parallelism(configuration.parallelism)
+            .map_err(Into::into)
+    }
     fn provider(&self) -> Provider {
         Provider::Wingman
     }

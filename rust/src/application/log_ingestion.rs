@@ -47,6 +47,16 @@ pub struct LogIngestionCoordinator<C: Clock> {
 }
 
 impl<C: Clock> LogIngestionCoordinator<C> {
+    pub fn update_parser_capacity(&mut self, capacity: usize) -> Result<(), IngestionError> {
+        if self.stopping {
+            return Err(IngestionError::ShuttingDown);
+        }
+        catch_unwind(AssertUnwindSafe(|| {
+            self.parser.update_queue_capacity(capacity)
+        }))
+        .unwrap_or(Err(ParserError::Panicked))
+        .map_err(IngestionError::Parser)
+    }
     pub fn new(uploads: UploadCoordinator<C>, parser: Box<dyn LogMetadataParser>) -> Self {
         Self {
             uploads,

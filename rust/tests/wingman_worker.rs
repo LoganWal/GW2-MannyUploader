@@ -6,6 +6,42 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, SystemTime};
 
 const WAIT: Duration = Duration::from_secs(5);
+
+#[test]
+fn owned_port_reconfigures_parallelism_and_rejects_mismatched_policy() {
+    let mut worker = worker(|_, _| Ok(success(false, false)));
+    worker
+        .configure(ProviderConfiguration {
+            parallelism: 3,
+            policy: ProviderPolicy::Wingman,
+        })
+        .unwrap();
+    assert_eq!(worker.snapshot().parallelism, 3);
+    for config in [
+        ProviderConfiguration {
+            parallelism: 0,
+            policy: ProviderPolicy::Wingman,
+        },
+        ProviderConfiguration {
+            parallelism: 2,
+            policy: ProviderPolicy::DpsReport { detailed_wvw: true },
+        },
+    ] {
+        assert_eq!(
+            worker.configure(config),
+            Err(ProviderConfigurationError::InvalidConfiguration)
+        );
+        assert_eq!(worker.snapshot().parallelism, 3);
+    }
+    worker.cancel_pending();
+    assert_eq!(
+        worker.configure(ProviderConfiguration {
+            parallelism: 1,
+            policy: ProviderPolicy::Wingman
+        }),
+        Err(ProviderConfigurationError::Stopping)
+    );
+}
 enum Call<'a> {
     Direct(&'a LogFileIdentity, &'a EncounterMetadata),
     Import(&'a str),

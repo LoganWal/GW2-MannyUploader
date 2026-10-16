@@ -672,9 +672,13 @@ fn configuration_is_captured_before_queued_work_starts() {
     entered_rx.recv_timeout(WAIT).unwrap();
     worker.enqueue(request(2)).unwrap();
     worker
-        .update_config(TwitchProviderConfig {
-            message_template: "changed {url}".into(),
-            ..config()
+        .configure(ProviderConfiguration {
+            parallelism: 1,
+            policy: ProviderPolicy::Twitch {
+                message_template: "changed {url}".into(),
+                post_success: true,
+                post_failure: true,
+            },
         })
         .unwrap();
     worker.enqueue(request(3)).unwrap();
@@ -685,6 +689,58 @@ fn configuration_is_captured_before_queued_work_starts() {
     let values = messages.lock().unwrap();
     assert_eq!(values[0], values[1]);
     assert_eq!(values[2], "changed https://dps.report/fixture");
+}
+
+#[test]
+fn runtime_twitch_configuration_rejects_invalid_template_and_preserves_previous_policy() {
+    let mut worker = worker(client(|_, _, _, _| Ok(sent())));
+    let before = worker.config_snapshot();
+    for invalid in [
+        ProviderConfiguration {
+            parallelism: 2,
+            policy: ProviderPolicy::Wingman,
+        },
+        ProviderConfiguration {
+            parallelism: 2,
+            policy: ProviderPolicy::Twitch {
+                message_template: "no permalink".into(),
+                post_success: true,
+                post_failure: true,
+            },
+        },
+        ProviderConfiguration {
+            parallelism: 0,
+            policy: ProviderPolicy::Twitch {
+                message_template: "new {url}".into(),
+                post_success: false,
+                post_failure: true,
+            },
+        },
+    ] {
+        assert_eq!(
+            worker.configure(invalid),
+            Err(ProviderConfigurationError::InvalidConfiguration)
+        );
+        assert_eq!(worker.config_snapshot(), before);
+        assert_eq!(worker.snapshot().parallelism, 1);
+    }
+    let desired = ProviderConfiguration {
+        parallelism: 2,
+        policy: ProviderPolicy::Twitch {
+            message_template: "new {url}".into(),
+            post_success: false,
+            post_failure: true,
+        },
+    };
+    worker.configure(desired.clone()).unwrap();
+    assert_eq!(worker.snapshot().parallelism, 2);
+    assert_eq!(worker.config_snapshot().message_template, "new {url}");
+    assert!(!worker.config_snapshot().post_success);
+    worker.cancel_pending();
+    assert_eq!(
+        worker.configure(desired),
+        Err(ProviderConfigurationError::Stopping)
+    );
 }
 
 #[test]

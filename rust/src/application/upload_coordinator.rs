@@ -32,6 +32,7 @@ pub enum CoordinatorError {
     ShuttingDown,
     Domain(JobError),
     Dispatch(ProviderError),
+    Reconfiguration(super::ProviderConfigurationError),
 }
 
 impl From<JobError> for CoordinatorError {
@@ -102,6 +103,18 @@ pub struct UploadCoordinator<C: Clock> {
 }
 
 impl<C: Clock> UploadCoordinator<C> {
+    pub fn configure_provider(
+        &mut self,
+        configuration: super::ProviderConfiguration,
+    ) -> Result<(), CoordinatorError> {
+        self.require_running()?;
+        let provider = self.providers[configuration.policy.provider() as usize]
+            .as_mut()
+            .ok_or(CoordinatorError::MissingProvider)?;
+        catch_unwind(AssertUnwindSafe(|| provider.configure(configuration)))
+            .unwrap_or(Err(super::ProviderConfigurationError::Panicked))
+            .map_err(CoordinatorError::Reconfiguration)
+    }
     pub fn new(
         clock: C,
         providers: Vec<Box<dyn UploadProvider>>,

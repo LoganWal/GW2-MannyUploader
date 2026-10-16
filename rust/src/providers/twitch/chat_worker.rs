@@ -197,6 +197,29 @@ impl TwitchProviderWorker {
     }
 }
 impl UploadProvider for TwitchProviderWorker {
+    fn configure(
+        &mut self,
+        configuration: ProviderConfiguration,
+    ) -> Result<(), ProviderConfigurationError> {
+        let ProviderPolicy::Twitch {
+            message_template,
+            post_success,
+            post_failure,
+        } = configuration.policy
+        else {
+            return Err(ProviderConfigurationError::InvalidConfiguration);
+        };
+        let template = TwitchMessageTemplate::parse(&message_template)
+            .map_err(|_| ProviderConfigurationError::InvalidConfiguration)?;
+        self.pool.update_parallelism(configuration.parallelism)?;
+        self.config = TwitchProviderConfig {
+            message_template,
+            post_success,
+            post_failure,
+        };
+        self.template = template;
+        Ok(())
+    }
     fn provider(&self) -> Provider {
         Provider::Twitch
     }

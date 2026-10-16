@@ -6,6 +6,58 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime};
 
 const WAIT: Duration = Duration::from_secs(5);
+
+#[test]
+fn runtime_donbot_configuration_validates_before_publishing_policy_or_parallelism() {
+    let mut worker = worker(client(|_, _, _, _| Ok(success(false))), None, options());
+    let before = worker.config_snapshot();
+    for invalid in [
+        ProviderConfiguration {
+            parallelism: 2,
+            policy: ProviderPolicy::Wingman,
+        },
+        ProviderConfiguration {
+            parallelism: 2,
+            policy: ProviderPolicy::DonBot {
+                api_base_url: "http://invalid".into(),
+                guild_id: "123".into(),
+                delivery: DonBotDeliveryRoute::None,
+            },
+        },
+        ProviderConfiguration {
+            parallelism: 0,
+            policy: ProviderPolicy::DonBot {
+                api_base_url: DEFAULT_DONBOT_API.into(),
+                guild_id: "456".into(),
+                delivery: DonBotDeliveryRoute::None,
+            },
+        },
+    ] {
+        assert_eq!(
+            worker.configure(invalid),
+            Err(ProviderConfigurationError::InvalidConfiguration)
+        );
+        assert_eq!(worker.config_snapshot(), before);
+        assert_eq!(worker.snapshot().parallelism, 1);
+    }
+    let desired = ProviderConfiguration {
+        parallelism: 2,
+        policy: ProviderPolicy::DonBot {
+            api_base_url: format!("{DEFAULT_DONBOT_API}///"),
+            guild_id: "456".into(),
+            delivery: DonBotDeliveryRoute::GuildDefaults,
+        },
+    };
+    worker.configure(desired.clone()).unwrap();
+    assert_eq!(worker.config_snapshot().api_base_url, DEFAULT_DONBOT_API);
+    assert_eq!(worker.config_snapshot().guild_id, "456");
+    assert_eq!(worker.snapshot().parallelism, 2);
+    worker.cancel_pending();
+    assert_eq!(
+        worker.configure(desired),
+        Err(ProviderConfigurationError::Stopping)
+    );
+}
 type Secrets = Arc<Mutex<Box<dyn SecretStore>>>;
 enum Call<'a> {
     File(&'a LogFileIdentity),
@@ -248,7 +300,16 @@ fn queued_uploads_capture_configuration_and_reupload_suppresses_discord() {
     second.delivery = DonBotDeliveryRoute::ChannelOverride {
         channel_id: "789".into(),
     };
-    worker.update_config(second.clone()).unwrap();
+    worker
+        .configure(ProviderConfiguration {
+            parallelism: 1,
+            policy: ProviderPolicy::DonBot {
+                api_base_url: second.api_base_url.clone(),
+                guild_id: second.guild_id.clone(),
+                delivery: second.delivery.clone(),
+            },
+        })
+        .unwrap();
     worker.enqueue(request(2, true)).unwrap();
     let mut third = second;
     third.guild_id = "321".into();

@@ -132,10 +132,18 @@ pub enum ProviderError {
     Panicked,
 }
 
-/// Calls must be nonblocking. Each adapter owns its bounded queues and independent workers.
+/// Enqueue and result polling must be nonblocking. Each adapter owns bounded queues and workers.
+/// Reconfiguration may allocate or start threads and belongs only to the application owner.
 /// Cancellation requests stop. Adapter destruction must join every owned worker.
 pub trait UploadProvider: Send {
     fn provider(&self) -> Provider;
+    /// Application-owner reconfiguration. Existing queued and active requests keep captured policy.
+    fn configure(
+        &mut self,
+        _: super::ProviderConfiguration,
+    ) -> Result<(), super::ProviderConfigurationError> {
+        Err(super::ProviderConfigurationError::Unavailable)
+    }
     fn enqueue(&mut self, request: UploadRequest) -> Result<(), ProviderError>;
     fn try_take_result(&mut self) -> Result<Option<UploadResult>, ProviderError>;
     fn cancel_pending(&mut self);
@@ -208,6 +216,10 @@ where
 
 /// Nonblocking metadata admission and polling. Destruction must join owned workers.
 pub trait LogMetadataParser: Send {
+    /// Shrinking preserves accepted requests and results while restricting new admission.
+    fn update_queue_capacity(&mut self, _: usize) -> Result<(), ParserError> {
+        Err(ParserError::Unavailable)
+    }
     fn enqueue(&mut self, request: MetadataRequest) -> Result<(), ParserError>;
     fn available_capacity(&self) -> usize;
     fn try_take_result(&mut self) -> Result<Option<MetadataResult>, ParserError>;

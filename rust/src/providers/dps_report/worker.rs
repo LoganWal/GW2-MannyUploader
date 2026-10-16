@@ -140,6 +140,17 @@ impl DpsReportProviderWorker {
     }
 }
 impl UploadProvider for DpsReportProviderWorker {
+    fn configure(
+        &mut self,
+        configuration: ProviderConfiguration,
+    ) -> Result<(), ProviderConfigurationError> {
+        let ProviderPolicy::DpsReport { detailed_wvw } = configuration.policy else {
+            return Err(ProviderConfigurationError::InvalidConfiguration);
+        };
+        self.pool.update_parallelism(configuration.parallelism)?;
+        self.options = DpsReportOptions { detailed_wvw };
+        Ok(())
+    }
     fn provider(&self) -> Provider {
         Provider::DpsReport
     }

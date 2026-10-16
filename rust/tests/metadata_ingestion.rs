@@ -59,6 +59,49 @@ fn parser_validates_capacity_and_requests() {
 }
 
 #[test]
+fn live_parser_capacity_preserves_queued_work_while_restricting_admission() {
+    let (started, calls) = mpsc::channel();
+    let (release, wait) = mpsc::channel();
+    let wait = Mutex::new(wait);
+    let mut parser = MetadataParserWorker::new(
+        move |file: &LogFileIdentity, _: &StopToken| {
+            started.send(file.size).unwrap();
+            wait.lock().unwrap().recv_timeout(TIMEOUT).unwrap();
+            Ok(metadata())
+        },
+        3,
+    )
+    .unwrap();
+    parser.enqueue(request(1)).unwrap();
+    assert_eq!(calls.recv_timeout(TIMEOUT).unwrap(), 1);
+    for id in 2..=4 {
+        parser.enqueue(request(id)).unwrap();
+    }
+    parser.update_queue_capacity(1).unwrap();
+    assert_eq!(parser.available_capacity(), 0);
+    assert_eq!(parser.enqueue(request(5)), Err(ParserError::QueueFull));
+    for id in 1..=4 {
+        release.send(()).unwrap();
+        assert_eq!(parser.wait_for_result(TIMEOUT).unwrap().job_id.get(), id);
+        if id < 4 {
+            assert_eq!(calls.recv_timeout(TIMEOUT).unwrap(), id + 1);
+        }
+    }
+    assert_eq!(parser.available_capacity(), 1);
+    for invalid in [0, 65, usize::MAX] {
+        assert_eq!(
+            parser.update_queue_capacity(invalid),
+            Err(ParserError::InvalidRequest)
+        );
+        assert_eq!(parser.available_capacity(), 1);
+    }
+    parser.update_queue_capacity(64).unwrap();
+    assert_eq!(parser.available_capacity(), 64);
+    parser.cancel_pending();
+    assert_eq!(parser.update_queue_capacity(2), Err(ParserError::Stopping));
+}
+
+#[test]
 fn parser_preserves_fifo_ids_errors_and_contains_reader_panics() {
     let mut parser = MetadataParserWorker::new(
         |file: &LogFileIdentity, _: &StopToken| match file.size {
@@ -126,6 +169,53 @@ fn metadata_parser_bounds_input_and_result_queues() {
 }
 
 struct TestClock;
+
+#[test]
+fn ingestion_owner_routes_capacity_changes_contains_panics_and_stops_reconfiguration() {
+    struct Parser(Arc<AtomicUsize>);
+    impl LogMetadataParser for Parser {
+        fn update_queue_capacity(&mut self, capacity: usize) -> Result<(), ParserError> {
+            if capacity == 65 {
+                panic!("synthetic capacity failure");
+            }
+            if capacity == 0 {
+                return Err(ParserError::InvalidRequest);
+            }
+            self.0.store(capacity, Ordering::SeqCst);
+            Ok(())
+        }
+        fn enqueue(&mut self, _: MetadataRequest) -> Result<(), ParserError> {
+            panic!("no admission expected")
+        }
+        fn available_capacity(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+        fn try_take_result(&mut self) -> Result<Option<MetadataResult>, ParserError> {
+            Ok(None)
+        }
+        fn cancel_pending(&mut self) {}
+    }
+    let capacity = Arc::new(AtomicUsize::new(8));
+    let uploads = UploadCoordinator::new(TestClock, vec![], 8).unwrap();
+    let mut ingestion = LogIngestionCoordinator::new(uploads, Box::new(Parser(capacity.clone())));
+    ingestion.update_parser_capacity(16).unwrap();
+    assert_eq!(ingestion.available_capacity(), Ok(16));
+    assert_eq!(
+        ingestion.update_parser_capacity(0),
+        Err(IngestionError::Parser(ParserError::InvalidRequest))
+    );
+    assert_eq!(
+        ingestion.update_parser_capacity(65),
+        Err(IngestionError::Parser(ParserError::Panicked))
+    );
+    assert_eq!(capacity.load(Ordering::SeqCst), 16);
+    ingestion.cancel_all();
+    assert_eq!(
+        ingestion.update_parser_capacity(2),
+        Err(IngestionError::ShuttingDown)
+    );
+    assert_eq!(capacity.load(Ordering::SeqCst), 16);
+}
 impl Clock for TestClock {
     fn system_now(&self) -> SystemTime {
         SystemTime::UNIX_EPOCH

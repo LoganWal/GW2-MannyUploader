@@ -316,7 +316,12 @@ fn queued_requests_keep_captured_configuration_and_fifo_with_bounded_backpressur
     let (mut worker, calls) = controlled(1, 1);
     worker.enqueue(request(1)).unwrap();
     let first = calls.recv_timeout(WAIT).unwrap();
-    worker.update_config(DpsReportOptions { detailed_wvw: true });
+    worker
+        .configure(ProviderConfiguration {
+            parallelism: 1,
+            policy: ProviderPolicy::DpsReport { detailed_wvw: true },
+        })
+        .unwrap();
     worker.enqueue(request(2)).unwrap();
     worker.update_config(DpsReportOptions::default());
     assert_eq!(worker.enqueue(request(3)), Err(ProviderError::QueueFull));
@@ -333,6 +338,40 @@ fn queued_requests_keep_captured_configuration_and_fifo_with_bounded_backpressur
     assert!(!third.options.detailed_wvw);
     third.release.send(()).unwrap();
     assert_eq!(result(&mut worker).job_id.get(), 3);
+}
+
+#[test]
+fn runtime_configuration_is_atomic_on_invalid_policy_parallelism_or_stop() {
+    let (mut worker, _calls) = controlled(1, 1);
+    let desired = ProviderConfiguration {
+        parallelism: 2,
+        policy: ProviderPolicy::DpsReport { detailed_wvw: true },
+    };
+    worker.configure(desired.clone()).unwrap();
+    for invalid in [
+        ProviderConfiguration {
+            parallelism: 0,
+            policy: ProviderPolicy::DpsReport {
+                detailed_wvw: false,
+            },
+        },
+        ProviderConfiguration {
+            parallelism: 3,
+            policy: ProviderPolicy::Wingman,
+        },
+    ] {
+        assert_eq!(
+            worker.configure(invalid),
+            Err(ProviderConfigurationError::InvalidConfiguration)
+        );
+        assert_eq!(worker.snapshot().parallelism, 2);
+        assert!(worker.config_snapshot().detailed_wvw);
+    }
+    worker.cancel_pending();
+    assert_eq!(
+        worker.configure(desired),
+        Err(ProviderConfigurationError::Stopping)
+    );
 }
 
 #[test]

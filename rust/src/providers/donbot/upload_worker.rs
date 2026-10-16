@@ -189,6 +189,28 @@ impl DonBotProviderWorker {
     }
 }
 impl UploadProvider for DonBotProviderWorker {
+    fn configure(
+        &mut self,
+        configuration: ProviderConfiguration,
+    ) -> Result<(), ProviderConfigurationError> {
+        let ProviderPolicy::DonBot {
+            api_base_url,
+            guild_id,
+            delivery,
+        } = configuration.policy
+        else {
+            return Err(ProviderConfigurationError::InvalidConfiguration);
+        };
+        let options = normalize_options(DonBotOptions {
+            api_base_url,
+            guild_id,
+            delivery,
+        })
+        .ok_or(ProviderConfigurationError::InvalidConfiguration)?;
+        self.pool.update_parallelism(configuration.parallelism)?;
+        self.options = options;
+        Ok(())
+    }
     fn provider(&self) -> Provider {
         Provider::DonBot
     }

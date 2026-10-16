@@ -35,6 +35,8 @@ impl Clock for FakeClock {
 }
 
 struct FakeState {
+    configurations: Vec<ProviderConfiguration>,
+    panic_configure: bool,
     requests: Vec<UploadRequest>,
     results: VecDeque<UploadResult>,
     capacity: usize,
@@ -47,6 +49,8 @@ struct FakeState {
 impl Default for FakeState {
     fn default() -> Self {
         Self {
+            configurations: Vec::new(),
+            panic_configure: false,
             requests: Vec::new(),
             results: VecDeque::new(),
             capacity: 32,
@@ -64,6 +68,18 @@ struct FakeProvider {
 }
 
 impl UploadProvider for FakeProvider {
+    fn configure(
+        &mut self,
+        configuration: ProviderConfiguration,
+    ) -> Result<(), ProviderConfigurationError> {
+        let mut state = self.state.lock().unwrap();
+        if state.panic_configure {
+            drop(state);
+            panic!("synthetic configuration failure");
+        }
+        state.configurations.push(configuration);
+        Ok(())
+    }
     fn provider(&self) -> Provider {
         self.provider
     }
@@ -101,6 +117,72 @@ impl UploadProvider for FakeProvider {
             panic!("synthetic cancellation failure");
         }
     }
+}
+
+#[test]
+fn provider_reconfiguration_routes_to_its_owner_contains_panics_and_stops_with_coordinator() {
+    let states: Vec<_> = Provider::ALL
+        .iter()
+        .map(|_| Arc::new(Mutex::new(FakeState::default())))
+        .collect();
+    let adapters = Provider::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, provider)| {
+            Box::new(FakeProvider {
+                provider: *provider,
+                state: states[index].clone(),
+            }) as Box<dyn UploadProvider>
+        })
+        .collect();
+    let mut uploads = UploadCoordinator::new(FakeClock::new(), adapters, 8).unwrap();
+    let policies = [
+        ProviderPolicy::DpsReport { detailed_wvw: true },
+        ProviderPolicy::Wingman,
+        ProviderPolicy::DonBot {
+            api_base_url: DEFAULT_DONBOT_API.into(),
+            guild_id: "123".into(),
+            delivery: DonBotDeliveryRoute::None,
+        },
+        ProviderPolicy::Twitch {
+            message_template: DEFAULT_TWITCH_TEMPLATE.into(),
+            post_success: true,
+            post_failure: true,
+        },
+    ];
+    for (index, policy) in policies.into_iter().enumerate() {
+        let configuration = ProviderConfiguration {
+            parallelism: index + 1,
+            policy,
+        };
+        uploads.configure_provider(configuration.clone()).unwrap();
+        assert_eq!(
+            states[index].lock().unwrap().configurations,
+            [configuration]
+        );
+        assert!(states[index].lock().unwrap().requests.is_empty());
+    }
+    let wingman = ProviderConfiguration {
+        parallelism: 2,
+        policy: ProviderPolicy::Wingman,
+    };
+    states[1].lock().unwrap().panic_configure = true;
+    assert_eq!(
+        uploads.configure_provider(wingman.clone()),
+        Err(CoordinatorError::Reconfiguration(
+            ProviderConfigurationError::Panicked
+        ))
+    );
+    uploads.cancel_all();
+    assert_eq!(
+        uploads.configure_provider(wingman.clone()),
+        Err(CoordinatorError::ShuttingDown)
+    );
+    let mut empty = UploadCoordinator::new(FakeClock::new(), vec![], 8).unwrap();
+    assert_eq!(
+        empty.configure_provider(wingman),
+        Err(CoordinatorError::MissingProvider)
+    );
 }
 
 struct Fixture {

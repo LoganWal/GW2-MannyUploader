@@ -66,6 +66,7 @@ pub struct WorkerSnapshot {
 }
 
 struct Queues<Q, R> {
+    capacity: usize,
     requests: VecDeque<Q>,
     results: VecDeque<R>,
     active: usize,
@@ -80,7 +81,6 @@ struct Shared<P: Processor> {
     changed: Condvar,
     stop: CancellationSource,
     processor: P,
-    capacity: usize,
 }
 
 impl<P: Processor> Shared<P> {
@@ -124,7 +124,7 @@ impl<P: Processor> Shared<P> {
                 .changed
                 .wait_while(queues, |queues| {
                     !queues.stopping
-                        && (queues.results.len() == self.capacity
+                        && (queues.results.len() >= queues.capacity
                             || ticket != queues.next_publication)
                 })
                 .unwrap_or_else(|error| error.into_inner());
@@ -178,6 +178,7 @@ impl<P: Processor> WorkerPool<P> {
         let mut worker = Self {
             shared: Arc::new(Shared {
                 queues: Mutex::new(Queues {
+                    capacity: options.queue_capacity,
                     requests,
                     results,
                     active: 0,
@@ -189,7 +190,6 @@ impl<P: Processor> WorkerPool<P> {
                 changed: Condvar::new(),
                 stop: CancellationSource::default(),
                 processor,
-                capacity: options.queue_capacity,
             }),
             threads,
         };
@@ -199,6 +199,30 @@ impl<P: Processor> WorkerPool<P> {
 
     pub fn update_parallelism(&mut self, parallelism: usize) -> Result<(), WorkerError> {
         self.resize_with(parallelism, Self::spawn)
+    }
+
+    pub fn update_queue_capacity(&mut self, capacity: usize) -> Result<(), WorkerError> {
+        if capacity == 0 {
+            return Err(WorkerError::InvalidCapacity);
+        }
+        let mut queues = self.shared.lock();
+        if queues.stopping {
+            return Err(WorkerError::Stopping);
+        }
+        let request_growth = capacity.saturating_sub(queues.requests.len());
+        let result_growth = capacity.saturating_sub(queues.results.len());
+        queues
+            .requests
+            .try_reserve_exact(request_growth)
+            .map_err(|_| WorkerError::AllocationFailed)?;
+        queues
+            .results
+            .try_reserve_exact(result_growth)
+            .map_err(|_| WorkerError::AllocationFailed)?;
+        // Allocation may grow before a failure, but the admission limit changes only on success.
+        queues.capacity = capacity;
+        self.shared.changed.notify_all();
+        Ok(())
     }
 
     fn resize_with(
@@ -267,7 +291,7 @@ impl<P: Processor> WorkerPool<P> {
         if queues.stopping {
             return Err(QueueError::Stopping);
         }
-        if queues.requests.len() == self.shared.capacity {
+        if queues.requests.len() >= queues.capacity {
             return Err(QueueError::Full);
         }
         queues.requests.push_back(request);
@@ -286,7 +310,7 @@ impl<P: Processor> WorkerPool<P> {
         if queues.stopping {
             0
         } else {
-            self.shared.capacity - queues.requests.len()
+            queues.capacity.saturating_sub(queues.requests.len())
         }
     }
 
@@ -333,6 +357,76 @@ mod tests {
 
     fn request(id: u64) -> u64 {
         id
+    }
+
+    #[test]
+    fn shrinking_result_capacity_preserves_backlog_and_blocks_new_publication() {
+        let mut worker = WorkerPool::new(
+            Echo,
+            WorkerOptions {
+                queue_capacity: 3,
+                parallelism: 1,
+            },
+        )
+        .unwrap();
+        for id in 1..=3 {
+            worker.enqueue(id).unwrap();
+        }
+        wait_until(&worker, |queues| queues.results.len() == 3);
+        worker.update_queue_capacity(1).unwrap();
+        worker.enqueue(4).unwrap();
+        wait_until(&worker, |queues| queues.next_completion == 4);
+        assert_eq!(worker.snapshot().results, 3);
+        assert_eq!(worker.snapshot().active, 1);
+        for id in 1..=4 {
+            assert_eq!(worker.wait_for_result(TIMEOUT), Some(id));
+        }
+        assert_eq!(worker.available_capacity(), 1);
+    }
+
+    #[test]
+    fn growing_capacity_wakes_blocked_result_publishers() {
+        let mut worker = WorkerPool::new(
+            Echo,
+            WorkerOptions {
+                queue_capacity: 1,
+                parallelism: 1,
+            },
+        )
+        .unwrap();
+        worker.enqueue(1).unwrap();
+        wait_until(&worker, |queues| queues.results.len() == 1);
+        worker.enqueue(2).unwrap();
+        wait_until(&worker, |queues| queues.next_completion == 2);
+        worker.update_queue_capacity(3).unwrap();
+        wait_until(&worker, |queues| queues.results.len() == 2);
+        assert_eq!(worker.try_take_result(), Some(1));
+        assert_eq!(worker.try_take_result(), Some(2));
+        assert_eq!(worker.available_capacity(), 3);
+    }
+
+    #[test]
+    fn invalid_or_failed_queue_growth_preserves_admission_and_stopping_rejects_resize() {
+        let mut worker = WorkerPool::new(
+            Echo,
+            WorkerOptions {
+                queue_capacity: 2,
+                parallelism: 1,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            worker.update_queue_capacity(0),
+            Err(WorkerError::InvalidCapacity)
+        );
+        assert_eq!(
+            worker.update_queue_capacity(usize::MAX),
+            Err(WorkerError::AllocationFailed)
+        );
+        assert_eq!(worker.available_capacity(), 2);
+        worker.cancel_pending();
+        assert_eq!(worker.update_queue_capacity(3), Err(WorkerError::Stopping));
+        assert_eq!(worker.available_capacity(), 0);
     }
 
     fn wait_until(worker: &WorkerPool<Echo>, ready: impl Fn(&Queues<u64, u64>) -> bool) {

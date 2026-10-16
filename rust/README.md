@@ -68,6 +68,13 @@ in secret-free snapshots, commits settings only after durable writes, and isolat
 shutdown. Native tests reopen settings and a synthetic protected credential through this service.
 See [ADR 0019](../docs/architecture/decisions/0019-own-rust-configuration-service.md).
 
+The HTTP application port now validates bounded requests, HTTPS authorities, explicit loopback test
+policy, framing headers, sensitive annotations, and timeouts. Wiping headers and response buffers
+keep credentials out of diagnostics. Memory/file sources stream incrementally, and a length guard
+contains source failures and verifies exact EOF. File bodies recheck accepted identity before their
+final bytes. See [ADR 0020](../docs/architecture/decisions/0020-bound-rust-http-requests-and-bodies.md).
+Network execution and multipart composition are not implemented yet.
+
 ## Portable core
 
 ```sh

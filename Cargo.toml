@@ -99,3 +99,11 @@ path = "rust/tests/secret_store.rs"
 [[test]]
 name = "configuration_service"
 path = "rust/tests/configuration_service.rs"
+
+[[test]]
+name = "http_request"
+path = "rust/tests/http_request.rs"
+
+[[test]]
+name = "http_body_sources"
+path = "rust/tests/http_body_sources.rs"

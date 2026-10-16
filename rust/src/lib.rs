@@ -6,5 +6,6 @@ pub mod config;
 pub mod domain;
 pub mod evtc;
 pub mod filesystem;
+pub mod http;
 pub mod providers;
 mod workers;

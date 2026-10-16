@@ -1,8 +1,12 @@
+mod aggregate_worker;
 mod upload;
 mod upload_response;
+mod upload_worker;
 mod verification;
 mod verification_worker;
+pub use aggregate_worker::DonBotAggregateWorker;
 pub use upload::{DonBotAggregateSuccess, DonBotOptions, DonBotUploadSuccess, DonBotUploader};
+pub use upload_worker::{DonBotProviderWorker, DonBotWorkerError};
 pub use verification_worker::DonBotVerificationWorker;
 
 use crate::application::*;

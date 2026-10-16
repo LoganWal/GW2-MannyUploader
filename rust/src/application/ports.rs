@@ -34,7 +34,7 @@ pub struct UploadRequest {
     pub file: LogFileIdentity,
     pub metadata: EncounterMetadata,
     pub dps_report_result: Option<DpsReportResult>,
-    /// Reupload must suppress DonBot Discord delivery, including scheduled retries.
+    /// Explicit retries and Reupload suppress DonBot Discord delivery, including scheduled retries.
     pub intent: UploadIntent,
 }
 
@@ -54,6 +54,7 @@ pub enum UploadOutcome {
     /// Adapters may request a retry only when delivery is known to be safe to repeat.
     RetryAfter(Duration),
     Failed,
+    FailedWithNotice(UploadFailure),
     TwitchDropped(TwitchDeliveryReceipt),
     /// Uncertain delivery settles as failed and never schedules an automatic retry.
     Ambiguous,
@@ -67,6 +68,11 @@ pub enum UploadNotice {
     ProviderWarning,
     InvalidReturnedCredential,
     CredentialStorageUnavailable,
+    DiscordSent,
+    DiscordPartial,
+    DiscordSkipped,
+    DiscordFailed,
+    DiscordAmbiguous,
 }
 impl UploadNotice {
     pub const fn detail(self) -> &'static str {
@@ -77,6 +83,31 @@ impl UploadNotice {
             Self::InvalidReturnedCredential => "Uploaded; the returned credential was unusable",
             Self::CredentialStorageUnavailable => {
                 "Uploaded; protected token storage is unavailable"
+            }
+            Self::DiscordSent => "Uploaded. Discord summaries sent",
+            Self::DiscordPartial => "Uploaded. Some Discord summaries were not sent",
+            Self::DiscordSkipped => "Uploaded. Discord summaries skipped",
+            Self::DiscordFailed => "Uploaded. Discord delivery failed",
+            Self::DiscordAmbiguous => "Uploaded. Discord delivery could not be confirmed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UploadFailure {
+    DonBotKeyMissing,
+    CredentialLoadFailed,
+    UnconfirmedUpload,
+    UnconfirmedDelivery,
+}
+impl UploadFailure {
+    pub const fn detail(self) -> &'static str {
+        match self {
+            Self::DonBotKeyMissing => "Verify DonBot before uploading",
+            Self::CredentialLoadFailed => "Protected credentials could not be loaded",
+            Self::UnconfirmedUpload => "Upload could not be confirmed. Automatic retry is disabled",
+            Self::UnconfirmedDelivery => {
+                "Discord delivery could not be confirmed. Automatic retry is disabled"
             }
         }
     }

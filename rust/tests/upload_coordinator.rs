@@ -317,6 +317,80 @@ fn sent() -> UploadOutcome {
 }
 
 #[test]
+fn typed_donbot_failures_are_visible_and_never_schedule_automatic_retries() {
+    for reason in [
+        UploadFailure::DonBotKeyMissing,
+        UploadFailure::CredentialLoadFailed,
+        UploadFailure::UnconfirmedUpload,
+        UploadFailure::UnconfirmedDelivery,
+    ] {
+        let mut fixture = Fixture::new(5);
+        let id = fixture.start(all(), 123);
+        fixture.complete(Provider::DpsReport, report("donbot"));
+        fixture.complete(Provider::DonBot, UploadOutcome::FailedWithNotice(reason));
+        fixture.clock.advance(86400);
+        assert_eq!(fixture.coordinator.dispatch_due_retries(100), 0);
+        let record = fixture
+            .coordinator
+            .snapshots()
+            .into_iter()
+            .find(|r| r.id == id)
+            .unwrap()
+            .record;
+        assert_eq!(
+            record.providers[Provider::DonBot as usize].detail,
+            reason.detail()
+        );
+        assert_eq!(
+            record.providers[Provider::DonBot as usize].state,
+            ProviderState::Failed
+        );
+        assert!(record.donbot_upload_receipt.is_none());
+        assert_eq!(fixture.count(Provider::DonBot), 1);
+    }
+}
+
+#[test]
+fn discord_failure_notice_keeps_the_successful_donbot_ingestion_receipt() {
+    let mut fixture = Fixture::new(5);
+    let id = fixture.start(all(), 123);
+    fixture.complete(Provider::DpsReport, report("donbot"));
+    let receipt = DonBotUploadReceipt {
+        upload_id: Some(42),
+        fight_log_id: Some(99),
+        guild_id: Some("123".into()),
+        discord_delivery: DonBotDiscordDeliveryReceipt {
+            outcome: DonBotDiscordDeliveryOutcome::Ambiguous,
+            ambiguous: 1,
+            ..Default::default()
+        },
+    };
+    fixture.complete(
+        Provider::DonBot,
+        UploadOutcome::SucceededWithNotice(
+            UploadSuccess::DonBot(Some(receipt.clone())),
+            UploadNotice::DiscordAmbiguous,
+        ),
+    );
+    let record = fixture
+        .coordinator
+        .snapshots()
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap()
+        .record;
+    assert_eq!(
+        record.providers[Provider::DonBot as usize].state,
+        ProviderState::Succeeded
+    );
+    assert_eq!(
+        record.providers[Provider::DonBot as usize].detail,
+        UploadNotice::DiscordAmbiguous.detail()
+    );
+    assert_eq!(record.donbot_upload_receipt, Some(receipt));
+}
+
+#[test]
 fn waits_for_metadata_then_fans_out_the_same_report() {
     let mut fixture = Fixture::new(5);
     let id = fixture.coordinator.add_pending(file(), all()).unwrap();

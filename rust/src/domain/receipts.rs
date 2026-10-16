@@ -41,9 +41,12 @@ pub struct DonBotDiscordDeliveryReceipt {
 
 impl DonBotDiscordDeliveryReceipt {
     fn is_valid(&self) -> bool {
+        self.is_valid_with_limit(4)
+    }
+    pub(crate) fn is_valid_with_limit(&self, maximum: u16) -> bool {
         let counts = [self.sent, self.skipped, self.failed, self.ambiguous];
         let total: u32 = counts.iter().map(|&count| u32::from(count)).sum();
-        if total > 4 {
+        if total > u32::from(maximum) {
             return false;
         }
         let populated = counts.iter().filter(|&&count| count != 0).count();

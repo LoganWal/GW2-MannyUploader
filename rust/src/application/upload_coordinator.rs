@@ -209,18 +209,16 @@ impl<C: Clock> UploadCoordinator<C> {
         // Receipt validation and transition form one transaction.
         let mut job = self.jobs[index].job.clone();
         let provider = result.provider;
-        let notice = match &result.outcome {
-            UploadOutcome::SucceededWithNotice(_, notice) => Some(*notice),
+        let detail = match &result.outcome {
+            UploadOutcome::SucceededWithNotice(_, notice) => Some(notice.detail()),
+            UploadOutcome::FailedWithNotice(failure) => Some(failure.detail()),
             _ => None,
         };
         let next = match result.outcome {
             UploadOutcome::Succeeded(success) | UploadOutcome::SucceededWithNotice(success, _) => {
                 match (provider, success) {
                     (Provider::DpsReport, UploadSuccess::DpsReport(report)) => {
-                        job.complete_dps_report(
-                            report,
-                            notice.map_or("Uploaded", |notice| notice.detail()).into(),
-                        )?;
+                        job.complete_dps_report(report, detail.unwrap_or("Uploaded").into())?;
                     }
                     (Provider::Wingman, UploadSuccess::Wingman(receipt)) => {
                         if let Some(receipt) = receipt {
@@ -251,7 +249,9 @@ impl<C: Clock> UploadCoordinator<C> {
                         .ok_or(CoordinatorError::InvalidRetryDelay)?,
                 )
             }
-            UploadOutcome::Failed | UploadOutcome::Ambiguous => ProviderState::Failed,
+            UploadOutcome::Failed
+            | UploadOutcome::FailedWithNotice(_)
+            | UploadOutcome::Ambiguous => ProviderState::Failed,
             UploadOutcome::TwitchDropped(receipt) => {
                 if provider != Provider::Twitch || receipt.status == TwitchDeliveryStatus::Sent {
                     return Err(CoordinatorError::UnexpectedResult);
@@ -265,9 +265,7 @@ impl<C: Clock> UploadCoordinator<C> {
             job.transition(
                 provider,
                 next,
-                notice
-                    .map_or(Self::state_detail(next), |notice| notice.detail())
-                    .into(),
+                detail.unwrap_or(Self::state_detail(next)).into(),
             )?;
         }
         self.jobs[index].job = job;

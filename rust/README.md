@@ -94,8 +94,11 @@ The DonBot client also supports TUS uploads, trusted permalink imports, completi
 explicit aggregate delivery. TUS failures after creation cannot request automatic retries, and
 Discord receipts must match the captured request. See
 [ADR 0026](../docs/architecture/decisions/0026-upload-to-donbot-in-rust.md).
-DonBot upload/action workers and configuration workflows, Twitch, and production runtime composition
-remain pending.
+DonBot upload and aggregate workers now capture ordinary settings, load protected keys per attempt,
+and retain typed receipts and safe notices. Explicit retries suppress per-log Discord delivery.
+Aggregate delivery permits one outstanding operation and never retries automatically. See
+[ADR 0027](../docs/architecture/decisions/0027-run-donbot-workers-in-rust.md).
+DonBot configuration/action controllers, Twitch, and production runtime composition remain pending.
 
 ## Portable core
 

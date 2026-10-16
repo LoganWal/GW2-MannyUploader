@@ -102,6 +102,45 @@ pub trait DonBotVerifier: Send {
     fn cancel_pending(&mut self);
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DonBotAggregateRequest {
+    pub request_id: u64,
+    pub api_base_url: String,
+    pub guild_id: String,
+    pub fight_log_ids: Vec<u64>,
+    pub delivery: DonBotDeliveryRoute,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DonBotAggregateOutcome {
+    Succeeded,
+    Failed,
+    Ambiguous,
+    Cancelled,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DonBotAggregateResult {
+    pub request_id: u64,
+    pub outcome: DonBotAggregateOutcome,
+    pub fight_log_count: usize,
+    pub discord_delivery: Option<crate::domain::DonBotDiscordDeliveryReceipt>,
+    pub credential_failure: Option<super::UploadFailure>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DonBotAggregateDispatchError {
+    InvalidRequest,
+    Busy,
+    Stopping,
+}
+pub trait DonBotAggregateDelivery: Send {
+    fn enqueue(
+        &mut self,
+        request: DonBotAggregateRequest,
+    ) -> Result<(), DonBotAggregateDispatchError>;
+    fn try_take_result(&mut self) -> Option<DonBotAggregateResult>;
+    fn busy(&self) -> bool;
+    fn cancel_pending(&mut self);
+}
+
 pub fn valid_donbot_api_key(key: &SecretValue) -> bool {
     !key.is_empty()
         && key.len() <= MAX_DONBOT_API_KEY_BYTES

@@ -434,6 +434,14 @@ impl<C: Clock> UploadCoordinator<C> {
             .collect()
     }
 
+    pub fn snapshot(&self, id: UploadJobId) -> Result<UploadJobSnapshot, CoordinatorError> {
+        let entry = &self.jobs[self.index(id)?];
+        Ok(UploadJobSnapshot {
+            id,
+            record: entry.job.snapshot().clone(),
+        })
+    }
+
     pub fn history(&self) -> Vec<UploadJobRecord> {
         self.jobs
             .iter()

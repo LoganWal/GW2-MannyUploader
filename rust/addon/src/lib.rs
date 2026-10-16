@@ -10,6 +10,8 @@ pub mod directory_monitor;
 #[cfg(windows)]
 pub mod dpapi;
 #[cfg(windows)]
+pub mod external_actions;
+#[cfg(windows)]
 pub mod file_commit;
 #[cfg(windows)]
 mod host;

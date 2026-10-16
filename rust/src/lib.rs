@@ -8,4 +8,5 @@ pub mod evtc;
 pub mod filesystem;
 pub mod http;
 pub mod providers;
+pub mod ui;
 mod workers;

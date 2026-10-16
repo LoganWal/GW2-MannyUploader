@@ -109,7 +109,10 @@ Shared chat delivery, encounter posting, and explicit test-message workers now e
 recovery and duplicate-safe retry policy. The test controller exposes correlated results without
 remote message IDs or automatic resend. See
 [ADR 0035](../docs/architecture/decisions/0035-deliver-twitch-chat-in-rust.md).
-Production runtime composition and options/list UI remain pending.
+Recent-log actions now resolve stable job IDs through a bounded application queue. The Windows
+launcher preserves Unicode targets, and DonBot selection retains user choices across temporary
+unavailability. See [ADR 0036](../docs/architecture/decisions/0036-run-rust-recent-log-actions.md).
+Production runtime composition and options/list presentation remain pending.
 
 ## Portable core
 

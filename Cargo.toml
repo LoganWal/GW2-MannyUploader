@@ -179,3 +179,7 @@ path = "rust/tests/twitch_authentication_controller.rs"
 [[test]]
 name = "twitch_chat"
 path = "rust/tests/twitch_chat.rs"
+
+[[test]]
+name = "recent_log_actions"
+path = "rust/tests/recent_log_actions.rs"

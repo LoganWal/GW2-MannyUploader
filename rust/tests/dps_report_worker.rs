@@ -216,7 +216,7 @@ fn missing_and_unavailable_storage_keep_anonymous_uploads_available() {
         } else {
             assert!(matches!(
                 outcome,
-                UploadOutcome::SucceededWithWarning(_, UploadWarning::CredentialStorageUnavailable)
+                UploadOutcome::SucceededWithNotice(_, UploadNotice::CredentialStorageUnavailable)
             ));
         }
     }
@@ -411,11 +411,11 @@ fn retries_use_positive_bounded_delays_and_warnings_remain_typed() {
     for (warning, expected) in [
         (
             DpsReportWarning::GeneratedWithWarning,
-            UploadWarning::ProviderWarning,
+            UploadNotice::ProviderWarning,
         ),
         (
             DpsReportWarning::InvalidReturnedToken,
-            UploadWarning::InvalidReturnedCredential,
+            UploadNotice::InvalidReturnedCredential,
         ),
     ] {
         let mut worker = worker(
@@ -428,7 +428,7 @@ fn retries_use_positive_bounded_delays_and_warnings_remain_typed() {
         );
         worker.enqueue(request(1)).unwrap();
         assert!(
-            matches!(result(&mut worker).outcome,UploadOutcome::SucceededWithWarning(_,actual) if actual == expected)
+            matches!(result(&mut worker).outcome,UploadOutcome::SucceededWithNotice(_,actual) if actual == expected)
         );
     }
 }

@@ -9,6 +9,7 @@ use std::time::Duration;
 use crate::application::*;
 use crate::domain::{DpsReportResult, LogFileIdentity};
 use crate::http::{FileBodySource, MemoryBodySource, MultipartFormData, MultipartPart};
+use crate::providers::wire::retry_after;
 
 pub const DPS_REPORT_UPLOAD_URL: &str = "https://dps.report/uploadContent?json=1&generator=ei";
 pub const DPS_REPORT_DETAILED_WVW_URL: &str =
@@ -231,18 +232,4 @@ fn classify_status(response: &HttpResponse) -> DpsReportError {
         http_error: None,
         http_status: Some(status),
     }
-}
-fn retry_after(response: &HttpResponse) -> Option<u64> {
-    let mut matching = response
-        .headers
-        .iter()
-        .filter(|header| header.name().eq_ignore_ascii_case("Retry-After"));
-    let bytes = matching.next()?.expose_value();
-    if matching.next().is_some() || bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
-        return None;
-    }
-    let seconds = bytes.iter().try_fold(0u64, |total, &byte| {
-        total.checked_mul(10)?.checked_add(u64::from(byte - b'0'))
-    })?;
-    (1..=900).contains(&seconds).then_some(seconds)
 }

@@ -46,9 +46,9 @@ impl DpsProcessor {
         match result {
             Ok(success) => {
                 let mut warning = success.warning.map(|warning| match warning {
-                    DpsReportWarning::GeneratedWithWarning => UploadWarning::ProviderWarning,
+                    DpsReportWarning::GeneratedWithWarning => UploadNotice::ProviderWarning,
                     DpsReportWarning::InvalidReturnedToken => {
-                        UploadWarning::InvalidReturnedCredential
+                        UploadNotice::InvalidReturnedCredential
                     }
                 });
                 if let Some(replacement) = success.replacement_user_token {
@@ -66,12 +66,12 @@ impl DpsProcessor {
                             return UploadOutcome::Failed;
                         }
                     } else {
-                        warning = Some(UploadWarning::CredentialStorageUnavailable);
+                        warning = Some(UploadNotice::CredentialStorageUnavailable);
                     }
                 }
                 let result = UploadSuccess::DpsReport(success.report);
                 match warning {
-                    Some(warning) => UploadOutcome::SucceededWithWarning(result, warning),
+                    Some(warning) => UploadOutcome::SucceededWithNotice(result, warning),
                     None => UploadOutcome::Succeeded(result),
                 }
             }

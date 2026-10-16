@@ -123,3 +123,11 @@ path = "rust/tests/dps_report_client.rs"
 [[test]]
 name = "dps_report_worker"
 path = "rust/tests/dps_report_worker.rs"
+
+[[test]]
+name = "wingman_client"
+path = "rust/tests/wingman_client.rs"
+
+[[test]]
+name = "wingman_worker"
+path = "rust/tests/wingman_worker.rs"

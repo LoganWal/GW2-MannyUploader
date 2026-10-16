@@ -1,7 +1,7 @@
 use std::fmt;
-use std::marker::PhantomData;
 
-use serde::de::{MapAccess, Visitor, value::MapAccessDeserializer};
+use crate::providers::json::{self, Object, Text};
+use serde::de::Visitor;
 use serde::{Deserialize, Deserializer};
 
 use super::*;
@@ -15,15 +15,8 @@ pub(super) fn decode(
         http_status: Some(response.status_code),
         ..DpsReportError::failed(DpsReportErrorCode::InvalidResponse)
     };
-    if response.body.len() > MAX_DPS_REPORT_RESPONSE_BYTES {
-        return Err(invalid());
-    }
-    let text = std::str::from_utf8(response.body.expose()).map_err(|_| invalid())?;
-    // IgnoredAny skips Unicode validation in unknown strings. Validate those without retaining values.
-    if !valid_unicode_escapes(text.as_bytes()) {
-        return Err(invalid());
-    }
-    let Object(parsed): Object<Response> = serde_json::from_str(text).map_err(|_| invalid())?;
+    let parsed: Response = json::decode(response.body.expose(), MAX_DPS_REPORT_RESPONSE_BYTES)
+        .map_err(|_| invalid())?;
     let report = DpsReportResult {
         permalink: parsed.permalink.0,
         encounter_name: parsed.encounter.0.boss.0,
@@ -68,23 +61,8 @@ pub(super) fn decode(
     })
 }
 fn valid_permalink(value: &str, boss: u16) -> bool {
-    value.len() <= 2048
-        && value
-            .bytes()
-            .all(|b| (0x21..=0x7e).contains(&b) && !matches!(b, b'@' | b'?' | b'#' | b'\\' | b'"'))
-        && [
-            "https://dps.report/",
-            "https://b.dps.report/",
-            "https://wvw.report/",
-        ]
-        .iter()
-        .enumerate()
-        .any(|(index, prefix)| {
-            (index != 2 || boss == WVW_BOSS_ID)
-                && value
-                    .strip_prefix(prefix)
-                    .is_some_and(|path| !path.is_empty())
-        })
+    crate::providers::wire::trusted_report_permalink(value)
+        && (!value.starts_with("https://wvw.report/") || boss == WVW_BOSS_ID)
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,41 +83,6 @@ struct Encounter {
     emboldened: Option<i32>,
 }
 
-struct Object<T>(T);
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct ObjectVisitor<T>(PhantomData<T>);
-        impl<'de, T: Deserialize<'de>> Visitor<'de> for ObjectVisitor<T> {
-            type Value = Object<T>;
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("an object")
-            }
-            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-                T::deserialize(MapAccessDeserializer::new(map)).map(Object)
-            }
-        }
-        deserializer.deserialize_map(ObjectVisitor(PhantomData))
-    }
-}
-struct Text<const LIMIT: usize>(String);
-impl<'de, const LIMIT: usize> Deserialize<'de> for Text<LIMIT> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct TextVisitor<const N: usize>;
-        impl<const N: usize> Visitor<'_> for TextVisitor<N> {
-            type Value = Text<N>;
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("bounded text")
-            }
-            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                if value.len() > N {
-                    return Err(E::custom("text limit"));
-                }
-                Ok(Text(value.into()))
-            }
-        }
-        deserializer.deserialize_str(TextVisitor::<LIMIT>)
-    }
-}
 enum Token {
     Valid(SecretValue),
     Invalid,
@@ -178,58 +121,4 @@ impl<'de> Deserialize<'de> for Warning {
         }
         deserializer.deserialize_str(WarningVisitor)
     }
-}
-
-fn valid_unicode_escapes(bytes: &[u8]) -> bool {
-    let mut quoted = false;
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'"' => {
-                quoted = !quoted;
-                index += 1;
-            }
-            b'\\' if quoted => {
-                index += 1;
-                if bytes.get(index) == Some(&b'u') {
-                    let Some(unit) = unicode_unit(bytes, index + 1) else {
-                        return false;
-                    };
-                    index += 5;
-                    if (0xd800..=0xdbff).contains(&unit) {
-                        if bytes.get(index..index + 2) != Some(b"\\u") {
-                            return false;
-                        }
-                        let Some(low) = unicode_unit(bytes, index + 2) else {
-                            return false;
-                        };
-                        if !(0xdc00..=0xdfff).contains(&low) {
-                            return false;
-                        }
-                        index += 6;
-                    } else if (0xdc00..=0xdfff).contains(&unit) {
-                        return false;
-                    }
-                } else {
-                    index += 1;
-                }
-            }
-            _ => index += 1,
-        }
-    }
-    true
-}
-fn unicode_unit(bytes: &[u8], index: usize) -> Option<u16> {
-    bytes
-        .get(index..index + 4)?
-        .iter()
-        .try_fold(0u16, |value, byte| {
-            let digit = match byte {
-                b'0'..=b'9' => byte - b'0',
-                b'a'..=b'f' => byte - b'a' + 10,
-                b'A'..=b'F' => byte - b'A' + 10,
-                _ => return None,
-            };
-            Some(value * 16 + u16::from(digit))
-        })
 }

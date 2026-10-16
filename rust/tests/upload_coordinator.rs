@@ -244,9 +244,9 @@ fn report(suffix: &str) -> UploadOutcome {
 #[test]
 fn successful_provider_warnings_reach_snapshots_without_blocking_dependents() {
     for warning in [
-        UploadWarning::ProviderWarning,
-        UploadWarning::InvalidReturnedCredential,
-        UploadWarning::CredentialStorageUnavailable,
+        UploadNotice::ProviderWarning,
+        UploadNotice::InvalidReturnedCredential,
+        UploadNotice::CredentialStorageUnavailable,
     ] {
         let mut fixture = Fixture::new(8);
         let id = fixture.start(all(), 123);
@@ -255,7 +255,7 @@ fn successful_provider_warnings_reach_snapshots_without_blocking_dependents() {
         };
         fixture.complete(
             Provider::DpsReport,
-            UploadOutcome::SucceededWithWarning(success, warning),
+            UploadOutcome::SucceededWithNotice(success, warning),
         );
         let snapshot = fixture
             .coordinator
@@ -275,6 +275,37 @@ fn successful_provider_warnings_reach_snapshots_without_blocking_dependents() {
         for provider in [Provider::Wingman, Provider::DonBot, Provider::Twitch] {
             assert_eq!(fixture.count(provider), 1);
         }
+    }
+}
+
+#[test]
+fn wingman_notices_preserve_success_and_public_receipts() {
+    for notice in [UploadNotice::Queued, UploadNotice::AlreadyPresent] {
+        let mut fixture = Fixture::new(5);
+        let id = fixture.start(all(), 123);
+        fixture.complete(Provider::DpsReport, report("wingman"));
+        let receipt = WingmanUploadReceipt {
+            permalink: "https://gw2wingman.nevermindcreations.de/log/fixture".into(),
+        };
+        fixture.complete(
+            Provider::Wingman,
+            UploadOutcome::SucceededWithNotice(
+                UploadSuccess::Wingman(Some(receipt.clone())),
+                notice,
+            ),
+        );
+        let snapshot = fixture
+            .coordinator
+            .snapshots()
+            .into_iter()
+            .find(|row| row.id == id)
+            .unwrap();
+        assert_eq!(snapshot.record.wingman_upload_receipt, Some(receipt));
+        let provider = &snapshot.record.providers[Provider::Wingman as usize];
+        assert_eq!(provider.state, ProviderState::Succeeded);
+        assert_eq!(provider.detail, notice.detail());
+        assert_eq!(provider.attempts, 1);
+        assert_eq!(fixture.count(Provider::Wingman), 1);
     }
 }
 

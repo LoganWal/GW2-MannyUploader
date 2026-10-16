@@ -83,7 +83,11 @@ The dps.report client streams stable archives and protected token fields, valida
 responses, and classifies retry suggestions. Its bounded worker captures Detailed WvW per request
 and saves replacement tokens before publishing success. Typed warnings reach coordinator snapshots.
 See [ADR 0023](../docs/architecture/decisions/0023-upload-to-dps-report-in-rust.md).
-The remaining providers, authentication workflows, and production runtime composition remain pending.
+The Wingman client now supports same-job permalink import, direct bridge uploads, bounded ticket
+polling, and public fight-link discovery. Its worker preserves queued/duplicate notices and receipts
+while sharing bounded queues and joined cancellation. Fake time verifies polling deadlines without
+public uploads. See [ADR 0024](../docs/architecture/decisions/0024-upload-to-wingman-in-rust.md).
+DonBot, Twitch, authentication workflows, and production runtime composition remain pending.
 
 ## Portable core
 

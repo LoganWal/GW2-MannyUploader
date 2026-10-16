@@ -27,6 +27,12 @@ compiler, SDK, import library, or toolchain directory is uploaded. Release symbo
 existing separate artifact. Python tests cover manifest rejection, full configuration/mode coverage,
 failure propagation, DPAPI environment selection, and refusal to reuse an existing Wine prefix.
 
+Failed subprocesses emit a public CI annotation with the executable name, exit code or timeout,
+and bounded Rust test identifiers when available. Raw process output stays in the ordinary job log,
+bounded to one MiB per process and collected on disk. Annotations exclude command arguments,
+local paths and raw failure text. This supports diagnosis from public check results without using
+stored repository credentials to retrieve logs.
+
 ## Evidence boundaries
 
 Successful artifact staging and mocked runner tests do not prove Wine execution. Record the hosted

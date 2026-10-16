@@ -6,6 +6,33 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
+
+
+def run_checked(command, environment, timeout):
+    # Keep process output on disk so a failing executable cannot exhaust runner memory.
+    with tempfile.TemporaryFile() as output:
+        try:
+            subprocess.run(command, env=environment, check=True, timeout=timeout,
+                           stdout=output, stderr=subprocess.STDOUT)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            output.seek(0)
+            text = output.read(1024 * 1024).decode("utf-8", errors="replace")
+            # Only executable/test identifiers enter the public annotation, never raw diagnostics.
+            executable = Path(command[1] if command[0] == "wine" and len(command) > 1
+                              and not command[1].startswith("-") else command[0]).name
+            if not re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", executable):
+                executable = "process"
+            failed = re.findall(r"^\s*([A-Za-z0-9_:]{1,256}) --- FAILED\s*$", text, re.MULTILINE)
+            result = (f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError)
+                      else "timeout")
+            suffix = f"; failed tests: {', '.join(failed[:10])}" if failed else ""
+            print(f"::error::Wine validation: {executable}, {result}{suffix}", flush=True)
+            raise
+        finally:
+            output.seek(0)
+            # The ordinary job log retains bounded test output, separate from the annotation.
+            print(output.read(1024 * 1024).decode("utf-8", errors="replace"), end="", flush=True)
 
 
 def test_executables(directory, configuration):
@@ -53,7 +80,7 @@ def main():
                        WINEDLLOVERRIDES="mscoree,mshtml=", MANNY_REQUIRE_WINE_DPAPI="1")
 
     def run(*command, timeout=180):
-        subprocess.run(command, env=environment, check=True, timeout=timeout)
+        run_checked(command, environment, timeout)
 
     def windows_path(path):
         return subprocess.check_output(["winepath", "-w", str(path)], env=environment,

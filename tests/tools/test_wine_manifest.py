@@ -11,6 +11,30 @@ runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
 
+class FailureAnnotationTests(unittest.TestCase):
+    def test_failure_annotation_contains_only_executable_and_test_identifiers(self):
+        def fail(command, **kwargs):
+            kwargs["stdout"].write(b"private path and response\nmodule::case --- FAILED\n")
+            raise runner.subprocess.CalledProcessError(101, command)
+
+        with mock.patch.object(runner.subprocess, "run", side_effect=fail), \
+                mock.patch("builtins.print") as output:
+            with self.assertRaises(runner.subprocess.CalledProcessError):
+                runner.run_checked(["wine", "/private/path/suite-123.exe", "--quiet"], {}, 180)
+        annotations = [call.args[0] for call in output.call_args_list
+                       if call.args[0].startswith("::error::")]
+        self.assertEqual(annotations, [
+            "::error::Wine validation: suite-123.exe, exit 101; failed tests: module::case"])
+
+    def test_timeout_annotation_does_not_include_command_arguments(self):
+        with mock.patch.object(runner.subprocess, "run", side_effect=
+                               runner.subprocess.TimeoutExpired(["wineboot", "private"], 180)), \
+                mock.patch("builtins.print") as output:
+            with self.assertRaises(runner.subprocess.TimeoutExpired):
+                runner.run_checked(["wineboot", "private"], {}, 180)
+        output.assert_any_call("::error::Wine validation: wineboot, timeout", flush=True)
+
+
 class ManifestTests(unittest.TestCase):
     def test_manifest_selects_every_declared_test_and_ignores_other_files(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -94,7 +118,8 @@ class WineRunTests(unittest.TestCase):
                     raise runner.subprocess.CalledProcessError(1, command)
 
             with mock.patch("sys.argv", arguments), \
-                    mock.patch.object(runner.subprocess, "run", side_effect=fail_suite) as run:
+                    mock.patch.object(runner.subprocess, "run", side_effect=fail_suite) as run, \
+                    mock.patch("builtins.print"):
                 with self.assertRaises(runner.subprocess.CalledProcessError):
                     runner.main()
             commands = [call.args[0] for call in run.call_args_list]

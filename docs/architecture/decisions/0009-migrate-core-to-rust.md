@@ -35,6 +35,18 @@ Represent filesystem paths with `PathBuf` and modification times with `SystemTim
 in-memory representation only. The persistence adapter must explicitly convert the existing timestamp
 format and prove exact identity compatibility before it can read or write production history.
 
+A synthetic fixture produced by the existing Microsoft C++ history writer confirms two important
+Windows differences. Microsoft STL persists 100-nanosecond file-clock ticks from the Windows epoch.
+Rust filesystem metadata exposes the same native ticks but represents modification time relative to
+its SystemTime epoch. Rust canonicalization also adds verbatim drive or UNC prefixes that are absent
+from the existing C++ weakly-canonical paths.
+
+LogFileIdentity equality and hashing normalize equivalent verbatim drive/UNC prefixes while retaining
+the complete original PathBuf for I/O. This prevents a seeded C++ identity from being treated as a new
+Rust log. Size and exact modification time remain part of identity. A regression test first reproduced
+automatic replay after two observations and now covers both drive and UNC paths. History encoding
+still needs explicit timestamp conversion and rollback-compatible path serialization.
+
 ## Consequences
 
 Rust core tests can run independently on Linux and Windows. CI adds formatting, Clippy with warnings

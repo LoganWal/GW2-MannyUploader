@@ -113,11 +113,54 @@ impl UploadJobId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 pub struct LogFileIdentity {
     pub canonical_path: PathBuf,
     pub size: u64,
     pub last_write_time: SystemTime,
+}
+
+impl PartialEq for LogFileIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.size == other.size
+            && self.last_write_time == other.last_write_time
+            && self
+                .canonical_path
+                .components()
+                .map(identity_component)
+                .eq(other.canonical_path.components().map(identity_component))
+    }
+}
+impl Eq for LogFileIdentity {}
+
+impl std::hash::Hash for LogFileIdentity {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for component in self.canonical_path.components().map(identity_component) {
+            component.hash(state);
+        }
+        self.size.hash(state);
+        self.last_write_time.hash(state);
+    }
+}
+
+#[derive(PartialEq, Eq, Hash)]
+enum IdentityComponent<'a> {
+    Prefix(std::path::Prefix<'a>),
+    Other(std::path::Component<'a>),
+}
+
+fn identity_component(component: std::path::Component<'_>) -> IdentityComponent<'_> {
+    use std::path::{Component, Prefix};
+    match component {
+        Component::Prefix(prefix) => IdentityComponent::Prefix(match prefix.kind() {
+            // Canonical Windows I/O paths use verbatim prefixes, while existing MSVC history uses
+            // ordinary drive/UNC prefixes. Normalize the identity without changing the I/O path.
+            Prefix::VerbatimDisk(drive) => Prefix::Disk(drive),
+            Prefix::VerbatimUNC(server, share) => Prefix::UNC(server, share),
+            kind => kind,
+        }),
+        other => IdentityComponent::Other(other),
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

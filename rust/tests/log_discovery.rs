@@ -263,6 +263,36 @@ fn cutoff_includes_exact_timestamp_and_newer_files() {
 
 #[cfg(windows)]
 #[test]
+fn legacy_windows_history_suppresses_verbatim_canonical_path_observations() {
+    use std::collections::HashSet;
+    for (legacy, current) in [
+        (
+            "C:\\logs\\\u{96ea}.zevtc",
+            "\\\\?\\C:\\logs\\\u{96ea}.zevtc",
+        ),
+        (
+            "\\\\server\\share\\log.zevtc",
+            "\\\\?\\UNC\\server\\share\\log.zevtc",
+        ),
+    ] {
+        let stored = file(legacy, 123);
+        let observed = file(current, 123);
+        let mut discovery = LogDiscovery::new(2, 8, 8).unwrap();
+        discovery.seed(std::slice::from_ref(&stored)).unwrap();
+        assert_eq!(discovery.observe(observed.clone()), Ok(None));
+        assert_eq!(discovery.observe(observed.clone()), Ok(None));
+        let identities = HashSet::from([stored.clone(), observed.clone()]);
+        assert_eq!(identities.len(), 1);
+        assert_eq!(stored, observed);
+        assert_ne!(stored, file(current, 124));
+        let mut later = observed.clone();
+        later.last_write_time += Duration::from_nanos(100);
+        assert_ne!(stored, later);
+    }
+}
+
+#[cfg(windows)]
+#[test]
 fn windows_junctions_are_neither_scanned_nor_accepted_as_roots() {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};

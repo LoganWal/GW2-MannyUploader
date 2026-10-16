@@ -1,6 +1,12 @@
 mod authentication_worker;
+mod chat_delivery;
+mod chat_worker;
 mod response;
+mod test_message_worker;
 pub use authentication_worker::TwitchAuthenticationWorker;
+pub use chat_delivery::TwitchChatDelivery;
+pub use chat_worker::{TwitchProviderConfig, TwitchProviderWorker, TwitchProviderWorkerError};
+pub use test_message_worker::TwitchTestMessageWorker;
 
 use super::wire::retry_after;
 use crate::{application::*, domain::TwitchDeliveryReceipt, http::MemoryBodySource};

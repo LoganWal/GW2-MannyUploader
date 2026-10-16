@@ -112,7 +112,7 @@ pub struct TwitchDeliveryReceipt {
 }
 
 impl TwitchDeliveryReceipt {
-    pub(super) fn is_valid(&self) -> bool {
+    pub(crate) fn is_valid(&self) -> bool {
         match (&self.status, &self.message_id) {
             (TwitchDeliveryStatus::Sent, Some(id)) => {
                 !id.is_empty()

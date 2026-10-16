@@ -95,6 +95,7 @@ impl UploadNotice {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UploadFailure {
+    Twitch(super::TwitchChatError),
     DonBotKeyMissing,
     CredentialLoadFailed,
     UnconfirmedUpload,
@@ -103,6 +104,7 @@ pub enum UploadFailure {
 impl UploadFailure {
     pub const fn detail(self) -> &'static str {
         match self {
+            Self::Twitch(error) => error.detail(),
             Self::DonBotKeyMissing => "Verify DonBot before uploading",
             Self::CredentialLoadFailed => "Protected credentials could not be loaded",
             Self::UnconfirmedUpload => "Upload could not be confirmed. Automatic retry is disabled",

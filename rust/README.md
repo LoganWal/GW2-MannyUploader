@@ -105,7 +105,11 @@ authentication workers, protected sessions, and exclusive session recovery are i
 ordering and shared credential ownership. The authentication controller now schedules Device Code
 polls, saved-session validation, periodic refresh, and fail-safe disconnect. See
 [ADR 0034](../docs/architecture/decisions/0034-coordinate-rust-twitch-authentication.md).
-Chat delivery and production runtime composition remain pending.
+Shared chat delivery, encounter posting, and explicit test-message workers now enforce one-401
+recovery and duplicate-safe retry policy. The test controller exposes correlated results without
+remote message IDs or automatic resend. See
+[ADR 0035](../docs/architecture/decisions/0035-deliver-twitch-chat-in-rust.md).
+Production runtime composition and options/list UI remain pending.
 
 ## Portable core
 

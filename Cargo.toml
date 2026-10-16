@@ -175,3 +175,7 @@ path = "rust/tests/twitch_session_owner.rs"
 [[test]]
 name = "twitch_authentication_controller"
 path = "rust/tests/twitch_authentication_controller.rs"
+
+[[test]]
+name = "twitch_chat"
+path = "rust/tests/twitch_chat.rs"

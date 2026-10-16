@@ -16,6 +16,10 @@ remain covered by the existing native Linux and Windows jobs.
 
 The Wine job uses Ubuntu 24.04's Wine packages and a virtual display. It creates a dedicated fresh
 64-bit prefix, removes the native-DPAPI requirement, and requires Wine DPAPI compatibility instead.
+Start the persistent wineserver before wineboot. Starting it afterward competes with the server
+that wineboot already launched and fails with Wine's lock-conflict exit status 2, before any tests
+run. A runner regression models that lock ownership and verifies test execution and cleanup.
+See [Wine 9 server lock acquisition](https://github.com/wine-mirror/wine/blob/wine-9.0/server/request.c).
 It runs every staged test executable, then both normal DLL smoke modes and the active-provider
 unload proof for each configuration. Finally it verifies the already-created Rust ZIP/checksum and
 runs both smoke modes against the extracted DLL. Each subprocess has a timeout. Cleanup terminates

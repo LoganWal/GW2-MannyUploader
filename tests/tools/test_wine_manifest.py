@@ -126,6 +126,35 @@ class WineRunTests(unittest.TestCase):
             self.assertEqual(commands[-1], ["wineserver", "-k"])
             self.assertFalse(any(command[0] == "cmake" for command in commands))
 
+    def test_persistent_server_starts_before_boot_creates_a_competing_server(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            arguments = self.fixtures(root)
+            active = False
+
+            def wine_server(command, **kwargs):
+                nonlocal active
+                if tuple(command) == ("wineserver", "-p"):
+                    if active:
+                        # Wine returns 2 when another server already holds this prefix's lock.
+                        raise runner.subprocess.CalledProcessError(2, command)
+                    active = True
+                elif tuple(command) == ("wineboot", "-u"):
+                    active = True
+                elif tuple(command) == ("wineserver", "-k"):
+                    active = False
+
+            with mock.patch("sys.argv", arguments), \
+                    mock.patch.object(runner.subprocess, "run", side_effect=wine_server) as run, \
+                    mock.patch.object(runner.subprocess, "check_output", return_value="Z:\\fixture.dll\n"), \
+                    mock.patch("builtins.print"):
+                runner.main()
+            commands = [tuple(call.args[0]) for call in run.call_args_list]
+            self.assertLess(commands.index(("wineserver", "-p")),
+                            commands.index(("wineboot", "-u")))
+            self.assertEqual(sum(command[-1] == "--quiet" for command in commands), 2)
+            self.assertFalse(active)
+
     def test_existing_prefix_is_rejected_before_launching_wine(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -91,8 +91,9 @@ def main():
 
     try:
         run("wine", "--version")
-        run("wineboot", "-u")
+        # Starting a second server after wineboot returns Wine's already-running status 2.
         run("wineserver", "-p")
+        run("wineboot", "-u")
         for configuration, executables in tests.items():
             for executable in executables:
                 print(f"[Wine {configuration}] {executable.name}", flush=True)

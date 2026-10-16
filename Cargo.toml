@@ -72,5 +72,9 @@ path = "rust/tests/twitch_template.rs"
 name = "settings_json"
 path = "rust/tests/settings_json.rs"
 
+[[test]]
+name = "file_store"
+path = "rust/tests/file_store.rs"
+
 [lints.clippy]
 all = "warn"

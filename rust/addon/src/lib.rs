@@ -8,6 +8,8 @@ compile_error!("The addon requires unwinding to contain callback panics");
 #[cfg(windows)]
 pub mod directory_monitor;
 #[cfg(windows)]
+pub mod file_commit;
+#[cfg(windows)]
 mod host;
 #[cfg(windows)]
 mod icons;

@@ -42,8 +42,10 @@ dependencies, and explicit legacy Discord-channel normalization. One shared Twit
 serves settings validation and same-report rendering, with byte and Unicode code-point limits.
 The bounded JSON codec preserves version-1 defaults and rejects unknown or duplicate keys, invalid
 UTF-8, non-object settings, and oversized documents. Serde remains inside the configuration adapter
-under [ADR 0015](../docs/architecture/decisions/0015-bound-rust-settings-json.md). Atomic storage and
-existing-history compatibility remain to be implemented.
+under [ADR 0015](../docs/architecture/decisions/0015-bound-rust-settings-json.md). Bounded atomic file
+storage now supplies flushed sibling-file replacement, interrupted-write cleanup, and native
+long-path tests under [ADR 0016](../docs/architecture/decisions/0016-own-rust-atomic-file-storage.md).
+Settings backup recovery and existing-history compatibility remain to be implemented.
 
 ## Portable core
 

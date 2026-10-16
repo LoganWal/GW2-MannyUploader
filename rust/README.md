@@ -37,6 +37,11 @@ selection fixes Show New at load time and limits rolling discovery cutoff change
 Persistence and runtime scheduling remain separate work. The coordinator and workers are not
 connected to the development DLL yet.
 
+The settings domain now carries version-1 defaults, numeric/path/identifier validation, provider
+dependencies, and explicit legacy Discord-channel normalization. One shared Twitch template parser
+serves settings validation and same-report rendering, with byte and Unicode code-point limits.
+JSON decoding, atomic storage, and existing-history compatibility remain to be implemented.
+
 ## Portable core
 
 ```sh

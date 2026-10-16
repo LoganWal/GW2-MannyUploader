@@ -73,14 +73,19 @@ impl DonBotUploadReceipt {
                 .fight_log_id
                 .is_none_or(|id| id > 0 && id <= i64::MAX as u64)
             && self.discord_delivery.is_valid()
-            && self.guild_id.as_ref().is_none_or(|id| {
-                !id.is_empty()
-                    && id.len() <= 19
-                    && !id.starts_with('0')
-                    && id.bytes().all(|byte| byte.is_ascii_digit())
-                    && id.parse::<i64>().is_ok_and(|value| value > 0)
-            })
+            && self
+                .guild_id
+                .as_ref()
+                .is_none_or(|id| canonical_discord_id(id))
     }
+}
+
+pub(super) fn canonical_discord_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 19
+        && !value.starts_with('0')
+        && value.bytes().all(|b| b.is_ascii_digit())
+        && value.parse::<i64>().is_ok_and(|id| id > 0)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

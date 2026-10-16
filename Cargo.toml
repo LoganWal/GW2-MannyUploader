@@ -58,5 +58,13 @@ path = "rust/tests/application_pump.rs"
 name = "notifications"
 path = "rust/tests/notifications.rs"
 
+[[test]]
+name = "settings"
+path = "rust/tests/settings.rs"
+
+[[test]]
+name = "twitch_template"
+path = "rust/tests/twitch_template.rs"
+
 [lints.clippy]
 all = "warn"

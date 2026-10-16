@@ -41,6 +41,15 @@ Rust core tests can run independently on Linux and Windows. CI adds formatting, 
 denied, and Debug/Release tests on Linux and Windows MSVC. Local Windows GNU results establish only
 that compiler's coverage.
 
+The Rust settings value types and Twitch template grammar also live in the standard-library-only
+domain. JSON representation belongs to a separate adapter. Rust strings enforce UTF-8 in memory,
+while the future decoder must reject malformed input before constructing these values. Settings
+errors carry only static field names and typed categories. Canonical Discord ID validation is shared
+with delivery receipts, including rejection of leading zeroes. HTTPS settings validation also rejects
+empty hosts, malformed IPv6 authorities, and invalid ports before an HTTP adapter receives them.
+Template expansion checks bounds before appending and never truncates a chat message. Settings and
+delivery use the same parser, preserving escaped-brace and real-URL-placeholder semantics.
+
 The existing C++ addon remains the shipping implementation. The initial Rust slice has no discovery,
 coordinator, provider workers, credentials, persistence adapter, UI, or Nexus entry point.
 [ADR 0010](0010-own-rust-nexus-lifecycle.md) adds a separate development lifecycle DLL. Neither slice

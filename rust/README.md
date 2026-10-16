@@ -252,3 +252,12 @@ ZIP/checksum output is under `out/build/rust-package/package`. The PDB and its c
 Rust migration artifacts alongside the shipping C++ artifacts after the Rust test jobs pass.
 See [ADR 0044](../docs/architecture/decisions/0044-package-rust-migration-builds.md).
 Hosted execution, Windows/Wine parity, and the in-game release matrix remain required before cutover.
+
+## Wine CI
+
+The `Rust MSVC under Wine` job downloads the same workflow's Windows-built test executables,
+normal/test-only DLLs, smoke host, and verified Rust ZIP. It runs Debug and Release suites with
+Wine DPAPI required, both ordinary smoke modes, active-provider unload, and packaged-copy checks.
+An isolated fresh prefix and per-process deadlines keep failures contained. The job prints its Wine
+version. Native Windows validation remains separate. Browser, clipboard, and in-game checks still
+require the release matrix. See [ADR 0045](../docs/architecture/decisions/0045-run-msvc-rust-tests-under-wine.md).

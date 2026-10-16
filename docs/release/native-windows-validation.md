@@ -51,6 +51,11 @@ environment.
 
 ## Wine compatibility gate
 
+During the Rust migration, the `Rust MSVC under Wine` CI job runs the native-built Rust test suites
+and Debug/Release lifecycle proofs under Wine with `MANNY_REQUIRE_WINE_DPAPI=1`. It also verifies
+and smoke-tests the Rust package from that same workflow. Record this job's result and Wine version
+separately from the native Windows result. It does not replace the in-game checks below.
+
 Cross-build the complete Windows test suite and run it under the maintained Wine environment with
 `MANNY_REQUIRE_WINE_DPAPI=1`. This requires Wine detection plus the same protected-store round trip,
 ciphertext/plaintext separation, and tamper rejection used by the native gate. The remaining suite

@@ -70,6 +70,7 @@ conanbuildinfo.*
 conan.lock
 
 # Tests, coverage, profiling, and diagnostics
+__pycache__/
 .cache/
 .clangd/
 .ctest/

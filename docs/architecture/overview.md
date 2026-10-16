@@ -24,6 +24,8 @@ unload is covered by the isolated synthetic-HTTP harness in
 [ADR 0043](decisions/0043-prove-active-rust-dll-unload.md).
 Separate Rust migration packages and matching symbols are validated under
 [ADR 0044](decisions/0044-package-rust-migration-builds.md). The C++ package remains the shipping artifact.
+The hosted Wine gate runs MSVC-built Rust artifacts under
+[ADR 0045](decisions/0045-run-msvc-rust-tests-under-wine.md).
 
 ## Dependency direction
 

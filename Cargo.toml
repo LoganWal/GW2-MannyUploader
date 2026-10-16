@@ -46,5 +46,13 @@ path = "rust/tests/metadata_ingestion.rs"
 [lints.rust]
 unsafe_code = "forbid"
 
+[[test]]
+name = "log_discovery"
+path = "rust/tests/log_discovery.rs"
+
+[[test]]
+name = "application_pump"
+path = "rust/tests/application_pump.rs"
+
 [lints.clippy]
 all = "warn"

@@ -113,7 +113,7 @@ impl UploadJobId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LogFileIdentity {
     pub canonical_path: PathBuf,
     pub size: u64,

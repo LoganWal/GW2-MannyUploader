@@ -13,6 +13,9 @@ exercises the Nexus lifecycle without uploading. See
 The portable Rust provider pool owns bounded queues and joined workers under
 [`ADR 0012`](decisions/0012-own-rust-provider-worker-pools.md). Application runtime integration remains
 separate from the development DLL's lifecycle proof.
+Rust discovery policy, the portable filesystem poller, and bounded application ticks are implemented
+under [ADR 0014](decisions/0014-own-rust-discovery-and-polling.md). Native notifications and durable
+history composition remain pending in the Rust runtime.
 
 ## Dependency direction
 

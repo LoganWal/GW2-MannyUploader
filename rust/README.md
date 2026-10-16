@@ -26,8 +26,13 @@ cancellation. Its dependency and container boundary are recorded in
 The asynchronous metadata parser shares the bounded queue core with provider workers. Ingestion
 checks parser capacity before creating jobs, correlates metadata results, retains unexpected dispatch
 failures, and cancels both parser and upload work on shutdown. Pending metadata remains protected from
-history eviction even when every destination is disabled. Discovery and application-owner integration
-are next. The coordinator and workers are not connected to the development DLL yet.
+history eviction even when every destination is disabled. The portable poller and application pump
+now connect bounded file stability and deduplication to metadata ingestion. Scans handle missing
+roots, incomplete traversal, Unicode paths, cutoff changes, and removal reconciliation. Parser
+saturation defers candidates, and rejected admission releases their dedupe identities. See
+[ADR 0014](../docs/architecture/decisions/0014-own-rust-discovery-and-polling.md).
+Native change notifications, session-window scheduling, persistence, and runtime composition remain
+separate work. The coordinator and workers are not connected to the development DLL yet.
 
 ## Portable core
 

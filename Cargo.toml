@@ -163,3 +163,7 @@ path = "rust/tests/twitch_session.rs"
 [[test]]
 name = "twitch_client"
 path = "rust/tests/twitch_client.rs"
+
+[[test]]
+name = "twitch_authentication_worker"
+path = "rust/tests/twitch_authentication_worker.rs"

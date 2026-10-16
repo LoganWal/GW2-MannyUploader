@@ -1,4 +1,6 @@
+mod authentication_worker;
 mod response;
+pub use authentication_worker::TwitchAuthenticationWorker;
 
 use super::wire::retry_after;
 use crate::{application::*, domain::TwitchDeliveryReceipt, http::MemoryBodySource};

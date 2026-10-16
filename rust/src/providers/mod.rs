@@ -12,4 +12,4 @@ pub use async_upload_worker::{
 };
 pub use donbot::*;
 pub use dps_report::*;
-pub use twitch::TwitchClient;
+pub use twitch::{TwitchAuthenticationWorker, TwitchClient};

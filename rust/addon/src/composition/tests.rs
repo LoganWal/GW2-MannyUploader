@@ -1,4 +1,5 @@
 use super::*;
+mod fanout;
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},

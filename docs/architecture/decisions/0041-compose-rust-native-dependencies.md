@@ -37,6 +37,12 @@ shared-store rotation/erasure, poisoned-store isolation, malformed archives, inv
 and joining an authentication worker blocked in HTTP. The production Schannel composition is also
 constructed and destroyed without any outgoing requests.
 
-The exported DLL still uses the lifecycle shell. Attach this composition and its joined runtime
-thread together with the options/list renderer before enabling uploads in that DLL. Real-DLL active
-worker unload, Windows/Wine UI parity, packaging, symbols, and the release gates remain outstanding.
+A native fanout scenario also verifies protected Twitch session recovery and DonBot verification,
+then sends one synthetic archive through all four concrete provider workers. Wingman, DonBot and
+Twitch receive the same dps.report permalink, and Twitch uses the validated broadcaster for sender
+and channel. All four receipts persist across restart. Repeated discovery observations of the same
+archive produce no additional delivery. HTTP remains synthetic throughout this scenario.
+
+The exported DLL attaches this composition and its joined runtime under ADR 0042. Active-worker
+DLL unload is covered by ADR 0043, and package/symbol checks by ADR 0044. Wine execution and the
+native Windows/Wine in-game matrix remain required before shipping cutover.

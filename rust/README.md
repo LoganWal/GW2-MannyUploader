@@ -76,7 +76,10 @@ final bytes. See [ADR 0020](../docs/architecture/decisions/0020-bound-rust-http-
 Multipart bodies stream bounded fields using platform-generated boundaries. Response collection
 preserves ordered headers and trailers, counts interim responses toward limits, and discards partial
 data on failure or cancellation. See [ADR 0021](../docs/architecture/decisions/0021-stream-rust-http-framing.md).
-Native network execution is not implemented yet.
+The native HTTP adapter builds the pinned static libcurl/Schannel backend and executes requests
+through contained callbacks. Deterministic loopback tests cover streaming, cancellation, limits,
+redirects, and TLS rejection of plaintext. See [ADR 0022](../docs/architecture/decisions/0022-own-rust-native-http.md).
+Provider clients and production runtime composition remain pending.
 
 ## Portable core
 
@@ -89,8 +92,16 @@ cargo test --locked -p manny-uploader --release
 
 ## Windows MSVC
 
-Requires Rust with the `x86_64-pc-windows-msvc` target and Visual Studio C++ Build Tools.
+Requires Rust with the `x86_64-pc-windows-msvc` target, Visual Studio 2022 C++ Build Tools,
+and CMake 3.30 or newer.
 The target configuration links the static CRT. Builds and tests use the workspace lockfile.
+Cargo builds the pinned libcurl source in its output directory. The first native build downloads
+the hash-verified release archive. For an offline native build, set `MANNY_CURL_ARCHIVE` to a local
+copy of that archive. Cargo's `--offline` flag governs Rust dependencies, so set this archive override
+as well when avoiding CMake downloads. `MANNY_RUST_CMAKE` selects the CMake executable.
+Cross builds can provide `MANNY_RUST_CMAKE_TOOLCHAIN` and `MANNY_RUST_CMAKE_GENERATOR`.
+Debug Rust builds use RelWithDebInfo for libcurl to match Rust's release static CRT while retaining
+native debug symbols. Release builds use Release for both.
 
 ```sh
 cargo clippy --locked --workspace --all-targets --target x86_64-pc-windows-msvc -- -D warnings
@@ -98,6 +109,12 @@ cargo test --locked --workspace --target x86_64-pc-windows-msvc
 cargo test --locked --workspace --target x86_64-pc-windows-msvc --release
 cargo build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc
 cargo build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --release
+```
+
+The default suite uses local fake servers. To run the public Schannel HTTPS probe explicitly:
+
+```sh
+cargo test --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --release live_schannel_https_probe -- --ignored
 ```
 
 Build the existing CMake `manny_nexus_addon_smoke_test` target using the same CMake installation that

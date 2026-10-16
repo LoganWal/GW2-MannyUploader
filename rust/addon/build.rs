@@ -1,0 +1,100 @@
+use std::env;
+use std::path::PathBuf;
+use std::process::Command;
+
+fn run(command: &mut Command) {
+    assert!(
+        command.status().expect("could not start CMake").success(),
+        "native HTTP build failed"
+    );
+}
+fn main() {
+    for file in [
+        "build.rs",
+        "native/CMakeLists.txt",
+        "../../cmake/MannyCurl.cmake",
+    ] {
+        println!("cargo:rerun-if-changed={file}");
+    }
+    for name in [
+        "MANNY_RUST_CMAKE",
+        "MANNY_RUST_CMAKE_GENERATOR",
+        "MANNY_RUST_CMAKE_TOOLCHAIN",
+        "MANNY_CURL_ARCHIVE",
+    ] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    assert_eq!(
+        env::var("CARGO_CFG_TARGET_ARCH").as_deref(),
+        Ok("x86_64"),
+        "Nexus requires Windows x64"
+    );
+    let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let build = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("n");
+    let cmake = env::var_os("MANNY_RUST_CMAKE").unwrap_or_else(|| "cmake".into());
+    let profile = if env::var("PROFILE").as_deref() == Ok("release") {
+        "Release"
+    } else {
+        "RelWithDebInfo"
+    };
+    let mut configure = Command::new(&cmake);
+    configure
+        .arg("-S")
+        .arg(manifest.join("native"))
+        .arg("-B")
+        .arg(&build)
+        .arg(format!("-DCMAKE_BUILD_TYPE={profile}"));
+    if let Some(toolchain) = env::var_os("MANNY_RUST_CMAKE_TOOLCHAIN") {
+        configure.arg("--toolchain").arg(toolchain);
+    } else {
+        assert!(
+            env::var("HOST").unwrap().contains("windows"),
+            "cross compilation requires MANNY_RUST_CMAKE_TOOLCHAIN"
+        );
+    }
+    if let Some(generator) = env::var_os("MANNY_RUST_CMAKE_GENERATOR") {
+        configure.arg("-G").arg(generator);
+    } else if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") && cfg!(windows) {
+        configure.args(["-G", "Visual Studio 17 2022", "-A", "x64"]);
+    }
+    if let Some(archive) = env::var_os("MANNY_CURL_ARCHIVE") {
+        let mut argument = std::ffi::OsString::from("-DMANNY_CURL_ARCHIVE=");
+        argument.push(archive);
+        configure.arg(argument);
+    } else {
+        configure.arg("-DMANNY_CURL_ARCHIVE=");
+    }
+    run(&mut configure);
+    run(Command::new(&cmake)
+        .arg("--build")
+        .arg(&build)
+        .args([
+            "--config",
+            profile,
+            "--target",
+            "libcurl_static",
+            "--parallel",
+        ])
+        .arg(env::var("NUM_JOBS").unwrap_or_else(|_| "4".into())));
+    let library = std::fs::read_to_string(build.join(format!("curl-library-{profile}.txt")))
+        .expect("native library manifest is missing");
+    let library = PathBuf::from(library.trim());
+    assert!(library.is_file(), "native library is missing");
+    let directory = library.parent().unwrap();
+    let name = library.file_stem().unwrap().to_str().unwrap();
+    let name = if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
+        name.strip_prefix("lib").unwrap_or(name)
+    } else {
+        name
+    };
+    println!("cargo:rustc-link-search=native={}", directory.display());
+    println!("cargo:rustc-link-lib=static={name}");
+    for library in [
+        "ws2_32", "crypt32", "secur32", "bcrypt", "advapi32", "normaliz", "iphlpapi",
+    ] {
+        println!("cargo:rustc-link-lib={library}");
+    }
+}

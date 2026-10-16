@@ -14,6 +14,8 @@ pub mod file_commit;
 #[cfg(windows)]
 mod host;
 #[cfg(windows)]
+pub mod http;
+#[cfg(windows)]
 mod icons;
 #[cfg(windows)]
 pub mod random;

@@ -19,9 +19,12 @@ without access to mutable jobs. See
 [ADR 0012](../docs/architecture/decisions/0012-own-rust-provider-worker-pools.md).
 The EVTC decoder reads bounded revision-1 wire records, validates POV account UTF-8, preserves the
 last valid boss-health update, and checks cancellation during scans. Synthetic tests cover truncated
-prefixes, hostile counts, invalid accounts, and encounter-agent matching. Archive extraction, metadata
-ingestion, and application-owner integration are next. The coordinator and worker pool are not
-connected to the development DLL yet.
+prefixes, hostile counts, invalid accounts, and encounter-agent matching. The archive reader supports
+bounded stored/deflated ZIP and ZIP64 entries, CRC validation, Unicode filesystem paths, and chunked
+cancellation. Its dependency and container boundary are recorded in
+[ADR 0013](../docs/architecture/decisions/0013-bound-rust-zevtc-extraction.md).
+Metadata ingestion and application-owner integration are next. The coordinator and worker pool are
+not connected to the development DLL yet.
 
 ## Portable core
 

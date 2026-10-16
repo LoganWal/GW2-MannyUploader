@@ -1,5 +1,41 @@
 # Third-party notices
 
+## Rust archive dependencies
+
+The Rust development implementation uses the following components under the MIT license below.
+Versions are fixed by Cargo.lock.
+
+- flate2 1.1.10, <https://github.com/rust-lang/flate2-rs>
+  Copyright (c) 2014-2026 Alex Crichton
+- crc32fast 1.5.2, <https://github.com/srijs/rust-crc32fast>
+  Copyright (c) 2018 Sam Rijs, Alex Crichton and contributors
+- miniz_oxide 0.9.1, <https://github.com/Frommi/miniz_oxide>
+  Copyright 2013-2014 RAD Game Tools and Valve Software
+  Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+  Copyright (c) 2017 Frommi
+  Copyright (c) 2017-2024 oyvindln
+- adler2 2.0.1, <https://github.com/oyvindln/adler2>
+  Authors: Jonas Schievink and oyvindln
+- simd-adler32 0.3.10, <https://github.com/mcountryman/simd-adler32>
+  Copyright (c) [2021] [Marvin Countryman]
+- cfg-if 1.0.4, <https://github.com/rust-lang/cfg-if>
+  Copyright (c) 2014 Alex Crichton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 ## Raidcore Nexus API, commit 9b2c53df86c00db6495642bfcff2d0611bd957ef
 
 Project: <https://github.com/RaidcoreGG/Nexus-API>  

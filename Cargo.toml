@@ -15,6 +15,10 @@ resolver = "3"
 [lib]
 path = "rust/src/lib.rs"
 
+[dependencies]
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+crc32fast = "=1.5.2"
+
 [[test]]
 name = "upload_job"
 path = "rust/tests/upload_job.rs"
@@ -30,6 +34,10 @@ path = "rust/tests/async_upload_worker.rs"
 [[test]]
 name = "metadata_decoder"
 path = "rust/tests/metadata_decoder.rs"
+
+[[test]]
+name = "zevtc_archive"
+path = "rust/tests/zevtc_archive.rs"
 
 [lints.rust]
 unsafe_code = "forbid"

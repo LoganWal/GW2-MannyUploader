@@ -115,3 +115,11 @@ path = "rust/tests/http_multipart.rs"
 [[test]]
 name = "http_response"
 path = "rust/tests/http_response.rs"
+
+[[test]]
+name = "dps_report_client"
+path = "rust/tests/dps_report_client.rs"
+
+[[test]]
+name = "dps_report_worker"
+path = "rust/tests/dps_report_worker.rs"

@@ -209,11 +209,20 @@ impl<C: Clock> UploadCoordinator<C> {
         // Receipt validation and transition form one transaction.
         let mut job = self.jobs[index].job.clone();
         let provider = result.provider;
+        let warning = match &result.outcome {
+            UploadOutcome::SucceededWithWarning(_, warning) => Some(*warning),
+            _ => None,
+        };
         let next = match result.outcome {
-            UploadOutcome::Succeeded(success) => {
+            UploadOutcome::Succeeded(success) | UploadOutcome::SucceededWithWarning(success, _) => {
                 match (provider, success) {
                     (Provider::DpsReport, UploadSuccess::DpsReport(report)) => {
-                        job.complete_dps_report(report, "Uploaded".into())?;
+                        job.complete_dps_report(
+                            report,
+                            warning
+                                .map_or("Uploaded", |warning| warning.detail())
+                                .into(),
+                        )?;
                     }
                     (Provider::Wingman, UploadSuccess::Wingman(receipt)) => {
                         if let Some(receipt) = receipt {
@@ -255,7 +264,13 @@ impl<C: Clock> UploadCoordinator<C> {
             UploadOutcome::Cancelled => ProviderState::Cancelled,
         };
         if !(provider == Provider::DpsReport && next == ProviderState::Succeeded) {
-            job.transition(provider, next, Self::state_detail(next).into())?;
+            job.transition(
+                provider,
+                next,
+                warning
+                    .map_or(Self::state_detail(next), |warning| warning.detail())
+                    .into(),
+            )?;
         }
         self.jobs[index].job = job;
         if provider == Provider::DpsReport {

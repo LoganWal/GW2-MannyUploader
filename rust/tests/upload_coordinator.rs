@@ -241,6 +241,43 @@ fn report(suffix: &str) -> UploadOutcome {
     }))
 }
 
+#[test]
+fn successful_provider_warnings_reach_snapshots_without_blocking_dependents() {
+    for warning in [
+        UploadWarning::ProviderWarning,
+        UploadWarning::InvalidReturnedCredential,
+        UploadWarning::CredentialStorageUnavailable,
+    ] {
+        let mut fixture = Fixture::new(8);
+        let id = fixture.start(all(), 123);
+        let UploadOutcome::Succeeded(success) = report("warning") else {
+            unreachable!()
+        };
+        fixture.complete(
+            Provider::DpsReport,
+            UploadOutcome::SucceededWithWarning(success, warning),
+        );
+        let snapshot = fixture
+            .coordinator
+            .snapshots()
+            .into_iter()
+            .find(|row| row.id == id)
+            .unwrap();
+        assert_eq!(
+            snapshot.record.providers[Provider::DpsReport as usize].detail,
+            warning.detail()
+        );
+        assert_eq!(
+            snapshot.record.providers[Provider::DpsReport as usize].state,
+            ProviderState::Succeeded
+        );
+        assert!(snapshot.record.dps_report_result.is_some());
+        for provider in [Provider::Wingman, Provider::DonBot, Provider::Twitch] {
+            assert_eq!(fixture.count(provider), 1);
+        }
+    }
+}
+
 fn sent() -> UploadOutcome {
     UploadOutcome::Succeeded(UploadSuccess::Twitch(TwitchDeliveryReceipt {
         status: TwitchDeliveryStatus::Sent,

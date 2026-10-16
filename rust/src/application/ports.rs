@@ -49,6 +49,7 @@ pub enum UploadSuccess {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UploadOutcome {
     Succeeded(UploadSuccess),
+    SucceededWithWarning(UploadSuccess, UploadWarning),
     Skipped,
     /// Adapters may request a retry only when delivery is known to be safe to repeat.
     RetryAfter(Duration),
@@ -57,6 +58,24 @@ pub enum UploadOutcome {
     /// Uncertain delivery settles as failed and never schedules an automatic retry.
     Ambiguous,
     Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UploadWarning {
+    ProviderWarning,
+    InvalidReturnedCredential,
+    CredentialStorageUnavailable,
+}
+impl UploadWarning {
+    pub const fn detail(self) -> &'static str {
+        match self {
+            Self::ProviderWarning => "Uploaded; the provider reported a warning",
+            Self::InvalidReturnedCredential => "Uploaded; the returned credential was unusable",
+            Self::CredentialStorageUnavailable => {
+                "Uploaded; protected token storage is unavailable"
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

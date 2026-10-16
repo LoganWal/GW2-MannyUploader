@@ -79,7 +79,11 @@ data on failure or cancellation. See [ADR 0021](../docs/architecture/decisions/0
 The native HTTP adapter builds the pinned static libcurl/Schannel backend and executes requests
 through contained callbacks. Deterministic loopback tests cover streaming, cancellation, limits,
 redirects, and TLS rejection of plaintext. See [ADR 0022](../docs/architecture/decisions/0022-own-rust-native-http.md).
-Provider clients and production runtime composition remain pending.
+The dps.report client streams stable archives and protected token fields, validates bounded report
+responses, and classifies retry suggestions. Its bounded worker captures Detailed WvW per request
+and saves replacement tokens before publishing success. Typed warnings reach coordinator snapshots.
+See [ADR 0023](../docs/architecture/decisions/0023-upload-to-dps-report-in-rust.md).
+The remaining providers, authentication workflows, and production runtime composition remain pending.
 
 ## Portable core
 

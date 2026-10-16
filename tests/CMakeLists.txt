@@ -68,6 +68,12 @@ add_test(NAME unit_tests COMMAND manny_uploader_tests)
 set_tests_properties(unit_tests PROPERTIES LABELS deterministic)
 
 add_test(
+    NAME windows_image_verification_contract
+    COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_image_verification_test.cmake"
+)
+set_tests_properties(windows_image_verification_contract PROPERTIES LABELS "deterministic;packaging")
+
+add_test(
     NAME windows_package_verification_contract
     COMMAND
         "${CMAKE_COMMAND}"

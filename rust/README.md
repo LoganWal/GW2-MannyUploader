@@ -225,5 +225,29 @@ completion and destruction before FreeLibrary. It sends no network requests. Nev
 package this test DLL. Normal smoke and package verification reject its instrumentation.
 See [ADR 0043](../docs/architecture/decisions/0043-prove-active-rust-dll-unload.md).
 
-These checks do not replace Linux/Wine coverage, native credential and HTTP validation, packaging,
-or symbol verification. Full Rust release and existing-data compatibility gates remain outstanding.
+These lifecycle checks do not replace Linux/Wine coverage or native credential and HTTP validation.
+
+## Windows package and symbols
+
+Release builds retain full debug information in a separate linker PDB. The package project takes
+the explicit Cargo Release output, checks the x64 image, sole GetAddonDef export, system-only imports,
+and matching PDB, then stages a DLL-only CPack ZIP and separate symbols. It rejects lifecycle-test
+DLLs and symbols from another build. Reconfigure after each Cargo build to refresh the staged pair.
+
+From a Visual Studio developer PowerShell, after the Release build above:
+
+```powershell
+$dumpbin = (Get-Command dumpbin.exe).Source
+cmake -S rust/package -B out/build/rust-package "-DMANNY_RUST_RELEASE_DIRECTORY=$pwd/target/x86_64-pc-windows-msvc/release" "-DMANNY_DUMPBIN_EXECUTABLE=$dumpbin"
+cpack --config out/build/rust-package/CPackConfig.cmake -C Release
+cmake '-DMANNY_PACKAGE_OUTPUT_DIRECTORY=out/build/rust-package/package' '-DMANNY_PACKAGE_EXTRACT_DIRECTORY=out/build/rust-package/package-verified' -P cmake/VerifyWindowsPackage.cmake
+& out/build/native-msvc/tests/Release/manny_nexus_addon_smoke_test.exe out/build/rust-package/package-verified/manny_uploader.dll
+& out/build/native-msvc/tests/Release/manny_nexus_addon_smoke_test.exe out/build/rust-package/package-verified/manny_uploader.dll --lifecycle-proof
+```
+
+Stop if any command fails. Package extraction requires a fresh destination directory.
+ZIP/checksum output is under `out/build/rust-package/package`. The PDB and its checksum are under
+`out/build/rust-package/symbols/Release` and are never installed with the addon. CI creates separate
+Rust migration artifacts alongside the shipping C++ artifacts after the Rust test jobs pass.
+See [ADR 0044](../docs/architecture/decisions/0044-package-rust-migration-builds.md).
+Hosted execution, Windows/Wine parity, and the in-game release matrix remain required before cutover.

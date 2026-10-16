@@ -32,6 +32,12 @@ fixed name, and SHA-256 sidecar before uploading it as a separate artifact.
 An independent Ubuntu job checks every project-owned C and C++ source with the repository's pinned
 format policy. Fetched dependencies and generated build files are outside that source set.
 
+Rust migration artifacts are validated alongside the C++ package under
+[ADR 0044](../architecture/decisions/0044-package-rust-migration-builds.md). They have separate CI
+artifact names, full optimized-build symbols, DLL/PDB matching, export/import checks, and packaged
+smoke tests. They retain development metadata and do not replace the shipping artifact. The same
+Wine and in-game matrix below applies before Rust cutover.
+
 ## Opt-in Schannel probe
 
 Ordinary pushes and pull requests never depend on a public network service. To verify the host trust

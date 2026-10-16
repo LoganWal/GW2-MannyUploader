@@ -12,6 +12,9 @@ members = ["rust/addon"]
 default-members = ["."]
 resolver = "3"
 
+[profile.release]
+debug = 2
+
 [lib]
 path = "rust/src/lib.rs"
 

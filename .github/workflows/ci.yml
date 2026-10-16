@@ -140,7 +140,7 @@ jobs:
 
   windows-release-package:
     name: Windows x64 release package
-    needs: [source-format, build-and-test]
+    needs: [source-format, build-and-test, rust-core]
     runs-on: windows-latest
 
     steps:
@@ -219,6 +219,65 @@ jobs:
           path: |
             out/build/windows-release/symbols/Release/manny_uploader.pdb
             out/build/windows-release/symbols/Release/manny_uploader.pdb.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+
+      - name: Install Rust for package validation
+        run: rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc
+
+      - name: Build optimized Rust DLL with symbols
+        env:
+          MANNY_TWITCH_CLIENT_ID: ${{ vars.MANNY_TWITCH_CLIENT_ID }}
+        run: cargo +stable build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --release
+
+      - name: Configure Rust package
+        shell: pwsh
+        run: |
+          $dumpbin = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe' | Sort-Object -Descending | Select-Object -First 1
+          if (-not $dumpbin) { throw 'Microsoft dumpbin was not found' }
+          cmake "-DMANNY_DLL_FILE=$pwd/target/x86_64-pc-windows-msvc/release/manny_uploader.dll" "-DMANNY_SYMBOL_FILE=$pwd/target/x86_64-pc-windows-msvc/release/manny_uploader.pdb" "-DMANNY_OTHER_SYMBOL_FILE=$pwd/out/build/windows-release/symbols/Release/manny_uploader.pdb" "-DMANNY_DUMPBIN_EXECUTABLE=$dumpbin" "-DMANNY_TEST_ROOT=$pwd/out/build/rust-symbol-match" -P tests/cmake/windows_symbol_match_integration_test.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake -S rust/package -B out/build/rust-package "-DMANNY_RUST_RELEASE_DIRECTORY=$pwd/target/x86_64-pc-windows-msvc/release" "-DMANNY_DUMPBIN_EXECUTABLE=$dumpbin"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Create Rust package
+        run: cpack --config out/build/rust-package/CPackConfig.cmake -C Release
+
+      - name: Verify Rust package
+        run: >-
+          cmake
+          -DMANNY_PACKAGE_OUTPUT_DIRECTORY=out/build/rust-package/package
+          -DMANNY_PACKAGE_EXTRACT_DIRECTORY=out/build/rust-package/package-verified
+          -P cmake/VerifyWindowsPackage.cmake
+
+      - name: Smoke-test packaged Rust DLL
+        shell: pwsh
+        run: |
+          $dll = 'out/build/rust-package/package-verified/manny_uploader.dll'
+          & out/build/windows-release/tests/Release/manny_nexus_addon_smoke_test.exe $dll
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & out/build/windows-release/tests/Release/manny_nexus_addon_smoke_test.exe $dll --lifecycle-proof
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload verified Rust migration package
+        uses: actions/upload-artifact@v7
+        with:
+          name: GW2-Manny-Uploader-rust-windows-x64
+          path: |
+            out/build/rust-package/package/*.zip
+            out/build/rust-package/package/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload verified Rust debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: GW2-Manny-Uploader-rust-windows-x64-symbols
+          path: |
+            out/build/rust-package/symbols/Release/manny_uploader.pdb
+            out/build/rust-package/symbols/Release/manny_uploader.pdb.sha256
           if-no-files-found: error
           retention-days: 14
           compression-level: 6

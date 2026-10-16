@@ -19,9 +19,11 @@ under [ADR 0040](decisions/0040-compose-rust-application-runtime.md). Native dep
 under [ADR 0041](decisions/0041-compose-rust-native-dependencies.md), including the shared protected
 store and real provider workers. The exported DLL attaches that runtime and renders immutable
 snapshots under [ADR 0042](decisions/0042-attach-rust-runtime-and-rendering.md). Full Windows/Wine
-release parity and packaging remain outstanding. Active provider cancellation through real-DLL
+release parity remains outstanding. Active provider cancellation through real-DLL
 unload is covered by the isolated synthetic-HTTP harness in
 [ADR 0043](decisions/0043-prove-active-rust-dll-unload.md).
+Separate Rust migration packages and matching symbols are validated under
+[ADR 0044](decisions/0044-package-rust-migration-builds.md). The C++ package remains the shipping artifact.
 
 ## Dependency direction
 

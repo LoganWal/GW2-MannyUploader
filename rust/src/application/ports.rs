@@ -84,3 +84,23 @@ pub trait UploadProvider: Send {
     fn try_take_result(&mut self) -> Result<Option<UploadResult>, ProviderError>;
     fn cancel_pending(&mut self);
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MetadataError {
+    FileUnavailable,
+    InvalidArchive,
+    UnsupportedFormat,
+    MalformedLog,
+    MissingPointOfView,
+    ResourceLimit,
+    Cancelled,
+    Internal,
+}
+
+impl std::fmt::Display for MetadataError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for MetadataError {}

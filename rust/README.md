@@ -17,8 +17,11 @@ The provider pool now supplies bounded FIFO queues, result backpressure, live pa
 through 32, cooperative stop tokens, and joined destruction. Its processors return typed outcomes
 without access to mutable jobs. See
 [ADR 0012](../docs/architecture/decisions/0012-own-rust-provider-worker-pools.md).
-Metadata ingestion and application-owner integration are next. The coordinator and worker pool are
-not connected to the development DLL yet.
+The EVTC decoder reads bounded revision-1 wire records, validates POV account UTF-8, preserves the
+last valid boss-health update, and checks cancellation during scans. Synthetic tests cover truncated
+prefixes, hostile counts, invalid accounts, and encounter-agent matching. Archive extraction, metadata
+ingestion, and application-owner integration are next. The coordinator and worker pool are not
+connected to the development DLL yet.
 
 ## Portable core
 

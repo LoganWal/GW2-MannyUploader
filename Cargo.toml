@@ -27,6 +27,10 @@ path = "rust/tests/upload_coordinator.rs"
 name = "async_upload_worker"
 path = "rust/tests/async_upload_worker.rs"
 
+[[test]]
+name = "metadata_decoder"
+path = "rust/tests/metadata_decoder.rs"
+
 [lints.rust]
 unsafe_code = "forbid"
 

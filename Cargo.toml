@@ -54,5 +54,9 @@ path = "rust/tests/log_discovery.rs"
 name = "application_pump"
 path = "rust/tests/application_pump.rs"
 
+[[test]]
+name = "notifications"
+path = "rust/tests/notifications.rs"
+
 [lints.clippy]
 all = "warn"

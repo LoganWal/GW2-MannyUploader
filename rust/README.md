@@ -31,8 +31,11 @@ now connect bounded file stability and deduplication to metadata ingestion. Scan
 roots, incomplete traversal, Unicode paths, cutoff changes, and removal reconciliation. Parser
 saturation defers candidates, and rejected admission releases their dedupe identities. See
 [ADR 0014](../docs/architecture/decisions/0014-own-rust-discovery-and-polling.md).
-Native change notifications, session-window scheduling, persistence, and runtime composition remain
-separate work. The coordinator and workers are not connected to the development DLL yet.
+Native directory notifications now cache complete observations with a three-failure polling fallback.
+The native handle has creation, modification, rename, deletion, and root-recovery tests. Session
+selection fixes Show New at load time and limits rolling discovery cutoff changes to once per minute.
+Persistence and runtime scheduling remain separate work. The coordinator and workers are not
+connected to the development DLL yet.
 
 ## Portable core
 

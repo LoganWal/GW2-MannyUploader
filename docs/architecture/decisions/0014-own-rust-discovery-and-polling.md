@@ -38,6 +38,27 @@ and admits stable candidates only while parser capacity remains. Failed pre-admi
 identity. Unexpected parser rejection retains the accepted job. Source panics become typed failures.
 Shutdown is idempotent and reaches both metadata and provider workers through ingestion.
 
+`NotifyingLogSource` wraps the authoritative source through an application-owned monitor port. It
+arms or polls the monitor before scanning, repeats only complete root-available observations, and
+never repeats removals or diagnostics. Every authoritative scan invalidates the previous cache before
+starting, including scans that fail. Three consecutive monitor failures disable notifications until
+successful source reconfiguration. Monitor setup failure and panics use the same polling fallback.
+
+The Windows monitor lives in the native crate's audited FFI boundary. It owns a single notification
+handle, uses zero-timeout waits, rearms only a signaled handle, and closes through RAII. Unicode and
+extended-length paths remain UTF-16. Root availability is checked separately because Win32
+notifications describe children rather than the root itself. API ownership and rearm requirements
+were checked on 2026-10-16 against Microsoft's documentation for
+[FindFirstChangeNotificationW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirstchangenotificationw),
+[FindNextChangeNotification](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findnextchangenotification),
+[WaitForSingleObject](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject),
+and [FindCloseChangeNotification](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findclosechangenotification).
+
+`SessionLogSelection` fixes Show New at the session start and computes the rolling display cutoff
+from the current system time. Discovery refreshes at most once per monotonic minute in Last 24 Hours
+mode. Mode changes propose an immediate source cutoff. The owner commits a proposed selection only
+after source reconfiguration succeeds, so failures preserve the old selection and retry opportunity.
+
 ## Consequences
 
 The portable pipeline can be exercised without Nexus, network requests, or credentials. Synthetic
@@ -46,6 +67,10 @@ reconfiguration, cancellation, and panic containment. Filesystem tests cover Uni
 recovery, exact cutoff boundaries, candidate limits, and Windows junction exclusion. Unix symlink
 coverage remains in the portable suite for Linux CI.
 
-Native change notifications and rolling session selection still need adapters and scheduling. The
-development DLL remains a lifecycle shell. Persistent history must seed discovery before scanning
-when runtime composition is added. The shipping C++ implementation is unchanged.
+Native tests exercise Unicode nested creation, modification, rename, deletion, missing-root recovery,
+cancellation, and atomic invalid configuration. Notification cache/fallback and session-window timing
+have deterministic portable tests. Wine validation remains required.
+
+The development DLL remains a lifecycle shell. Runtime composition must schedule the pump and
+selection updates, and persistent history must seed discovery before scanning. The shipping C++
+implementation is unchanged.

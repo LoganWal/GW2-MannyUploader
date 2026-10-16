@@ -28,6 +28,24 @@ pub enum CandidateIssue {
     DirectoryUnavailable,
     TimestampUnavailable,
     CanonicalPathUnavailable,
+    NotificationFailed,
+    NotificationsDisabled,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectoryChange {
+    Changed,
+    Unchanged,
+    Unavailable,
+}
+
+pub trait DirectoryChangeMonitor: Send {
+    fn reconfigure(
+        &mut self,
+        root: &std::path::Path,
+        recursive: bool,
+    ) -> Result<(), CandidateError>;
+    fn poll(&mut self, stop: &StopToken) -> Result<DirectoryChange, CandidateError>;
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

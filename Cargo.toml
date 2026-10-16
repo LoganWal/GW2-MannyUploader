@@ -147,3 +147,7 @@ path = "rust/tests/donbot_upload.rs"
 [[test]]
 name = "donbot_workers"
 path = "rust/tests/donbot_workers.rs"
+
+[[test]]
+name = "donbot_configuration"
+path = "rust/tests/donbot_configuration.rs"

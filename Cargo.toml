@@ -95,3 +95,7 @@ path = "rust/tests/history_store.rs"
 [[test]]
 name = "secret_store"
 path = "rust/tests/secret_store.rs"
+
+[[test]]
+name = "configuration_service"
+path = "rust/tests/configuration_service.rs"

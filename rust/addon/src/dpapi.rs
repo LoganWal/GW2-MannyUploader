@@ -324,5 +324,60 @@ mod tests {
             );
             assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
         }
+        let defaults = manny_core::domain::Settings::new("D:/synthetic-logs".into());
+        let settings_path = root.join("settings.json");
+        let open_settings = || {
+            manny_core::config::JsonSettingsStore::new(
+                Box::new(FilesystemStore::new(WindowsFileCommit)),
+                settings_path.clone(),
+                defaults.clone(),
+            )
+            .unwrap()
+        };
+        let mut configuration = manny_core::application::ConfigurationService::new(
+            Box::new(open_settings()),
+            Ok(Box::new(store)),
+        )
+        .unwrap();
+        let mut changed = defaults.clone();
+        changed.general.recent_log_limit = 42;
+        configuration.save_settings(changed.clone()).unwrap();
+        configuration
+            .store_secret(
+                SecretId::DonBotGw2ApiKey,
+                &SecretValue::from_bytes(MARKER.to_vec()),
+            )
+            .unwrap();
+        assert_eq!(configuration.snapshot().settings, changed);
+        assert_eq!(
+            configuration
+                .load_secret(SecretId::DonBotGw2ApiKey)
+                .unwrap()
+                .expose(),
+            MARKER
+        );
+        configuration.shutdown();
+        drop(configuration);
+        let reopened_store = ProtectedFileSecretStore::new(
+            Box::new(FilesystemStore::new(WindowsFileCommit)),
+            Box::new(protector()),
+            directory,
+        )
+        .unwrap();
+        let mut reopened = manny_core::application::ConfigurationService::new(
+            Box::new(open_settings()),
+            Ok(Box::new(reopened_store)),
+        )
+        .unwrap();
+        assert_eq!(reopened.snapshot().settings, changed);
+        assert_eq!(
+            reopened
+                .load_secret(SecretId::DonBotGw2ApiKey)
+                .unwrap()
+                .expose(),
+            MARKER
+        );
+        reopened.erase_secret(SecretId::DonBotGw2ApiKey).unwrap();
+        assert!(reopened.load_secret(SecretId::DonBotGw2ApiKey).is_err());
     }
 }

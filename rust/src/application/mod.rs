@@ -1,5 +1,6 @@
 mod application_pump;
 mod cancellation;
+mod configuration_service;
 mod history_store;
 mod log_candidates;
 mod log_ingestion;
@@ -12,6 +13,7 @@ mod upload_coordinator;
 
 pub use application_pump::*;
 pub use cancellation::{CancellationSource, StopToken};
+pub use configuration_service::*;
 pub use history_store::*;
 pub use log_candidates::*;
 pub use log_ingestion::{IngestionError, LogIngestionCoordinator, MetadataDrainSummary};

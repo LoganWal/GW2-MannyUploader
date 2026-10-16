@@ -63,6 +63,10 @@ DPAPI adapter exposes Windows versus Wine protection mode and wipes Windows allo
 release. Native round-trip, tamper, locked-file, erasure, and C++ interoperability checks pass. Wine
 execution and runtime configuration/UI composition remain outstanding. See
 [ADR 0018](../docs/architecture/decisions/0018-preserve-rust-protected-credentials.md).
+The application configuration service now owns both stores, preserves recovery and protection mode
+in secret-free snapshots, commits settings only after durable writes, and isolates adapters after
+shutdown. Native tests reopen settings and a synthetic protected credential through this service.
+See [ADR 0019](../docs/architecture/decisions/0019-own-rust-configuration-service.md).
 
 ## Portable core
 

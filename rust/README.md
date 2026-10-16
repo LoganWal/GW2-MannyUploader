@@ -134,8 +134,12 @@ history persistence, and copied snapshots under one joined owner thread. It rest
 applies settings between dependent commands, drains results between filesystem scans, refreshes DonBot
 on a monotonic schedule, and stops owned work before thread join returns. See
 [ADR 0040](../docs/architecture/decisions/0040-compose-rust-application-runtime.md).
-The native DLL still needs concrete dependency composition and the full options/list renderer.
-Production runtime composition and options/list presentation remain pending.
+Native dependency composition now supplies protected storage, Schannel HTTP, directory notifications,
+the archive parser, and all provider/authentication workers. Configuration and providers share one
+serialized protected store. Synthetic native integration tests exercise discovery through durable
+upload receipts and token rotation, plus joined shutdown during active authentication HTTP. See
+[ADR 0041](../docs/architecture/decisions/0041-compose-rust-native-dependencies.md).
+The exported DLL still needs this composition attached together with the full options/list renderer.
 
 ## Portable core
 
@@ -156,6 +160,8 @@ the hash-verified release archive. For an offline native build, set `MANNY_CURL_
 copy of that archive. Cargo's `--offline` flag governs Rust dependencies, so set this archive override
 as well when avoiding CMake downloads. `MANNY_RUST_CMAKE` selects the CMake executable.
 Cross builds can provide `MANNY_RUST_CMAKE_TOOLCHAIN` and `MANNY_RUST_CMAKE_GENERATOR`.
+`MANNY_TWITCH_CLIENT_ID` sets the packaged public Twitch application identifier. Empty or absent
+values use the existing application default. Ordinary settings may override it at runtime.
 Debug Rust builds use RelWithDebInfo for libcurl to match Rust's release static CRT while retaining
 native debug symbols. Release builds use Release for both.
 

@@ -16,8 +16,10 @@ separate from the development DLL's lifecycle proof.
 Rust discovery policy, the portable filesystem poller, and bounded application ticks are implemented
 under [ADR 0014](decisions/0014-own-rust-discovery-and-polling.md), with native notification fallback
 and session-selection timing. Rust durable history and the portable application runtime are implemented
-under [ADR 0040](decisions/0040-compose-rust-application-runtime.md). Native dependency composition and
-the full options/list renderer remain pending.
+under [ADR 0040](decisions/0040-compose-rust-application-runtime.md). Native runtime attachment and
+the full options/list renderer remain pending. Native dependencies are assembled and tested separately
+under [ADR 0041](decisions/0041-compose-rust-native-dependencies.md), including the shared protected
+store and real provider workers. The exported DLL remains a lifecycle shell until UI integration.
 
 ## Dependency direction
 

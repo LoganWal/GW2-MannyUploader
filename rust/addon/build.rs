@@ -9,6 +9,21 @@ fn run(command: &mut Command) {
     );
 }
 fn main() {
+    println!("cargo:rerun-if-env-changed=MANNY_TWITCH_CLIENT_ID");
+    let client_id = env::var("MANNY_TWITCH_CLIENT_ID").unwrap_or_default();
+    let client_id = if client_id.is_empty() {
+        "s1q7vb9ktz0efvs61axfngdegolo6q"
+    } else {
+        &client_id
+    };
+    assert!(
+        client_id.len() <= 128
+            && client_id
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+        "MANNY_TWITCH_CLIENT_ID must contain at most 128 lowercase ASCII letters and digits"
+    );
+    println!("cargo:rustc-env=MANNY_PACKAGED_TWITCH_CLIENT_ID={client_id}");
     for file in [
         "build.rs",
         "native/CMakeLists.txt",

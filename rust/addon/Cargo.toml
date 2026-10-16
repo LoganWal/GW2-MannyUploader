@@ -20,6 +20,9 @@ zeroize = { version = "=1.8.2", default-features = false, features = ["alloc"] }
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
+[dev-dependencies]
+crc32fast = "=1.5.2"
+
 [lints.clippy]
 all = "warn"
 undocumented_unsafe_blocks = "deny"

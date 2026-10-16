@@ -62,6 +62,10 @@ name = "recent_logs_model"
 path = "rust/tests/recent_logs_model.rs"
 
 [[test]]
+name = "application_runtime"
+path = "rust/tests/application_runtime.rs"
+
+[[test]]
 name = "log_discovery"
 path = "rust/tests/log_discovery.rs"
 

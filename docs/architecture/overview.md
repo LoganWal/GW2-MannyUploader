@@ -15,7 +15,9 @@ The portable Rust provider pool owns bounded queues and joined workers under
 separate from the development DLL's lifecycle proof.
 Rust discovery policy, the portable filesystem poller, and bounded application ticks are implemented
 under [ADR 0014](decisions/0014-own-rust-discovery-and-polling.md), with native notification fallback
-and session-selection timing. Durable history and production runtime composition remain pending.
+and session-selection timing. Rust durable history and the portable application runtime are implemented
+under [ADR 0040](decisions/0040-compose-rust-application-runtime.md). Native dependency composition and
+the full options/list renderer remain pending.
 
 ## Dependency direction
 

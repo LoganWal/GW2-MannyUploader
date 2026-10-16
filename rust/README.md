@@ -128,6 +128,13 @@ and tested. See [ADR 0038](../docs/architecture/decisions/0038-present-rust-rece
 Runtime configuration can now reach provider policies and parallelism through the upload coordinator,
 and parser capacity through metadata ingestion. Queue shrink preserves accepted work and results.
 See [ADR 0039](../docs/architecture/decisions/0039-reconfigure-owned-rust-workers.md).
+
+The portable application runtime now composes the pipeline, configuration workflows, explicit actions,
+history persistence, and copied snapshots under one joined owner thread. It restores retained history,
+applies settings between dependent commands, drains results between filesystem scans, refreshes DonBot
+on a monotonic schedule, and stops owned work before thread join returns. See
+[ADR 0040](../docs/architecture/decisions/0040-compose-rust-application-runtime.md).
+The native DLL still needs concrete dependency composition and the full options/list renderer.
 Production runtime composition and options/list presentation remain pending.
 
 ## Portable core

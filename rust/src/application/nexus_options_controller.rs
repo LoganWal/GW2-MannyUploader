@@ -53,6 +53,14 @@ pub struct NexusOptionsTickReport {
     pub twitch_progressed: bool,
     pub twitch_test_message_progressed: bool,
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SavedConnectionsReport {
+    pub donbot_started: bool,
+    pub twitch_started: bool,
+    pub donbot_error: Option<DonBotConfigurationError>,
+    pub twitch_error: Option<TwitchAuthenticationControllerError>,
+}
 struct Queue {
     commands: VecDeque<NexusOptionsCommand>,
     snapshot: NexusOptionsSnapshot,
@@ -112,6 +120,7 @@ pub struct NexusOptionsController {
     launcher: Box<dyn ExternalActionLauncher>,
     max_commands_per_tick: usize,
     stopped: bool,
+    startup_started: bool,
 }
 impl NexusOptionsController {
     pub fn new(
@@ -166,6 +175,7 @@ impl NexusOptionsController {
             launcher,
             max_commands_per_tick: options.max_commands_per_tick,
             stopped: false,
+            startup_started: false,
         })
     }
     pub fn handle(&self) -> NexusOptionsHandle {
@@ -174,10 +184,21 @@ impl NexusOptionsController {
 
     /// A single application owner executes commands and polls each workflow once per tick.
     pub fn tick(&mut self) -> Result<NexusOptionsTickReport, NexusOptionsError> {
+        self.tick_with_settings_applier(|_| Ok(()))
+    }
+
+    /// Apply shared client identity before another command can start authentication or chat.
+    /// Failure leaves later commands queued for a future tick. The callback runs without locks.
+    pub fn tick_with_settings_applier(
+        &mut self,
+        mut apply: impl FnMut(&Settings) -> Result<(), NexusOptionsError>,
+    ) -> Result<NexusOptionsTickReport, NexusOptionsError> {
         if self.stopped || !self.handle.lock().snapshot.accepting_commands {
             self.shutdown();
             return Err(NexusOptionsError::ShuttingDown);
         }
+        self.publish(None, false);
+        self.apply_settings(&mut apply)?;
         let budget = self
             .handle
             .lock()
@@ -203,6 +224,7 @@ impl NexusOptionsController {
             report.commands_processed += 1;
             report.action_failures += usize::from(result.is_err());
             self.publish(result.err(), true);
+            self.apply_settings(&mut apply)?;
         }
         if !self.handle.lock().snapshot.accepting_commands {
             self.shutdown();
@@ -231,7 +253,94 @@ impl NexusOptionsController {
         report.twitch_test_message_progressed = test.as_ref().copied().unwrap_or(false);
         let error = donbot.err().or_else(|| twitch.err()).or_else(|| test.err());
         self.publish(error, false);
+        self.apply_settings(&mut apply)?;
         Ok(report)
+    }
+    fn apply_settings(
+        &self,
+        apply: &mut impl FnMut(&Settings) -> Result<(), NexusOptionsError>,
+    ) -> Result<(), NexusOptionsError> {
+        let settings = self.handle.snapshot().configuration.settings;
+        let result = catch_unwind(AssertUnwindSafe(|| apply(&settings)))
+            .unwrap_or(Err(NexusOptionsError::SettingsApplyFailed));
+        if let Err(error) = &result {
+            self.publish(Some(error.clone()), false);
+        }
+        result
+    }
+
+    pub fn start_saved_connections(
+        &mut self,
+        twitch_configured: bool,
+    ) -> Result<SavedConnectionsReport, NexusOptionsError> {
+        if self.stopped {
+            return Err(NexusOptionsError::ShuttingDown);
+        }
+        if self.startup_started {
+            return Ok(SavedConnectionsReport::default());
+        }
+        self.startup_started = true;
+        let current = self
+            .configuration
+            .lock()
+            .map_err(|_| NexusOptionsError::Internal)?
+            .snapshot();
+        let mut report = SavedConnectionsReport::default();
+        if current.persistent_secret_storage.state == PersistentSecretStorageState::Available {
+            if !current.settings.donbot.selected_guild_id.is_empty() {
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    let config = self
+                        .configuration
+                        .lock()
+                        .map_err(|_| DonBotConfigurationError::SecretLoadFailed)?;
+                    self.donbot.begin_saved_verification(&config)
+                }))
+                .unwrap_or(Err(DonBotConfigurationError::SecretLoadFailed));
+                report.donbot_started = result.is_ok();
+                report.donbot_error = result.err();
+            }
+            if twitch_configured {
+                match catch_unwind(AssertUnwindSafe(|| self.twitch.begin_saved_connection()))
+                    .unwrap_or(Err(TwitchAuthenticationControllerError::Internal))
+                {
+                    Ok(started) => report.twitch_started = started,
+                    Err(error) => report.twitch_error = Some(error),
+                }
+            }
+        }
+        self.publish(
+            report
+                .donbot_error
+                .map(NexusOptionsError::DonBot)
+                .or_else(|| report.twitch_error.map(NexusOptionsError::Twitch)),
+            false,
+        );
+        Ok(report)
+    }
+
+    pub fn refresh_donbot(&mut self) -> Result<(), NexusOptionsError> {
+        if self.stopped {
+            return Err(NexusOptionsError::ShuttingDown);
+        }
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let config = self
+                .configuration
+                .lock()
+                .map_err(|_| NexusOptionsError::Internal)?;
+            self.donbot
+                .begin_saved_refresh(&config)
+                .map_err(NexusOptionsError::DonBot)
+        }))
+        .unwrap_or(Err(NexusOptionsError::Internal));
+        self.publish(result.as_ref().err().cloned(), false);
+        result
+    }
+
+    /// Runtime shutdown calls this after stopping command admission and provider work.
+    pub fn shutdown_workflows(&mut self) {
+        self.shutdown();
+        self.donbot.shutdown();
+        self.twitch.shutdown();
     }
     fn publish(&self, error: Option<NexusOptionsError>, clear_error: bool) {
         let configuration = self

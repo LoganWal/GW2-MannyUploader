@@ -99,23 +99,7 @@ impl<C: Clock> ApplicationPump<C> {
         enabled: ProviderSelection,
         stop: &StopToken,
     ) -> Result<TickReport, PumpError> {
-        if self.stopping {
-            return Err(PumpError::ShuttingDown);
-        }
-        if stop.is_stop_requested() {
-            return Err(PumpError::Source(CandidateError::Cancelled));
-        }
-        let metadata = self
-            .ingestion
-            .drain_metadata(self.options.max_metadata_results);
-        let uploads = self
-            .ingestion
-            .uploads_mut()
-            .drain_results(self.options.max_upload_results);
-        let retries = self
-            .ingestion
-            .uploads_mut()
-            .dispatch_due_retries(self.options.max_retries);
+        let drained = self.drain_work(stop)?;
         let batch = catch_unwind(AssertUnwindSafe(|| self.source.poll(stop)))
             .unwrap_or(Err(CandidateError::Panicked))
             .map_err(PumpError::Source)?;
@@ -123,15 +107,12 @@ impl<C: Clock> ApplicationPump<C> {
             self.discovery.forget_pending(path);
         }
         let mut report = TickReport {
-            metadata,
-            uploads,
-            retries,
             root_available: batch.root_available,
             scan_complete: batch.scan_complete,
             observations: batch.observations.len(),
             removed: batch.removed_paths.len(),
             issues: batch.issues,
-            ..Default::default()
+            ..drained
         };
         for observation in batch.observations {
             if stop.is_stop_requested() {
@@ -158,6 +139,33 @@ impl<C: Clock> ApplicationPump<C> {
             }
         }
         Ok(report)
+    }
+
+    /// Drain bounded provider/parser work between filesystem polls without observing files again.
+    pub fn drain_work(&mut self, stop: &StopToken) -> Result<TickReport, PumpError> {
+        if self.stopping {
+            return Err(PumpError::ShuttingDown);
+        }
+        if stop.is_stop_requested() {
+            return Err(PumpError::Source(CandidateError::Cancelled));
+        }
+        let metadata = self
+            .ingestion
+            .drain_metadata(self.options.max_metadata_results);
+        let uploads = self
+            .ingestion
+            .uploads_mut()
+            .drain_results(self.options.max_upload_results);
+        let retries = self
+            .ingestion
+            .uploads_mut()
+            .dispatch_due_retries(self.options.max_retries);
+        Ok(TickReport {
+            metadata,
+            uploads,
+            retries,
+            ..Default::default()
+        })
     }
 
     pub fn reconfigure_source(&mut self, options: CandidateSourceOptions) -> Result<(), PumpError> {

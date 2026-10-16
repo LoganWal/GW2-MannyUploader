@@ -2,6 +2,11 @@ use super::{HttpErrorCode, SecretValue, StopToken};
 use crate::domain::TwitchDeliveryReceipt;
 use std::time::Duration;
 
+/// Runtime ownership of the public application identity. This port performs no HTTP.
+pub trait TwitchApplicationConfiguration: Send + Sync {
+    fn set_client_id(&self, client_id: String) -> Result<(), TwitchError>;
+}
+
 pub struct TwitchDeviceAuthorization {
     pub device_code: SecretValue,
     pub user_code: String,

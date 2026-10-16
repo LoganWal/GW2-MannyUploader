@@ -28,6 +28,11 @@ pub struct TwitchClient {
     http: Arc<dyn HttpClient>,
     client_id: Mutex<String>,
 }
+impl TwitchApplicationConfiguration for TwitchClient {
+    fn set_client_id(&self, client_id: String) -> Result<(), TwitchError> {
+        self.update_client_id(client_id)
+    }
+}
 impl TwitchClient {
     pub fn new(http: Arc<dyn HttpClient>, client_id: String) -> Result<Self, TwitchError> {
         if !valid_twitch_client_id(&client_id) {

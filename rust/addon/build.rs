@@ -2,12 +2,16 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
+mod build_configuration;
+use build_configuration::configure_generator;
+
 fn run(command: &mut Command) {
     assert!(
         command.status().expect("could not start CMake").success(),
         "native HTTP build failed"
     );
 }
+
 fn main() {
     println!("cargo:rerun-if-env-changed=MANNY_TWITCH_CLIENT_ID");
     let client_id = env::var("MANNY_TWITCH_CLIENT_ID").unwrap_or_default();
@@ -26,6 +30,7 @@ fn main() {
     println!("cargo:rustc-env=MANNY_PACKAGED_TWITCH_CLIENT_ID={client_id}");
     for file in [
         "build.rs",
+        "build_configuration.rs",
         "native/CMakeLists.txt",
         "../../cmake/MannyCurl.cmake",
     ] {
@@ -70,11 +75,11 @@ fn main() {
             "cross compilation requires MANNY_RUST_CMAKE_TOOLCHAIN"
         );
     }
-    if let Some(generator) = env::var_os("MANNY_RUST_CMAKE_GENERATOR") {
-        configure.arg("-G").arg(generator);
-    } else if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") && cfg!(windows) {
-        configure.args(["-G", "Visual Studio 17 2022", "-A", "x64"]);
-    }
+    configure_generator(
+        &mut configure,
+        env::var_os("MANNY_RUST_CMAKE_GENERATOR"),
+        env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") && cfg!(windows),
+    );
     if let Some(archive) = env::var_os("MANNY_CURL_ARCHIVE") {
         let mut argument = std::ffi::OsString::from("-DMANNY_CURL_ARCHIVE=");
         argument.push(archive);

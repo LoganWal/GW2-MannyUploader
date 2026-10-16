@@ -17,6 +17,12 @@ Rust Debug uses native RelWithDebInfo and Rust Release uses native Release. Both
 static CRT required by Rust's crt-static target configuration. A local archive override retains the
 same mandatory SHA-256 check. No prebuilt developer library or toolchain file is shipped.
 
+Native MSVC configuration lets CMake choose the installed Visual Studio generator while requiring
+the x64 platform. Pinning Visual Studio 2022 prevents configuration on the
+[current hosted Windows image](https://github.com/actions/runner-images/issues/14017), which uses
+Visual Studio 2026. A failing-before-fix command-policy regression covers both installed versions.
+Explicit generator and cross-toolchain overrides retain their existing platform selection.
+
 A locked user count owns global initialization and cleanup outside DllMain. Every synchronous
 request borrows its client, owns an easy handle, and drops that handle before callback state or its
 header list. Workers must still stop and join before runtime teardown. The pinned backend's default

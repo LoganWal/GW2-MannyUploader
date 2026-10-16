@@ -156,8 +156,9 @@ cargo test --locked -p manny-uploader --release
 
 ## Windows MSVC
 
-Requires Rust with the `x86_64-pc-windows-msvc` target, Visual Studio 2022 C++ Build Tools,
-and CMake 3.30 or newer.
+Requires Rust with the `x86_64-pc-windows-msvc` target, Visual Studio C++ Build Tools,
+and CMake 3.30 or newer with support for the installed Visual Studio version.
+CMake selects the installed Visual Studio generator and Cargo requires its x64 platform.
 The target configuration links the static CRT. Builds and tests use the workspace lockfile.
 Cargo builds the pinned libcurl source in its output directory. The first native build downloads
 the hash-verified release archive. For an offline native build, set `MANNY_CURL_ARCHIVE` to a local

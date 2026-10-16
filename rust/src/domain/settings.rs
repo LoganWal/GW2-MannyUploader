@@ -158,7 +158,8 @@ impl Settings {
 
     /// Loading clears stale legacy channel choices before validation. Save validation never mutates.
     pub fn normalize_loaded_settings(&mut self) {
-        if !self.donbot.discord_channel_override_explicit {
+        if !self.donbot.enabled || !self.donbot.discord_channel_override_explicit {
+            self.donbot.discord_channel_override_explicit = false;
             self.donbot.selected_discord_channel_id.clear();
         }
     }

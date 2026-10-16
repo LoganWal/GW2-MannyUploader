@@ -40,7 +40,10 @@ connected to the development DLL yet.
 The settings domain now carries version-1 defaults, numeric/path/identifier validation, provider
 dependencies, and explicit legacy Discord-channel normalization. One shared Twitch template parser
 serves settings validation and same-report rendering, with byte and Unicode code-point limits.
-JSON decoding, atomic storage, and existing-history compatibility remain to be implemented.
+The bounded JSON codec preserves version-1 defaults and rejects unknown or duplicate keys, invalid
+UTF-8, non-object settings, and oversized documents. Serde remains inside the configuration adapter
+under [ADR 0015](../docs/architecture/decisions/0015-bound-rust-settings-json.md). Atomic storage and
+existing-history compatibility remain to be implemented.
 
 ## Portable core
 

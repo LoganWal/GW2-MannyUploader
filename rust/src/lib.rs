@@ -2,6 +2,7 @@
 
 pub mod addon;
 pub mod application;
+pub mod config;
 pub mod domain;
 pub mod evtc;
 pub mod filesystem;

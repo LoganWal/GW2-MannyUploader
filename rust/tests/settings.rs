@@ -283,3 +283,13 @@ fn twitch_dependencies_client_ids_and_templates_use_one_validation_boundary() {
         ));
     }
 }
+
+#[test]
+fn loading_disabled_donbot_clears_even_explicit_stale_channel_selection() {
+    let mut value = settings();
+    value.donbot.discord_channel_override_explicit = true;
+    value.donbot.selected_discord_channel_id = "123".into();
+    value.normalize_loaded_settings();
+    assert!(!value.donbot.discord_channel_override_explicit);
+    assert!(value.donbot.selected_discord_channel_id.is_empty());
+}

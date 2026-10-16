@@ -1,6 +1,6 @@
 # Third-party notices
 
-## Rust archive dependencies
+## Rust core dependencies
 
 The Rust development implementation uses the following components under the MIT license below.
 Versions are fixed by Cargo.lock.
@@ -20,6 +20,15 @@ Versions are fixed by Cargo.lock.
   Copyright (c) [2021] [Marvin Countryman]
 - cfg-if 1.0.4, <https://github.com/rust-lang/cfg-if>
   Copyright (c) 2014 Alex Crichton
+- serde, serde_core, and serde_derive 1.0.228, <https://github.com/serde-rs/serde>
+  Authors: Erick Tryzelaar and David Tolnay
+- serde_json 1.0.154, <https://github.com/serde-rs/json>
+- itoa 1.0.18, <https://github.com/dtolnay/itoa>
+  Author: David Tolnay
+- zmij 1.0.23, <https://github.com/dtolnay/zmij>
+  Author: David Tolnay
+- memchr 2.8.2, <https://github.com/BurntSushi/memchr>
+  Copyright (c) 2015 Andrew Gallant
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction,

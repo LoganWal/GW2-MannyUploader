@@ -18,6 +18,8 @@ path = "rust/src/lib.rs"
 [dependencies]
 flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
 crc32fast = "=1.5.2"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.154"
 
 [[test]]
 name = "upload_job"
@@ -65,6 +67,10 @@ path = "rust/tests/settings.rs"
 [[test]]
 name = "twitch_template"
 path = "rust/tests/twitch_template.rs"
+
+[[test]]
+name = "settings_json"
+path = "rust/tests/settings_json.rs"
 
 [lints.clippy]
 all = "warn"

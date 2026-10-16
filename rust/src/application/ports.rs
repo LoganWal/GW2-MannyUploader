@@ -104,3 +104,56 @@ impl std::fmt::Display for MetadataError {
 }
 
 impl std::error::Error for MetadataError {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MetadataRequest {
+    pub job_id: UploadJobId,
+    pub file: LogFileIdentity,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MetadataResult {
+    pub job_id: UploadJobId,
+    pub metadata: Result<EncounterMetadata, MetadataError>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParserError {
+    QueueFull,
+    Stopping,
+    InvalidRequest,
+    Unavailable,
+    Panicked,
+}
+
+pub trait LogMetadataReader: Send + Sync + 'static {
+    fn parse(
+        &self,
+        file: &LogFileIdentity,
+        stop: &super::StopToken,
+    ) -> Result<EncounterMetadata, MetadataError>;
+}
+
+impl<F> LogMetadataReader for F
+where
+    F: Fn(&LogFileIdentity, &super::StopToken) -> Result<EncounterMetadata, MetadataError>
+        + Send
+        + Sync
+        + 'static,
+{
+    fn parse(
+        &self,
+        file: &LogFileIdentity,
+        stop: &super::StopToken,
+    ) -> Result<EncounterMetadata, MetadataError> {
+        self(file, stop)
+    }
+}
+
+/// Nonblocking metadata admission and polling. Destruction must join owned workers.
+pub trait LogMetadataParser: Send {
+    fn enqueue(&mut self, request: MetadataRequest) -> Result<(), ParserError>;
+    fn available_capacity(&self) -> usize;
+    fn try_take_result(&mut self) -> Result<Option<MetadataResult>, ParserError>;
+    fn cancel_pending(&mut self);
+}

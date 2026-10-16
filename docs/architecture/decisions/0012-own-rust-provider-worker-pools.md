@@ -36,6 +36,12 @@ The application layer owns a cancellation source and a clonable read-only StopTo
 supports cheap stop checks and an interruptible timed wait. Pair cancellation notification with its
 wait mutex to prevent lost wakeups. Processors must cooperate with stop and bound external waits.
 
+Share the internal typed queue core with the single-thread metadata parser adapter. The core owns
+only queue, thread, cancellation, and completion-order mechanics. Provider and metadata wrappers
+retain their application-owned ports, request validation, result identity, and typed panic outcomes.
+Metadata ingestion checks available input capacity before allocating a job and tracks admitted IDs
+until completion. Pending metadata counts as busy even when all provider destinations are disabled.
+
 Cancellation marks the pool stopping, clears queued requests and results, requests processor stop,
 and wakes queue waiters. Later completions are discarded. Drop cancels and joins every handle before
 releasing processor state. Failed construction uses the same cleanup path. No thread is detached.
@@ -52,6 +58,7 @@ parallelism changes, partial thread-start failures, panic containment, stop wake
 under result backpressure, and processor lifetime after joined destruction. A coordinator integration
 test uses the real pool to verify owned cancellation and shutdown.
 
-The pool adds no dependencies or unsafe code. It does not implement provider protocols, credentials,
-metadata parsing, or a background application owner. Native worker hot-unload validation remains
-pending until runtime composition connects this pool to the DLL.
+The pool adds no dependencies or unsafe code. The metadata adapter now connects the archive reader
+and decoder through the shared pool. Provider protocols, credentials, discovery, and the background
+application owner remain separate adapters. Native worker hot-unload validation remains pending
+until runtime composition connects these workers to the DLL.

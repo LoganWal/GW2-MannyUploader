@@ -63,25 +63,29 @@ pub struct DrainSummary {
 
 struct Entry {
     job: UploadJob,
+    metadata_pending: bool,
     intents: [UploadIntent; 4],
     reupload: bool,
 }
 
 impl Entry {
-    fn new(job: UploadJob) -> Self {
+    fn new(job: UploadJob, metadata_pending: bool) -> Self {
         Self {
             job,
+            metadata_pending,
             intents: [UploadIntent::Automatic; 4],
             reupload: false,
         }
     }
 
     fn busy(&self) -> bool {
-        self.job
-            .snapshot()
-            .providers
-            .iter()
-            .any(|status| status.state.is_busy())
+        self.metadata_pending
+            || self
+                .job
+                .snapshot()
+                .providers
+                .iter()
+                .any(|status| status.state.is_busy())
     }
 }
 
@@ -142,7 +146,7 @@ impl<C: Clock> UploadCoordinator<C> {
             return Err(CoordinatorError::CapacityReached);
         }
         self.trim_to(self.history_limit - 1);
-        self.jobs.push_back(Entry::new(job));
+        self.jobs.push_back(Entry::new(job, true));
         self.next_id = id.get().checked_add(1);
         Ok(id)
     }
@@ -155,16 +159,19 @@ impl<C: Clock> UploadCoordinator<C> {
         self.require_running()?;
         let index = self.pending_index(id)?;
         self.jobs[index].job.set_encounter_metadata(metadata)?;
+        self.jobs[index].metadata_pending = false;
         if self.state(index, Provider::Wingman) == ProviderState::Waiting && self.is_wvw(index) {
             self.skip_wingman(index)?;
         }
-        if self.state(index, Provider::DpsReport) == ProviderState::Waiting {
+        let result = if self.state(index, Provider::DpsReport) == ProviderState::Waiting {
             self.dispatch(index, Provider::DpsReport)
         } else {
             let wingman = self.dispatch_waiting(index, Provider::Wingman);
             let donbot = self.dispatch_waiting(index, Provider::DonBot);
             wingman.and(donbot)
-        }
+        };
+        self.trim_to(self.history_limit);
+        result
     }
 
     pub fn fail_metadata(
@@ -174,6 +181,7 @@ impl<C: Clock> UploadCoordinator<C> {
     ) -> Result<(), CoordinatorError> {
         self.require_running()?;
         let index = self.pending_index(id)?;
+        self.jobs[index].metadata_pending = false;
         for provider in Provider::ALL {
             if self.state(index, provider) == ProviderState::Waiting {
                 self.jobs[index].job.transition(
@@ -397,7 +405,7 @@ impl<C: Clock> UploadCoordinator<C> {
         let mut jobs = VecDeque::new();
         for (index, record) in records.into_iter().skip(skip).enumerate() {
             let id = UploadJobId::new(index as u64 + 1)?;
-            jobs.push_back(Entry::new(UploadJob::restore(id, record)?));
+            jobs.push_back(Entry::new(UploadJob::restore(id, record)?, false));
         }
         self.next_id = Some(jobs.len() as u64 + 1);
         self.jobs = jobs;
@@ -438,6 +446,7 @@ impl<C: Clock> UploadCoordinator<C> {
             let _ = catch_unwind(AssertUnwindSafe(|| provider.cancel_pending()));
         }
         for entry in &mut self.jobs {
+            entry.metadata_pending = false;
             for provider in Provider::ALL {
                 if entry.job.provider_status(provider).state.is_busy() {
                     let _ = entry.job.transition(
@@ -561,7 +570,8 @@ impl<C: Clock> UploadCoordinator<C> {
     fn pending_index(&self, id: UploadJobId) -> Result<usize, CoordinatorError> {
         let index = self.index(id)?;
         let record = self.jobs[index].job.snapshot();
-        if record.encounter_metadata.is_some()
+        if !self.jobs[index].metadata_pending
+            || record.encounter_metadata.is_some()
             || record.providers.iter().any(|status| {
                 !matches!(
                     status.state,

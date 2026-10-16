@@ -5,3 +5,4 @@ pub mod application;
 pub mod domain;
 pub mod evtc;
 pub mod providers;
+mod workers;

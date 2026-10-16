@@ -982,3 +982,27 @@ fn fanout_rejection_preserves_the_report_and_other_destinations() {
         "https://dps.report/retained"
     );
 }
+
+#[test]
+fn pending_metadata_is_retained_even_when_no_provider_is_enabled() {
+    let mut fixture = Fixture::new(1);
+    let first = fixture
+        .coordinator
+        .add_pending(file(), ProviderSelection::default())
+        .unwrap();
+    assert_eq!(
+        fixture.coordinator.add_pending(file(), report_only()),
+        Err(CoordinatorError::CapacityReached)
+    );
+    fixture.coordinator.fail_metadata(first, false).unwrap();
+    assert_eq!(
+        fixture.coordinator.set_metadata(first, metadata(123)),
+        Err(CoordinatorError::MetadataNotPending)
+    );
+    assert!(
+        fixture
+            .coordinator
+            .add_pending(file(), report_only())
+            .is_ok()
+    );
+}

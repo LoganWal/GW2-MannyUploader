@@ -23,8 +23,11 @@ prefixes, hostile counts, invalid accounts, and encounter-agent matching. The ar
 bounded stored/deflated ZIP and ZIP64 entries, CRC validation, Unicode filesystem paths, and chunked
 cancellation. Its dependency and container boundary are recorded in
 [ADR 0013](../docs/architecture/decisions/0013-bound-rust-zevtc-extraction.md).
-Metadata ingestion and application-owner integration are next. The coordinator and worker pool are
-not connected to the development DLL yet.
+The asynchronous metadata parser shares the bounded queue core with provider workers. Ingestion
+checks parser capacity before creating jobs, correlates metadata results, retains unexpected dispatch
+failures, and cancels both parser and upload work on shutdown. Pending metadata remains protected from
+history eviction even when every destination is disabled. Discovery and application-owner integration
+are next. The coordinator and workers are not connected to the development DLL yet.
 
 ## Portable core
 

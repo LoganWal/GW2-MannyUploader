@@ -39,6 +39,10 @@ path = "rust/tests/metadata_decoder.rs"
 name = "zevtc_archive"
 path = "rust/tests/zevtc_archive.rs"
 
+[[test]]
+name = "metadata_ingestion"
+path = "rust/tests/metadata_ingestion.rs"
+
 [lints.rust]
 unsafe_code = "forbid"
 

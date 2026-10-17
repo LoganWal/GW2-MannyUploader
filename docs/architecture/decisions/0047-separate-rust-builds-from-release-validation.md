@@ -21,5 +21,9 @@ MSVC, C++, Wine, lifecycle, packaging, and symbol checks. This changes when thos
 without treating a successful cross-build as native runtime evidence or clearing outstanding
 Wine failures. ADRs 0044 and 0045 continue to define the full validation artifacts and checks.
 
+Keep the registered `.github/workflows/ci.yml` path so manual runs can select `rust-migration`
+before this branch is merged. GitHub requires a dispatchable workflow to exist on the default branch.
+See [manual workflow runs](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
+
 The ordinary action does not publish releases or install the DLL. The C++ shipping artifact and
 Rust development metadata remain unchanged until the migration's release gates are satisfied.

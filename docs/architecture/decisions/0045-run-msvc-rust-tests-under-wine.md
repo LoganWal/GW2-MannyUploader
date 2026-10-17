@@ -14,7 +14,16 @@ Staging requires a fresh directory and rejects artifacts outside the selected MS
 duplicate names. Each configuration has a bounded manifest of executable basenames. Rust doctests
 remain covered by the existing native Linux and Windows jobs.
 
-The Wine job uses Ubuntu 24.04's Wine packages and a virtual display. It creates a dedicated fresh
+The Wine job uses WineHQ stable 11.0.0.0~noble-1 on Ubuntu 24.04 and a virtual display. Its signed
+APT source is scoped to the WineHQ archive key. The package version is explicit for reproducibility.
+Ubuntu's Wine 9 package cannot create the test's junction: its cmd implementation leaves mklink /J
+unsupported. Wine 11 implements that operation. Keep the junction exclusion test enabled and require
+the fixture to be an actual directory reparse point with a reachable target before testing discovery.
+See the [Wine 9 command implementation](https://github.com/wine-mirror/wine/blob/wine-9.0/programs/cmd/builtins.c)
+and [Wine 11 implementation](https://github.com/wine-mirror/wine/blob/wine-11.0/programs/cmd/builtins.c).
+This gate establishes evidence for that Wine version, not all historical Wine or Proton versions.
+
+It creates a dedicated fresh
 64-bit prefix, removes the native-DPAPI requirement, and requires Wine DPAPI compatibility instead.
 Start the persistent wineserver before wineboot. Starting it afterward competes with the server
 that wineboot already launched and fails with Wine's lock-conflict exit status 2, before any tests

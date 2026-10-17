@@ -294,6 +294,7 @@ fn legacy_windows_history_suppresses_verbatim_canonical_path_observations() {
 #[cfg(windows)]
 #[test]
 fn windows_junctions_are_neither_scanned_nor_accepted_as_roots() {
+    use std::os::windows::fs::MetadataExt;
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
     let tree = Tree::new();
@@ -312,6 +313,22 @@ fn windows_junctions_are_neither_scanned_nor_accepted_as_roots() {
             .status()
             .unwrap()
             .success()
+    );
+    // Some command interpreters return success without implementing junction creation.
+    let metadata = fs::symlink_metadata(&junction).expect("junction fixture was not created");
+    assert_ne!(
+        metadata.file_attributes() & 0x10,
+        0,
+        "junction fixture must have the directory attribute"
+    );
+    assert_ne!(
+        metadata.file_attributes() & 0x400,
+        0,
+        "junction fixture must be a reparse point"
+    );
+    assert!(
+        junction.join("outside.zevtc").is_file(),
+        "junction fixture must reach its target"
     );
     let mut source = PollingLogSource::new(tree.options()).unwrap();
     let stop = CancellationSource::default().token();

@@ -145,6 +145,19 @@ updates. Bounded input buffers preserve drafts and wipe submitted keys. Native t
 ImGui input, verify command isolation and redaction, and export synthetic frames for visual review.
 See [ADR 0042](../docs/architecture/decisions/0042-attach-rust-runtime-and-rendering.md).
 
+## GitHub Actions
+
+`Build DLL` runs on pushes to main and rust-migration, pull requests, and manual dispatch.
+It uses Ubuntu with MinGW to lint the Windows target, run portable core and tooling tests, and
+build the Release Rust DLL. Cargo dependencies and build output are cached. Download
+`manny-uploader-<commit>` from the run's artifacts to get `manny_uploader.dll`.
+The action checks embedded notices and rejects companion MinGW runtime DLL dependencies.
+
+`Release validation` is manual. It retains the C++ builds, native MSVC Debug/Release tests,
+DPAPI and Schannel checks, lifecycle proofs, package/PDB verification, and Wine execution.
+A successful cross-build does not establish native Windows or Wine runtime behavior.
+See [ADR 0047](../docs/architecture/decisions/0047-separate-rust-builds-from-release-validation.md).
+
 ## Portable core
 
 ```sh
@@ -257,7 +270,7 @@ Hosted execution, Windows/Wine parity, and the in-game release matrix remain req
 
 ## Wine CI
 
-The `Rust MSVC under Wine` job downloads the same workflow's Windows-built test executables,
+The manual `Release validation` workflow's `Rust MSVC under Wine` job downloads its Windows-built test executables,
 normal/test-only DLLs, smoke host, and verified Rust ZIP. It runs Debug and Release suites with
 Wine DPAPI required, both ordinary smoke modes, active-provider unload, and packaged-copy checks.
 An isolated fresh prefix and per-process deadlines keep failures contained. The job prints its Wine

@@ -1,9 +1,6 @@
-name: CI
+name: Release validation
 
 on:
-  push:
-    branches: [main, rust-migration]
-  pull_request:
   workflow_dispatch:
     inputs:
       run_live_https_probe:

@@ -9,7 +9,9 @@ workflow, package, checksums, and safe manual-test results.
 
 ## Automated native gate
 
-The `Windows x64 release package` CI job is the authoritative native build. It must pass on an
+The manual `Release validation` workflow's `Windows x64 release package` job is the authoritative
+native build. The routine `Build DLL` workflow produces a MinGW cross-build for development.
+The native gate must pass on an
 ordinary Microsoft-hosted Windows runner, not Wine, and must use the x64 Release configuration with
 warnings treated as errors.
 
@@ -41,7 +43,7 @@ Wine and in-game matrix below applies before Rust cutover.
 ## Opt-in Schannel probe
 
 Ordinary pushes and pull requests never depend on a public network service. To verify the host trust
-store and production Schannel path, manually run the `CI` workflow from the repository's Actions tab
+store and production Schannel path, manually run the `Release validation` workflow from the repository's Actions tab
 with `run_live_https_probe` enabled. The probe performs one credential-free GET to the fixed
 `https://example.com/` target through the production HTTPS-only policy and requires status `200`.
 

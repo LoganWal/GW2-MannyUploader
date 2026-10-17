@@ -24,5 +24,5 @@ Native resource inspection additionally confirms that the named RCDATA contains 
 document, including Unicode names and copyright text.
 
 This provides notices with the DLL-only distribution. It does not publish a release or change the
-remaining Wine, native in-game, and shipping-cutover gates. Future dependency updates must also
+remaining native in-game and shipping-cutover gates. Future dependency updates must also
 review their notices before producing a new package.

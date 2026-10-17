@@ -1,9 +1,12 @@
 # ADR 0045: Run MSVC Rust tests under Wine
 
-- Status: Accepted, hosted execution pending
+- Status: Superseded by [ADR 0048](0048-retire-wine-validation.md)
 - Date: 2026-10-17
 
 ## Decision
+
+The following records the retired validation design. Its tooling and release requirements were
+removed by ADR 0048. Wine runtime support remains enabled.
 
 Add a Wine CI gate using the exact Windows MSVC test executables and DLLs produced by the native
 jobs in the same workflow. This complements the maintainer's local MSVC-under-Wine preflight when

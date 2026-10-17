@@ -81,7 +81,8 @@ cancellation, and atomic invalid configuration. Notification cache/fallback and 
 have deterministic portable tests. The real-source regression exercises creation, modification,
 rename, removal, recursive reconfiguration, and root deletion/recreation with both platform-selected
 monitoring and forced polling. A separate assertion requires repeated authoritative scans and no
-native handle in polling mode. Wine validation remains required.
+native handle in polling mode. Wine validation is optional under
+[ADR 0048](0048-retire-wine-validation.md).
 
 The development DLL remains a lifecycle shell. Runtime composition must schedule the pump and
 selection updates, and persistent history must seed discovery before scanning. The shipping C++

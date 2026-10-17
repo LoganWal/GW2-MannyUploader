@@ -99,6 +99,7 @@ Required deterministic cases include create validation, all stable IDs, missing 
 idempotent erase, empty/oversized input, protected-record size cap, corrupt envelope, wrong-ID record,
 protector failure, failed replacement preserving the old record, and stale temporary cleanup. Native
 Windows CI additionally sets `MANNY_REQUIRE_NATIVE_DPAPI=1`, so unavailable DPAPI is a hard failure,
-then exercises a real DPAPI-backed store round trip and tamper rejection. Wine validation requires
-the same protect/store/load round trip and tamper rejection with `MANNY_REQUIRE_WINE_DPAPI=1`, which
-also requires compatibility-mode detection.
+then exercises a real DPAPI-backed store round trip and tamper rejection. Optional Wine runs may set
+`MANNY_REQUIRE_WINE_DPAPI=1` to require the same round trip, tamper rejection, and compatibility-mode
+detection. Wine validation is not a release gate under
+[ADR 0048](../architecture/decisions/0048-retire-wine-validation.md).

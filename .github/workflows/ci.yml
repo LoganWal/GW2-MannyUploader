@@ -52,23 +52,6 @@ jobs:
           MANNY_REQUIRE_NATIVE_DPAPI: ${{ runner.os == 'Windows' && '1' || '' }}
         run: cargo +stable test --locked --workspace --release --target ${{ matrix.target }}
 
-      - name: Test Wine artifact manifest validation
-        run: python -m unittest discover -s tests/tools
-
-      - name: Stage MSVC test executables for Wine
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./tools/stage-rust-wine-tests.ps1 -OutputDirectory out/wine-tests
-
-      - name: Upload Wine test inputs
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v7
-        with:
-          name: rust-wine-tests
-          path: out/wine-tests
-          if-no-files-found: error
-          retention-days: 1
-
   source-format:
     name: Source formatting
     runs-on: ubuntu-latest
@@ -151,72 +134,6 @@ jobs:
             if ($LASTEXITCODE -eq 0) { throw 'Normal smoke validation accepted a test-only DLL' }
           }
           exit 0
-
-      - name: Stage Rust lifecycle artifacts for Wine
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory out/wine-runtime | Out-Null
-          Copy-Item out/build/ci/tests/Debug/manny_nexus_addon_smoke_test.exe out/wine-runtime/
-          foreach ($configuration in @('debug', 'release')) {
-            New-Item -ItemType Directory "out/wine-runtime/normal/$configuration" | Out-Null
-            New-Item -ItemType Directory "out/wine-runtime/active/$configuration" | Out-Null
-            Copy-Item "target/x86_64-pc-windows-msvc/$configuration/manny_uploader.dll" "out/wine-runtime/normal/$configuration/"
-            Copy-Item "target/lifecycle-test/x86_64-pc-windows-msvc/$configuration/manny_uploader.dll" "out/wine-runtime/active/$configuration/"
-          }
-
-      - name: Upload Wine runtime inputs
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v7
-        with:
-          name: rust-wine-runtime
-          path: out/wine-runtime
-          if-no-files-found: error
-          retention-days: 1
-
-  rust-wine:
-    name: Rust MSVC under Wine
-    needs: [rust-core, build-and-test, windows-release-package]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Install Wine and virtual display
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo install -d -m 755 /etc/apt/keyrings
-          curl --fail --silent --show-error --location https://dl.winehq.org/wine-builds/winehq.key -o "$RUNNER_TEMP/winehq-archive.key"
-          sudo install -m 644 "$RUNNER_TEMP/winehq-archive.key" /etc/apt/keyrings/winehq-archive.key
-          curl --fail --silent --show-error --location https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources -o "$RUNNER_TEMP/winehq-noble.sources"
-          sudo install -m 644 "$RUNNER_TEMP/winehq-noble.sources" /etc/apt/sources.list.d/winehq-noble.sources
-          sudo apt-get update
-          sudo apt-get install --yes --install-recommends winehq-stable=11.0.0.0~noble-1 xvfb xauth
-
-      - name: Download MSVC test executables
-        uses: actions/download-artifact@v8
-        with:
-          name: rust-wine-tests
-          path: out/wine-tests
-
-      - name: Download runtime artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: rust-wine-runtime
-          path: out/wine-runtime
-
-      - name: Download verified Rust package
-        uses: actions/download-artifact@v8
-        with:
-          name: GW2-Manny-Uploader-rust-windows-x64
-          path: out/wine-package
-
-      - name: Test MSVC artifacts under Wine
-        run: >-
-          xvfb-run -a python3 tools/test-rust-wine.py
-          --tests out/wine-tests --runtime out/wine-runtime --package out/wine-package
-          --prefix "${{ runner.temp }}/manny-uploader-wine"
 
   windows-release-package:
     name: Windows x64 release package

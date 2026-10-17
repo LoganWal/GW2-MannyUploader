@@ -38,7 +38,7 @@ Rust migration artifacts are validated alongside the C++ package under
 [ADR 0044](../architecture/decisions/0044-package-rust-migration-builds.md). They have separate CI
 artifact names, full optimized-build symbols, DLL/PDB matching, export/import checks, and packaged
 smoke tests. They retain development metadata and do not replace the shipping artifact. The same
-Wine and in-game matrix below applies before Rust cutover.
+native Windows in-game matrix below applies before Rust cutover.
 
 ## Opt-in Schannel probe
 
@@ -51,23 +51,13 @@ The probe is evidence for the selected Windows runner only. Record the workflow 
 version in the release notes; do not generalize one successful probe into a guarantee for every user
 environment.
 
-## Wine compatibility gate
+## Wine support
 
-During the Rust migration, the `Rust MSVC under Wine` CI job runs the native-built Rust test suites
-and Debug/Release lifecycle proofs under Wine with `MANNY_REQUIRE_WINE_DPAPI=1`. It also verifies
-and smoke-tests the Rust package from that same workflow. Record this job's result and Wine version
-separately from the native Windows result. It does not replace the in-game checks below.
-
-Cross-build the complete Windows test suite and run it under the maintained Wine environment with
-`MANNY_REQUIRE_WINE_DPAPI=1`. This requires Wine detection plus the same protected-store round trip,
-ciphertext/plaintext separation, and tamper rejection used by the native gate. The remaining suite
-exercises the shared Windows HTTP, archive, configuration, provider, and application behavior; a
-failure is a Wine release blocker.
-
-The in-game matrix below must also be repeated under Wine for log-directory access, Nexus rendering,
-all four enabled destinations, credential restart recovery, browser launch, and unload/reload. Wine
-uses polling automatically if its implementation of the native directory notification API fails;
-that fallback is supported behavior rather than a disabled feature.
+Wine remains supported. Its runtime compatibility code and credential-protection warning remain
+enabled. Wine-specific automation, local preflight, and mandatory Wine validation gates were retired
+at the maintainer's request. Optional Wine testing may inform bug reports, but is not required to
+complete migration or release validation. See
+[ADR 0048](../architecture/decisions/0048-retire-wine-validation.md).
 
 ## Packaged-artifact checks
 

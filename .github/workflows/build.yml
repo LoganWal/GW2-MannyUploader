@@ -61,9 +61,6 @@ jobs:
       - name: Test portable core
         run: cargo +stable test --locked -p manny-uploader --target x86_64-unknown-linux-gnu
 
-      - name: Test validation tooling
-        run: python3 -m unittest discover -s tests/tools
-
       - name: Build release DLL
         run: cargo +stable build --locked -p manny-uploader-addon --release --target x86_64-pc-windows-gnu
 

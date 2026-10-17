@@ -2,7 +2,7 @@
 
 The C++ addon remains the shipping implementation. The Rust workspace contains the portable core
 and a Windows x64 development DLL with log discovery, provider uploads, protected credentials,
-persistence, and Nexus options/list rendering. Release packaging and Windows/Wine validation remain
+persistence, and Nexus options/list rendering. Release packaging and native Windows validation remain
 in progress. The development DLL uses the same configuration and history formats as the C++ addon.
 
 The root package forbids unsafe code. `rust/addon` contains the native boundary and pins Nexus
@@ -60,8 +60,8 @@ tests cover the composition, which is now connected to the development DLL.
 Protected credentials now have move-only, redacted, wiping values and application-owned storage
 ports. The bounded protected-file adapter preserves existing envelopes and filenames. Its native
 DPAPI adapter exposes Windows versus Wine protection mode and wipes Windows allocations before
-release. Native round-trip, tamper, locked-file, erasure, and C++ interoperability checks pass. Wine
-execution remains outstanding. Native runtime configuration and UI composition are connected. See
+release. Native round-trip, tamper, locked-file, erasure, and C++ interoperability checks pass.
+Native runtime configuration and UI composition are connected. See
 [ADR 0018](../docs/architecture/decisions/0018-preserve-rust-protected-credentials.md).
 The application configuration service now owns both stores, preserves recovery and protection mode
 in secret-free snapshots, commits settings only after durable writes, and isolates adapters after
@@ -148,14 +148,14 @@ See [ADR 0042](../docs/architecture/decisions/0042-attach-rust-runtime-and-rende
 ## GitHub Actions
 
 `Build DLL` runs on pushes to main and rust-migration, pull requests, and manual dispatch.
-It uses Ubuntu with MinGW to lint the Windows target, run portable core and tooling tests, and
+It uses Ubuntu with MinGW to lint the Windows target, run portable core tests, and
 build the Release Rust DLL. Cargo dependencies and build output are cached. Download
 `manny-uploader-<commit>` from the run's artifacts to get `manny_uploader.dll`.
 The action checks embedded notices and rejects companion MinGW runtime DLL dependencies.
 
 `Release validation` is manual. It retains the C++ builds, native MSVC Debug/Release tests,
-DPAPI and Schannel checks, lifecycle proofs, package/PDB verification, and Wine execution.
-A successful cross-build does not establish native Windows or Wine runtime behavior.
+DPAPI and Schannel checks, lifecycle proofs, and package/PDB verification.
+A successful cross-build does not establish native Windows runtime behavior.
 See [ADR 0047](../docs/architecture/decisions/0047-separate-rust-builds-from-release-validation.md).
 
 ## Portable core
@@ -239,7 +239,7 @@ completion and destruction before FreeLibrary. It sends no network requests. Nev
 package this test DLL. Normal smoke and package verification reject its instrumentation.
 See [ADR 0043](../docs/architecture/decisions/0043-prove-active-rust-dll-unload.md).
 
-These lifecycle checks do not replace Linux/Wine coverage or native credential and HTTP validation.
+These lifecycle checks complement Linux tests and native credential and HTTP validation.
 
 ## Windows package and symbols
 
@@ -266,13 +266,11 @@ ZIP/checksum output is under `out/build/rust-package/package`. The PDB and its c
 `out/build/rust-package/symbols/Release` and are never installed with the addon. CI creates separate
 Rust migration artifacts alongside the shipping C++ artifacts after the Rust test jobs pass.
 See [ADR 0044](../docs/architecture/decisions/0044-package-rust-migration-builds.md).
-Hosted execution, Windows/Wine parity, and the in-game release matrix remain required before cutover.
+Hosted execution and the native Windows in-game release matrix remain required before cutover.
 
-## Wine CI
+## Wine support
 
-The manual `Release validation` workflow's `Rust MSVC under Wine` job downloads its Windows-built test executables,
-normal/test-only DLLs, smoke host, and verified Rust ZIP. It runs Debug and Release suites with
-Wine DPAPI required, both ordinary smoke modes, active-provider unload, and packaged-copy checks.
-An isolated fresh prefix and per-process deadlines keep failures contained. The job prints its Wine
-version. Native Windows validation remains separate. Browser, clipboard, and in-game checks still
-require the release matrix. See [ADR 0045](../docs/architecture/decisions/0045-run-msvc-rust-tests-under-wine.md).
+Wine runtime support remains enabled, including authoritative directory polling, protected-storage
+compatibility mode, and its reduced-protection warning. Wine validation jobs, staging tools, and the
+local MSVC-under-Wine preflight have been removed. Wine validation is no longer a release gate.
+See [ADR 0048](../docs/architecture/decisions/0048-retire-wine-validation.md).

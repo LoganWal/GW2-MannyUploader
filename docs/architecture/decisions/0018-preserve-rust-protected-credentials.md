@@ -71,4 +71,5 @@ format or protection policy. See the
 An ignored synthetic probe links the genuine MSVC C++ core and writes all three credential records.
 Rust loads each through the real DPAPI adapter and writes replacements. The existing C++ reader
 decrypts and compares every Rust record successfully. No installed credentials are accessed.
-Native Windows evidence does not replace the outstanding Wine and hosted release gates.
+Hosted native release checks remain required. Wine validation is optional under
+[ADR 0048](0048-retire-wine-validation.md).

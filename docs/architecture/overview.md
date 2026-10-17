@@ -18,14 +18,14 @@ and session-selection timing. Rust durable history and the portable application 
 under [ADR 0040](decisions/0040-compose-rust-application-runtime.md). Native dependencies are assembled
 under [ADR 0041](decisions/0041-compose-rust-native-dependencies.md), including the shared protected
 store and real provider workers. The exported DLL attaches that runtime and renders immutable
-snapshots under [ADR 0042](decisions/0042-attach-rust-runtime-and-rendering.md). Full Windows/Wine
-release parity remains outstanding. Active provider cancellation through real-DLL
+snapshots under [ADR 0042](decisions/0042-attach-rust-runtime-and-rendering.md). Native Windows
+in-game release validation remains outstanding. Active provider cancellation through real-DLL
 unload is covered by the isolated synthetic-HTTP harness in
 [ADR 0043](decisions/0043-prove-active-rust-dll-unload.md).
 Separate Rust migration packages and matching symbols are validated under
 [ADR 0044](decisions/0044-package-rust-migration-builds.md). The C++ package remains the shipping artifact.
-The hosted Wine gate runs MSVC-built Rust artifacts under
-[ADR 0045](decisions/0045-run-msvc-rust-tests-under-wine.md).
+Wine runtime support is retained while Wine validation gates are retired under
+[ADR 0048](decisions/0048-retire-wine-validation.md).
 The Rust DLL embeds its dependency notices under
 [ADR 0046](decisions/0046-embed-rust-third-party-notices.md).
 
@@ -561,8 +561,8 @@ prefix of a valid payload. Archive tests construct minimal ZIP byte fixtures for
 resource-limit, truncation, and CRC cases; no copyrighted logs are required. Worker tests use
 condition variables and stop callbacks rather than sleeps to make queue saturation and cancellation
 deterministic. Protected-store tests use a deterministic fake protector for every file and envelope
-rule; Windows CI adds a real DPAPI round trip and tamper test, while the cross-built suite under Wine
-proves that the adapter fails closed. Configuration-service tests use owned fake ports to verify
+rule; Windows CI adds a real DPAPI round trip and tamper test.
+Configuration-service tests use owned fake ports to verify
 startup, write-through snapshot commits, secret routing and redaction, capability reporting, and
 post-shutdown isolation. The HTTP port has portable validation tests plus deterministic Windows
 loopback tests for streaming, limits, redirect refusal, cancellation, and adapter lifetime; public

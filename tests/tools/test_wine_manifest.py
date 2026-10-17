@@ -12,6 +12,38 @@ spec.loader.exec_module(runner)
 
 
 class FailureAnnotationTests(unittest.TestCase):
+    def test_failure_locations_are_bounded_repository_relative_rust_sources(self):
+        transcript = (
+            "thread 'dpapi::tests::case' (42) panicked at rust\\addon\\src\\dpapi.rs:232:9:\n"
+            "private response and credential\n"
+            "thread 'monitor' panicked at src/directory_monitor.rs:143:13:\r\n"
+            "thread 'private' panicked at C:/private/token.rs:1:1:\n"
+            "thread 'private' panicked at /private/token.rs:1:1:\n"
+            "thread 'escape' panicked at src/../../private.rs:1:1:\n"
+            "thread 'unknown' panicked at src/not_a_project_file.rs:1:1:\n"
+            "thread 'duplicate' panicked at rust/addon/src/dpapi.rs:232:9:\n"
+        )
+
+        def fail(command, **kwargs):
+            kwargs["stdout"].write(transcript.encode())
+            raise runner.subprocess.CalledProcessError(101, command)
+
+        with mock.patch.object(runner.subprocess, "run", side_effect=fail), \
+                mock.patch("builtins.print") as output:
+            with self.assertRaises(runner.subprocess.CalledProcessError):
+                runner.run_checked(["wine", "suite.exe"], {}, 180)
+        annotations = [call.args[0] for call in output.call_args_list
+                       if call.args[0].startswith("::error::")]
+        self.assertEqual(annotations, [
+            "::error::Wine validation: suite.exe, exit 101; source locations: "
+            "rust/addon/src/dpapi.rs:232:9, rust/addon/src/directory_monitor.rs:143:13"])
+
+    def test_failure_location_count_is_bounded(self):
+        transcript = "".join(f"thread 'case' panicked at src/dpapi.rs:{line}:1:\n"
+                             for line in range(1, 101))
+        self.assertEqual(runner.failure_locations(transcript),
+                         [f"rust/addon/src/dpapi.rs:{line}:1" for line in range(1, 11)])
+
     def test_failure_annotation_contains_only_executable_and_test_identifiers(self):
         def fail(command, **kwargs):
             kwargs["stdout"].write(b"private path and response\nmodule::case --- FAILED\n")

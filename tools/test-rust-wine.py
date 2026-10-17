@@ -9,6 +9,25 @@ import subprocess
 import tempfile
 
 
+def failure_locations(text):
+    repository = Path(__file__).resolve().parent.parent
+    locations = []
+    pattern = (r"^thread '[^\r\n]{1,256}'(?: \([0-9]+\))? panicked at "
+               r"((?:rust|src|tests)/[A-Za-z0-9_/-]{1,240}\.rs):"
+               r"([1-9][0-9]{0,7}):([1-9][0-9]{0,7}):\r?$")
+    for source, line, column in re.findall(pattern, text.replace("\\", "/"), re.MULTILINE):
+        for base in (repository, repository / "rust", repository / "rust/addon"):
+            candidate = (base / source).resolve()
+            if not candidate.is_relative_to(repository / "rust") or not candidate.is_file():
+                continue
+            location = f"{candidate.relative_to(repository).as_posix()}:{line}:{column}"
+            if location not in locations:
+                locations.append(location)
+                if len(locations) == 10:
+                    return locations
+    return locations
+
+
 def run_checked(command, environment, timeout):
     # Keep process output on disk so a failing executable cannot exhaust runner memory.
     with tempfile.TemporaryFile() as output:
@@ -18,7 +37,7 @@ def run_checked(command, environment, timeout):
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             output.seek(0)
             text = output.read(1024 * 1024).decode("utf-8", errors="replace")
-            # Only executable/test identifiers enter the public annotation, never raw diagnostics.
+            # Only identifiers and verified repository source locations enter the annotation.
             executable = Path(command[1] if command[0] == "wine" and len(command) > 1
                               and not command[1].startswith("-") else command[0]).name
             if not re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", executable):
@@ -27,6 +46,9 @@ def run_checked(command, environment, timeout):
             result = (f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError)
                       else "timeout")
             suffix = f"; failed tests: {', '.join(failed[:10])}" if failed else ""
+            locations = failure_locations(text)
+            if locations:
+                suffix += f"; source locations: {', '.join(locations)}"
             print(f"::error::Wine validation: {executable}, {result}{suffix}", flush=True)
             raise
         finally:

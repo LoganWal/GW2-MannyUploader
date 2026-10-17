@@ -41,7 +41,10 @@ existing separate artifact. Python tests cover manifest rejection, full configur
 failure propagation, DPAPI environment selection, and refusal to reuse an existing Wine prefix.
 
 Failed subprocesses emit a public CI annotation with the executable name, exit code or timeout,
-and bounded Rust test identifiers when available. Raw process output stays in the ordinary job log,
+and bounded Rust test identifiers when available. Rust panic locations are accepted only when they
+name an existing source file inside the repository's Rust tree. Absolute paths, traversal, unknown
+files, and raw panic messages are excluded. Locations are deduplicated and capped at ten.
+Raw process output stays in the ordinary job log,
 bounded to one MiB per process and collected on disk. Annotations exclude command arguments,
 local paths and raw failure text. This supports diagnosis from public check results without using
 stored repository credentials to retrieve logs.

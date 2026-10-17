@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_void};
+use std::ffi::c_void;
 use std::ptr;
 
 use manny_core::application::{
@@ -41,8 +41,6 @@ unsafe extern "system" {
 unsafe extern "system" {
     fn LocalFree(memory: *mut c_void) -> *mut c_void;
     fn GetLastError() -> u32;
-    fn GetModuleHandleW(name: *const u16) -> *mut c_void;
-    fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
 }
 
 pub struct DpapiSecretProtector {
@@ -51,24 +49,15 @@ pub struct DpapiSecretProtector {
 
 impl DpapiSecretProtector {
     pub fn new() -> Result<Self, SecretProtectionError> {
-        let name: Vec<_> = "ntdll.dll\0".encode_utf16().collect();
-        // SAFETY: The terminated UTF-16 name remains alive. GetModuleHandle borrows the loaded module.
-        let module = unsafe { GetModuleHandleW(name.as_ptr()) };
-        if module.is_null() {
-            // SAFETY: Read the thread-local error immediately after the failed call.
-            let system_error = Some(unsafe { GetLastError() });
-            return Err(SecretProtectionError {
-                code: SecretProtectionErrorCode::UnsupportedEnvironment,
-                system_error,
-            });
-        }
-        // SAFETY: The module is loaded, the export name is terminated, and the address is only tested.
-        let wine = unsafe { GetProcAddress(module, c"wine_get_version".as_ptr()) };
+        let wine = crate::environment::is_wine().map_err(|system_error| SecretProtectionError {
+            code: SecretProtectionErrorCode::UnsupportedEnvironment,
+            system_error: Some(system_error),
+        })?;
         Ok(Self {
-            mode: if wine.is_null() {
-                SecretProtectionMode::NativeUserScoped
-            } else {
+            mode: if wine {
                 SecretProtectionMode::WineCompatibility
+            } else {
+                SecretProtectionMode::NativeUserScoped
             },
         })
     }
@@ -231,8 +220,8 @@ mod tests {
         assert!(!protected.windows(MARKER.len()).any(|bytes| bytes == MARKER));
         assert_eq!(protector.unprotect(&protected).unwrap().expose(), MARKER);
         let mut tampered = protected.clone();
-        let middle = tampered.len() / 2;
-        tampered[middle] ^= 0x80;
+        // Wine's blob midpoint can be metadata that does not affect the protected payload.
+        *tampered.last_mut().unwrap() ^= 0x80;
         assert!(protector.unprotect(&tampered).is_err());
         assert!(protector.unprotect(&[]).is_err());
         assert!(
@@ -295,6 +284,16 @@ mod tests {
             let path = store.record_path(id);
             let previous = fs::read(&path).unwrap();
             assert!(!previous.windows(MARKER.len()).any(|bytes| bytes == MARKER));
+            let mut damaged = previous.clone();
+            *damaged.last_mut().unwrap() ^= 0x80;
+            fs::write(&path, damaged).unwrap();
+            assert!(matches!(
+                store.load(id).unwrap_err().code,
+                SecretStoreErrorCode::Protection(SecretProtectionErrorCode::UnprotectionFailed)
+                    | SecretStoreErrorCode::CorruptRecord
+            ));
+            fs::write(&path, &previous).unwrap();
+            assert_eq!(store.load(id).unwrap().expose(), MARKER);
             let locked = fs::OpenOptions::new()
                 .read(true)
                 .share_mode(0)

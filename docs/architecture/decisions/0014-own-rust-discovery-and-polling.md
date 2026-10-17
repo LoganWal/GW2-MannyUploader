@@ -54,6 +54,15 @@ were checked on 2026-10-16 against Microsoft's documentation for
 [WaitForSingleObject](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject),
 and [FindCloseChangeNotification](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findclosechangenotification).
 
+Wine detection shares the existing `ntdll!wine_get_version` check with the protected-storage
+adapter. Wine and failed environment detection use scheduled authoritative scans without opening
+a notification handle. Every available-root poll reports `Changed` to prevent cache reuse.
+Wine 11's notification setup watches the root without enumerating existing descendants, and its
+later directory-open registration searches only the immediate parent. See the
+[Wine 11 notification implementation](https://github.com/wine-mirror/wine/blob/wine-11.0/server/change.c).
+This fallback preserves nested discovery and deletion/recreation behavior without changing the
+application's polling interval or doing work on render callbacks.
+
 `SessionLogSelection` fixes Show New at the session start and computes the rolling display cutoff
 from the current system time. Discovery refreshes at most once per monotonic minute in Last 24 Hours
 mode. Mode changes propose an immediate source cutoff. The owner commits a proposed selection only
@@ -69,7 +78,10 @@ coverage remains in the portable suite for Linux CI.
 
 Native tests exercise Unicode nested creation, modification, rename, deletion, missing-root recovery,
 cancellation, and atomic invalid configuration. Notification cache/fallback and session-window timing
-have deterministic portable tests. Wine validation remains required.
+have deterministic portable tests. The real-source regression exercises creation, modification,
+rename, removal, recursive reconfiguration, and root deletion/recreation with both platform-selected
+monitoring and forced polling. A separate assertion requires repeated authoritative scans and no
+native handle in polling mode. Wine validation remains required.
 
 The development DLL remains a lifecycle shell. Runtime composition must schedule the pump and
 selection updates, and persistent history must seed discovery before scanning. The shipping C++

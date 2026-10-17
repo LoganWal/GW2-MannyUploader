@@ -60,6 +60,14 @@ MANNY_REQUIRE_NATIVE_DPAPI and MANNY_REQUIRE_WINE_DPAPI assertions and never sil
 DPAPI. Real long Unicode paths cover replacement failure while locked, old-record preservation,
 temporary cleanup, corruption recovery, and disconnect erasure.
 
+The native tamper fixture changes the final protected byte, both at the protector boundary and
+through the real file store. This matches the existing C++ validation contract. A midpoint mutation
+of the small fixture hits an unused upper key-length byte in Wine 11's metadata, leaving the
+decrypted payload unchanged. It therefore does not test payload integrity. The trailing fingerprint
+mutation must fail, and restoring the original file must restore loading. This changes no storage
+format or protection policy. See the
+[Wine 11 DPAPI implementation](https://github.com/wine-mirror/wine/blob/wine-11.0/dlls/crypt32/protectdata.c).
+
 An ignored synthetic probe links the genuine MSVC C++ core and writes all three credential records.
 Rust loads each through the real DPAPI adapter and writes replacements. The existing C++ reader
 decrypts and compares every Rust record successfully. No installed credentials are accessed.

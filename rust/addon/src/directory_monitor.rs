@@ -34,11 +34,23 @@ impl Drop for ChangeHandle {
     }
 }
 
-#[derive(Default)]
 pub struct WindowsDirectoryMonitor {
     root: PathBuf,
     recursive: bool,
     handle: Option<ChangeHandle>,
+    polling_only: bool,
+}
+
+impl Default for WindowsDirectoryMonitor {
+    fn default() -> Self {
+        Self {
+            root: PathBuf::new(),
+            recursive: false,
+            handle: None,
+            // Wine can miss recursive notifications. Unknown environments also use full scans.
+            polling_only: crate::environment::is_wine().unwrap_or(true),
+        }
+    }
 }
 
 impl DirectoryChangeMonitor for WindowsDirectoryMonitor {
@@ -76,6 +88,10 @@ impl DirectoryChangeMonitor for WindowsDirectoryMonitor {
             self.handle = None;
             return Err(CandidateError::ScanFailed);
         }
+        if self.polling_only {
+            // Bypass cached observations without relying on native notification delivery.
+            return Ok(DirectoryChange::Changed);
+        }
         let Some(handle) = &self.handle else {
             // canonicalize supplies a Windows extended-length path and keeps Unicode lossless.
             let path = std::fs::canonicalize(&self.root).map_err(|_| CandidateError::ScanFailed)?;
@@ -112,7 +128,10 @@ impl DirectoryChangeMonitor for WindowsDirectoryMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use manny_core::application::CancellationSource;
+    use manny_core::application::{
+        CancellationSource, CandidateBatch, CandidateSourceOptions, LogCandidateSource,
+    };
+    use manny_core::filesystem::{NotifyingLogSource, PollingLogSource};
     use std::fs;
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -137,48 +156,123 @@ mod tests {
         }
     }
 
-    fn wait_for(monitor: &mut WindowsDirectoryMonitor, wanted: DirectoryChange) {
+    #[track_caller]
+    fn wait_for(source: &mut NotifyingLogSource, ready: impl Fn(&CandidateBatch) -> bool) {
         let stop = CancellationSource::default().token();
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            if monitor.poll(&stop).unwrap() == wanted {
+            let batch = source.poll(&stop).unwrap();
+            assert!(batch.scan_complete);
+            assert!(batch.issues.is_empty());
+            if ready(&batch) {
                 return;
             }
             assert!(
                 Instant::now() < deadline,
-                "native notification deadline exceeded"
+                "directory observation deadline exceeded"
             );
             std::thread::sleep(Duration::from_millis(1));
         }
     }
 
     #[test]
-    fn native_monitor_observes_unicode_nested_create_modify_rename_and_delete() {
+    fn platform_monitor_observes_unicode_nested_create_modify_rename_and_delete() {
+        exercise_source(WindowsDirectoryMonitor::default());
+    }
+
+    #[test]
+    fn polling_fallback_does_not_arm_handles_or_reuse_cached_observations() {
+        let tree = Tree::new();
+        let mut monitor = WindowsDirectoryMonitor {
+            polling_only: true,
+            ..WindowsDirectoryMonitor::default()
+        };
+        monitor.reconfigure(&tree.0, true).unwrap();
+        let stop = CancellationSource::default().token();
+        for _ in 0..2 {
+            assert_eq!(monitor.poll(&stop), Ok(DirectoryChange::Changed));
+            assert!(monitor.handle.is_none());
+        }
+    }
+
+    #[test]
+    fn polling_fallback_observes_unicode_nested_create_modify_rename_and_delete() {
+        exercise_source(WindowsDirectoryMonitor {
+            polling_only: true,
+            ..WindowsDirectoryMonitor::default()
+        });
+    }
+
+    fn exercise_source(monitor: WindowsDirectoryMonitor) {
         let tree = Tree::new();
         let nested = tree.0.join("nested");
         fs::create_dir(&nested).unwrap();
-        let mut monitor = WindowsDirectoryMonitor::default();
-        monitor.reconfigure(&tree.0, true).unwrap();
-        wait_for(&mut monitor, DirectoryChange::Changed);
-        wait_for(&mut monitor, DirectoryChange::Unchanged);
+        let options = CandidateSourceOptions {
+            root: tree.0.clone(),
+            recursive: true,
+            max_candidates: 10,
+            minimum_last_write_time: None,
+        };
+        let mut source = NotifyingLogSource::new(
+            Box::new(PollingLogSource::new(options.clone()).unwrap()),
+            Some(Box::new(monitor)),
+            options.clone(),
+        )
+        .unwrap();
+        wait_for(&mut source, |batch| {
+            batch.root_available && batch.observations.is_empty()
+        });
         let path = nested.join("encounter.zevtc");
         fs::write(&path, b"initial").unwrap();
-        wait_for(&mut monitor, DirectoryChange::Changed);
-        wait_for(&mut monitor, DirectoryChange::Unchanged);
+        wait_for(&mut source, |batch| {
+            batch.observations.len() == 1 && batch.observations[0].size == 7
+        });
         let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
         file.write_all(b"append").unwrap();
         file.sync_all().unwrap();
         drop(file);
-        wait_for(&mut monitor, DirectoryChange::Changed);
-        wait_for(&mut monitor, DirectoryChange::Unchanged);
+        wait_for(&mut source, |batch| {
+            batch.observations.len() == 1 && batch.observations[0].size == 13
+        });
         let renamed = nested.join("renamed.zevtc");
         fs::rename(&path, &renamed).unwrap();
-        wait_for(&mut monitor, DirectoryChange::Changed);
-        wait_for(&mut monitor, DirectoryChange::Unchanged);
+        wait_for(&mut source, |batch| {
+            batch.observations.len() == 1
+                && batch.observations[0]
+                    .canonical_path
+                    .ends_with("renamed.zevtc")
+                && batch
+                    .removed_paths
+                    .iter()
+                    .any(|path| path.ends_with("encounter.zevtc"))
+        });
         fs::remove_file(renamed).unwrap();
-        wait_for(&mut monitor, DirectoryChange::Changed);
-        monitor.reconfigure(&tree.0, false).unwrap();
-        assert!(monitor.handle.is_none());
+        wait_for(&mut source, |batch| {
+            batch.observations.is_empty()
+                && batch
+                    .removed_paths
+                    .iter()
+                    .any(|path| path.ends_with("renamed.zevtc"))
+        });
+        source
+            .reconfigure(CandidateSourceOptions {
+                recursive: false,
+                ..options
+            })
+            .unwrap();
+        fs::write(&path, b"nested").unwrap();
+        wait_for(&mut source, |batch| {
+            batch.root_available && batch.observations.is_empty()
+        });
+        fs::remove_dir_all(&tree.0).unwrap();
+        wait_for(&mut source, |batch| {
+            !batch.root_available && batch.observations.is_empty()
+        });
+        fs::create_dir(&tree.0).unwrap();
+        fs::write(tree.0.join("recovered.zevtc"), b"recovered").unwrap();
+        wait_for(&mut source, |batch| {
+            batch.root_available && batch.observations.len() == 1
+        });
     }
 
     #[test]
@@ -195,7 +289,8 @@ mod tests {
         assert_eq!(monitor.poll(&stop), Ok(DirectoryChange::Unavailable));
         fs::create_dir(&root).unwrap();
         assert_eq!(monitor.poll(&stop), Ok(DirectoryChange::Changed));
-        let handle = monitor.handle.as_ref().unwrap().0;
+        let handle = monitor.handle.as_ref().map(|handle| handle.0);
+        assert_eq!(handle.is_none(), monitor.polling_only);
         assert_eq!(
             monitor.reconfigure(Path::new(""), false),
             Err(CandidateError::InvalidConfiguration)
@@ -204,14 +299,14 @@ mod tests {
             monitor.reconfigure(Path::new("nul\0suffix"), false),
             Err(CandidateError::InvalidConfiguration)
         );
-        assert_eq!(monitor.handle.as_ref().unwrap().0, handle);
+        assert_eq!(monitor.handle.as_ref().map(|handle| handle.0), handle);
         let cancelled = CancellationSource::default();
         cancelled.request_stop();
         assert_eq!(
             monitor.poll(&cancelled.token()),
             Err(CandidateError::Cancelled)
         );
-        assert_eq!(monitor.handle.as_ref().unwrap().0, handle);
+        assert_eq!(monitor.handle.as_ref().map(|handle| handle.0), handle);
         fs::remove_dir(&root).unwrap();
         assert_eq!(monitor.poll(&stop), Ok(DirectoryChange::Unavailable));
         assert!(monitor.handle.is_none());

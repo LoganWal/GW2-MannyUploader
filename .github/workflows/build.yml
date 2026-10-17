@@ -33,7 +33,7 @@ jobs:
       - name: Install native build tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes mingw-w64 ninja-build python3-venv
+          sudo apt-get install --yes mingw-w64 ninja-build python3-venv ripgrep
           python3 -m venv "$RUNNER_TEMP/manny-build-tools"
           "$RUNNER_TEMP/manny-build-tools/bin/pip" install cmake==3.31.6
           echo "$RUNNER_TEMP/manny-build-tools/bin" >> "$GITHUB_PATH"

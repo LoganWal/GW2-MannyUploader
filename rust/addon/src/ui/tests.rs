@@ -221,6 +221,130 @@ fn mouse_toggle_only_queues_until_owner_tick_and_preserves_other_settings() {
 }
 
 #[test]
+fn destination_row_reveals_donbot_setup_without_enabling_unverified_uploads() {
+    let fixture = Fixture::new();
+    let runtime = fixture.runtime();
+    let handle = runtime.handle();
+    let mut snapshot = handle.snapshot();
+    snapshot.options.configuration.settings.dps_report.enabled = false;
+    let mut renderer = Renderer::new(&snapshot);
+    let gui = Gui::new();
+    gui.options(&mut renderer, &snapshot, &handle, [-1.0, -1.0], false);
+    let trace = gui.options(&mut renderer, &snapshot, &handle, [-1.0, -1.0], false);
+    for hidden in [
+        "GW2 API key",
+        "Verify DonBot",
+        "Chat message template",
+        "Post successful encounters",
+        "Detailed WvW",
+    ] {
+        assert!(!trace.iter().any(|(title, _)| title == hidden), "{hidden}");
+    }
+    let rect = trace.iter().find(|(title, _)| title == "DonBot").unwrap().1;
+    let connect = trace
+        .iter()
+        .position(|(title, _)| title == "Connect Twitch")
+        .unwrap();
+    let warning = trace
+        .iter()
+        .position(|(title, _)| title.contains("Keep that window off stream"))
+        .unwrap();
+    assert_eq!(warning, connect + 1);
+    assert!((trace[warning].1[1] - trace[connect].1[1]).abs() < 5.0);
+    assert!(trace[warning].1[0] > trace[connect].1[0]);
+    for title in ["dps.report", "GW2Wingman", "Connect Twitch"] {
+        let other = trace.iter().find(|(label, _)| label == title).unwrap().1;
+        assert!((rect[1] - other[1]).abs() < 5.0);
+    }
+    let point = [rect[0] + 5.0, rect[1] + 5.0];
+    gui.options(&mut renderer, &snapshot, &handle, point, true);
+    let trace = gui.options(&mut renderer, &snapshot, &handle, point, false);
+    assert!(trace.iter().any(|(title, _)| title == "Verify DonBot"));
+    assert!(
+        !handle
+            .snapshot()
+            .options
+            .configuration
+            .settings
+            .donbot
+            .enabled
+    );
+    assert_eq!(handle.snapshot().options.pending_commands, 0);
+    assert!(!fixture.0.join("addon/settings.json").exists());
+}
+
+#[test]
+fn twitch_posting_options_require_connection_and_enabled_posting() {
+    let fixture = Fixture::new();
+    let runtime = fixture.runtime();
+    let handle = runtime.handle();
+    let mut snapshot = completed_snapshot(&handle);
+    snapshot.options.configuration.settings.twitch.enabled = false;
+    let mut renderer = Renderer::new(&snapshot);
+    let gui = Gui::new();
+    let trace = gui.options(&mut renderer, &snapshot, &handle, [-1.0, -1.0], false);
+    assert!(trace.iter().any(|(title, _)| title == "Twitch"));
+    assert!(trace.iter().any(|(title, _)| title == "Disconnect Twitch"));
+    assert!(
+        !trace
+            .iter()
+            .any(|(title, _)| title == "Chat message template")
+    );
+    snapshot.options.configuration.settings.twitch.enabled = true;
+    let trace = gui.options(&mut renderer, &snapshot, &handle, [-1.0, -1.0], false);
+    assert!(
+        trace
+            .iter()
+            .any(|(title, _)| title == "Post successful encounters")
+    );
+    snapshot.options.configuration.settings.donbot.enabled = false;
+    let trace = gui.options(&mut renderer, &snapshot, &handle, [-1.0, -1.0], false);
+    assert!(
+        !trace
+            .iter()
+            .any(|(title, _)| title == "Auto post to Discord")
+    );
+    assert!(
+        !trace
+            .iter()
+            .any(|(title, _)| title == "Refresh DonBot servers")
+    );
+}
+
+#[test]
+fn donbot_discord_checkbox_ends_configuration_row_in_both_views() {
+    let fixture = Fixture::new();
+    let runtime = fixture.runtime();
+    let handle = runtime.handle();
+    let snapshot = completed_snapshot(&handle);
+    let mut renderer = Renderer::new(&snapshot);
+    let gui = Gui::new();
+    for options_page in [true, false] {
+        let trace = if options_page {
+            gui.options(&mut renderer, &snapshot, &handle, [-1.0, -1.0], false)
+        } else {
+            widgets::TRACE.lock().unwrap().clear();
+            let mut visible = true;
+            // SAFETY: The fixture owns the active ImGui context and frame.
+            unsafe {
+                imgui::igNewFrame();
+                renderer.main(&snapshot, &handle, &mut visible);
+                imgui::igRender();
+            }
+            widgets::TRACE.lock().unwrap().clone()
+        };
+        let position = |label| trace.iter().position(|(title, _)| title == label).unwrap();
+        let server = position("Server");
+        let channel = position("Discord channel");
+        let checkbox = position("Auto post to Discord");
+        assert!(server < channel && channel < checkbox);
+        assert!(trace[server].1[0] < trace[channel].1[0]);
+        assert!(trace[channel].1[0] < trace[checkbox].1[0]);
+        assert!((trace[server].1[1] - trace[checkbox].1[1]).abs() < 5.0);
+    }
+}
+
+#[test]
 fn awaiting_authorization_renders_only_mask_and_warning() {
     let fixture = Fixture::new();
     let runtime = fixture.runtime();
@@ -420,6 +544,8 @@ fn completed_rows_render_without_paths_and_keep_replay_controls() {
     assert!(text.contains("Vale Guardian"));
     assert!(text.contains("Reupload"));
     assert!(text.contains("Rechat"));
+    assert!(text.contains("Auto post to Discord"));
+    assert!(!text.contains("Post Discord summaries"));
     assert!(!text.contains("C:/logs"));
     assert!(!text.contains(".zevtc"));
     assert!(!fixture.0.join("addon/settings.json").exists());

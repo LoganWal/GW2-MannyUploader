@@ -192,7 +192,13 @@ impl Frame {
         let title = label(title);
         let preview = label(preview);
         // SAFETY: Live labels and active frame. EndCombo is called only when BeginCombo succeeds.
-        if unsafe { imgui::igBeginCombo(title.as_ptr(), preview.as_ptr(), 0) } {
+        let open = unsafe {
+            imgui::igSetNextItemWidth(220.0);
+            imgui::igBeginCombo(title.as_ptr(), preview.as_ptr(), 0)
+        };
+        #[cfg(test)]
+        self.trace(title.to_str().expect("label is UTF-8"));
+        if open {
             let _scope = Scope(End::Combo);
             body();
         }

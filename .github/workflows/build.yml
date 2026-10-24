@@ -30,6 +30,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Set Nexus version
+        run: echo "MANNY_ADDON_VERSION=$(date -u +%Y.%-d.%-m).${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
       - name: Install native build tools
         run: |
           sudo apt-get update

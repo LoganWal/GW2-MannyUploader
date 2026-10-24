@@ -13,6 +13,26 @@ fn run(command: &mut Command) {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=MANNY_ADDON_VERSION");
+    let version = env::var("MANNY_ADDON_VERSION").unwrap_or_else(|_| "2026.24.10.46".into());
+    let components: Vec<i16> = version
+        .split('.')
+        .map(|part| part.parse().expect("addon version components must fit i16"))
+        .collect();
+    assert_eq!(
+        components.len(),
+        4,
+        "addon version must be year.day.month.build"
+    );
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    std::fs::write(
+        out.join("addon_version.rs"),
+        format!(
+            "AddonVersion {{ major: {}, minor: {}, build: {}, revision: {} }}",
+            components[0], components[1], components[2], components[3]
+        ),
+    )
+    .expect("could not write addon version");
     println!("cargo:rerun-if-env-changed=MANNY_TWITCH_CLIENT_ID");
     let client_id = env::var("MANNY_TWITCH_CLIENT_ID").unwrap_or_default();
     let client_id = if client_id.is_empty() {

@@ -20,10 +20,9 @@ impl Renderer {
         ui.window(visible, || {
             self.destinations(&ui, snapshot, handle);
             self.donbot(&ui, snapshot, handle, false);
-            let model = build_nexus_options_model(&snapshot.options).twitch;
-            let mut twitch = snapshot.options.configuration.settings.twitch.enabled;
-            if ui.checkbox("Post to Twitch", &mut twitch, model.enable_toggle_available) {
-                self.command(handle, NexusOptionsCommand::SetTwitchEnabled(twitch));
+            self.twitch(&ui, snapshot, handle, false);
+            if let Some(error) = snapshot.options.last_error.as_ref() {
+                ui.warning(error.detail());
             }
             ui.separator();
             for (title, mode) in [

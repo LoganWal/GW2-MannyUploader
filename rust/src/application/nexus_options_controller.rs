@@ -121,6 +121,7 @@ pub struct NexusOptionsController {
     max_commands_per_tick: usize,
     stopped: bool,
     startup_started: bool,
+    open_twitch_when_ready: bool,
 }
 impl NexusOptionsController {
     pub fn new(
@@ -176,6 +177,7 @@ impl NexusOptionsController {
             max_commands_per_tick: options.max_commands_per_tick,
             stopped: false,
             startup_started: false,
+            open_twitch_when_ready: false,
         })
     }
     pub fn handle(&self) -> NexusOptionsHandle {
@@ -244,6 +246,20 @@ impl NexusOptionsController {
             self.twitch.tick().map_err(NexusOptionsError::Twitch)
         }))
         .unwrap_or(Err(NexusOptionsError::Internal));
+        let authorization = self.twitch.snapshot();
+        let browser = if self.open_twitch_when_ready
+            && authorization.state == TwitchConnectionState::AwaitingUser
+        {
+            self.open_twitch_when_ready = false;
+            self.execute(NexusOptionsCommand::OpenTwitchAuthorization {
+                revision: authorization.revision,
+            })
+        } else {
+            if authorization.state != TwitchConnectionState::Starting {
+                self.open_twitch_when_ready = false;
+            }
+            Ok(())
+        };
         let test = self
             .test_message
             .poll()
@@ -251,7 +267,11 @@ impl NexusOptionsController {
         report.donbot_progressed = donbot.as_ref().copied().unwrap_or(false);
         report.twitch_progressed = twitch.as_ref().copied().unwrap_or(false);
         report.twitch_test_message_progressed = test.as_ref().copied().unwrap_or(false);
-        let error = donbot.err().or_else(|| twitch.err()).or_else(|| test.err());
+        let error = donbot
+            .err()
+            .or_else(|| twitch.err())
+            .or_else(|| browser.err())
+            .or_else(|| test.err());
         self.publish(error, false);
         self.apply_settings(&mut apply)?;
         Ok(report)
@@ -379,11 +399,15 @@ impl NexusOptionsController {
         // Twitch operations can lock the shared session owner and configuration themselves.
         // Keep the configuration guard scoped entirely inside the non-Twitch branches.
         match command {
-            Command::ConnectTwitch => self
-                .twitch
-                .begin_connection()
-                .map_err(NexusOptionsError::Twitch),
+            Command::ConnectTwitch => {
+                self.twitch
+                    .begin_connection()
+                    .map_err(NexusOptionsError::Twitch)?;
+                self.open_twitch_when_ready = true;
+                Ok(())
+            }
             Command::DisconnectTwitch => {
+                self.open_twitch_when_ready = false;
                 self.twitch.disconnect().map_err(NexusOptionsError::Twitch)
             }
             Command::SendTwitchTestMessage => self

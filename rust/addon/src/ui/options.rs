@@ -80,7 +80,7 @@ impl Renderer {
         ui.separator();
         self.donbot(ui, snapshot, handle, true);
         ui.separator();
-        self.twitch(ui, snapshot, handle);
+        self.twitch(ui, snapshot, handle, true);
         ui.separator();
         if ui.button("Save settings", model.save_available && self.dirty) {
             // Visibility has its own command and may have changed while this draft was edited.
@@ -116,17 +116,43 @@ impl Renderer {
             self.command(handle, NexusOptionsCommand::SetDpsReportEnabled(dps));
         }
         ui.same_line();
-        let mut detailed = settings.dps_report.detailed_wvw;
-        if ui.checkbox("Detailed WvW", &mut detailed, enabled) {
-            self.command(
-                handle,
-                NexusOptionsCommand::SetDpsReportDetailedWvw(detailed),
-            );
-        }
-        ui.same_line();
         let mut wingman = settings.wingman.enabled;
         if ui.checkbox("GW2Wingman", &mut wingman, enabled) {
             self.command(handle, NexusOptionsCommand::SetWingmanEnabled(wingman));
+        }
+        ui.same_line();
+        let bot = build_nexus_options_model(options).donbot;
+        let mut donbot = settings.donbot.enabled || self.donbot_setup;
+        if ui.checkbox("DonBot", &mut donbot, enabled) {
+            self.donbot_setup = donbot;
+            if !donbot || bot.enable_toggle_available {
+                self.command(handle, NexusOptionsCommand::SetDonBotEnabled(donbot));
+            }
+        }
+        ui.same_line();
+        let twitch = build_nexus_options_model(options).twitch;
+        if options.twitch.state == TwitchConnectionState::Connected {
+            let mut posting = settings.twitch.enabled;
+            if ui.checkbox("Twitch", &mut posting, twitch.enable_toggle_available) {
+                self.command(handle, NexusOptionsCommand::SetTwitchEnabled(posting));
+            }
+        } else if twitch.connect_available {
+            if ui.button("Connect Twitch", true) {
+                self.command(handle, NexusOptionsCommand::ConnectTwitch);
+            }
+            ui.same_line();
+            ui.warning("Authorization opens in your browser. Keep that window off stream.");
+        } else {
+            ui.text(&twitch.status_text);
+        }
+        if settings.dps_report.enabled {
+            let mut detailed = settings.dps_report.detailed_wvw;
+            if ui.checkbox("Detailed WvW", &mut detailed, enabled) {
+                self.command(
+                    handle,
+                    NexusOptionsCommand::SetDpsReportDetailedWvw(detailed),
+                );
+            }
         }
     }
 
@@ -141,6 +167,19 @@ impl Renderer {
         let model = build_nexus_options_model(options).donbot;
         let bot = &options.donbot;
         let settings = &options.configuration.settings.donbot;
+        if !settings.enabled && !self.donbot_setup {
+            return;
+        }
+        if self.donbot_setup
+            && !settings.enabled
+            && model.enable_toggle_available
+            && options.pending_commands == 0
+        {
+            self.command(handle, NexusOptionsCommand::SetDonBotEnabled(true));
+        }
+        if settings.enabled {
+            self.donbot_setup = false;
+        }
         let verified =
             bot.state == DonBotConfigurationState::Verified && bot.account_name.is_some();
         ui.text("DonBot");
@@ -151,7 +190,7 @@ impl Renderer {
         if model.verification_in_progress {
             return;
         }
-        if options_page && !verified {
+        if !verified {
             self.endpoint_dirty |= ui.input(
                 "DonBot API endpoint",
                 &mut self.donbot_base,
@@ -175,7 +214,7 @@ impl Renderer {
                 );
             }
         }
-        if verified && (options_page || model.configuration_visible) {
+        if verified {
             let guild = bot
                 .guilds
                 .iter()
@@ -197,25 +236,6 @@ impl Renderer {
                 }
             });
             ui.same_line();
-        }
-        let mut enabled = settings.enabled;
-        if ui.checkbox("Enable DonBot", &mut enabled, model.enable_toggle_available) {
-            self.command(handle, NexusOptionsCommand::SetDonBotEnabled(enabled));
-        }
-        if model.discord_delivery_visible {
-            let mut delivery = settings.discord_delivery_enabled;
-            if ui.checkbox(
-                "Post Discord summaries",
-                &mut delivery,
-                model.discord_delivery_toggle_available,
-            ) {
-                self.command(
-                    handle,
-                    NexusOptionsCommand::SetDonBotDiscordDeliveryEnabled(delivery),
-                );
-            }
-        } else if settings.enabled {
-            ui.text(model.discord_delivery_status_text);
         }
         if model.discord_channel_selection_visible {
             if let Some(guild) = bot
@@ -260,7 +280,23 @@ impl Renderer {
                         }
                     },
                 );
+                ui.same_line();
             }
+        }
+        if model.discord_delivery_visible {
+            let mut delivery = settings.discord_delivery_enabled;
+            if ui.checkbox(
+                "Auto post to Discord",
+                &mut delivery,
+                model.discord_delivery_toggle_available,
+            ) {
+                self.command(
+                    handle,
+                    NexusOptionsCommand::SetDonBotDiscordDeliveryEnabled(delivery),
+                );
+            }
+        } else if settings.enabled {
+            ui.text(model.discord_delivery_status_text);
         }
         if options_page && model.disconnect_available {
             if verified && ui.button("Refresh DonBot servers", model.refresh_available) {
@@ -278,15 +314,17 @@ impl Renderer {
         ui: &Frame,
         snapshot: &RuntimeSnapshot,
         handle: &RuntimeHandle,
+        options_page: bool,
     ) {
         let model = build_nexus_options_model(&snapshot.options).twitch;
+        let connected = snapshot.options.twitch.state == TwitchConnectionState::Connected;
+        if snapshot.options.twitch.state == TwitchConnectionState::Disconnected {
+            return;
+        }
         ui.text("Twitch");
         ui.text(&model.status_text);
         if let Some(error) = model.diagnostic {
             ui.warning(error);
-        }
-        if model.connect_available && ui.button("Connect Twitch", true) {
-            self.command(handle, NexusOptionsCommand::ConnectTwitch);
         }
         if model.authorization_available {
             if let Some(mask) = model.masked_user_code {
@@ -302,36 +340,39 @@ impl Renderer {
             }
             ui.warning("The authorization code will be visible in your browser. Keep that window off stream.");
         }
-        let mut enabled = snapshot.options.configuration.settings.twitch.enabled;
-        if ui.checkbox(
-            "Automatically post report links",
-            &mut enabled,
-            model.enable_toggle_available,
-        ) {
-            self.command(handle, NexusOptionsCommand::SetTwitchEnabled(enabled));
+        if !connected {
+            if model.disconnect_available && ui.button("Disconnect Twitch", true) {
+                self.command(handle, NexusOptionsCommand::DisconnectTwitch);
+            }
+            return;
         }
-        let editable = snapshot.options.accepting_commands && !snapshot.shutting_down;
-        self.dirty |= ui.checkbox(
-            "Post successful encounters",
-            &mut self.ordinary.twitch_post_success,
-            editable,
-        );
-        self.dirty |= ui.checkbox(
-            "Post failed encounters",
-            &mut self.ordinary.twitch_post_failure,
-            editable,
-        );
-        self.dirty |= ui.input("Chat message template", &mut self.template, false, editable);
-        if ui.button("Send test message", model.test_message_available) {
-            self.command(handle, NexusOptionsCommand::SendTwitchTestMessage);
-        }
-        ui.same_line();
-        if ui.button("Disconnect Twitch", model.disconnect_available) {
+        if options_page && snapshot.options.configuration.settings.twitch.enabled {
+            let editable = snapshot.options.accepting_commands && !snapshot.shutting_down;
+            self.dirty |= ui.checkbox(
+                "Post successful encounters",
+                &mut self.ordinary.twitch_post_success,
+                editable,
+            );
+            self.dirty |= ui.checkbox(
+                "Post failed encounters",
+                &mut self.ordinary.twitch_post_failure,
+                editable,
+            );
+            self.dirty |= ui.input("Chat message template", &mut self.template, false, editable);
+            if ui.button("Send test message", model.test_message_available) {
+                self.command(handle, NexusOptionsCommand::SendTwitchTestMessage);
+            }
+            ui.same_line();
+            if ui.button("Disconnect Twitch", model.disconnect_available) {
+                self.command(handle, NexusOptionsCommand::DisconnectTwitch);
+            }
+            ui.text(model.test_message_status_text);
+            if let Some(error) = model.test_message_diagnostic {
+                ui.warning(error);
+            }
+        } else if options_page && model.disconnect_available && ui.button("Disconnect Twitch", true)
+        {
             self.command(handle, NexusOptionsCommand::DisconnectTwitch);
-        }
-        ui.text(model.test_message_status_text);
-        if let Some(error) = model.test_message_diagnostic {
-            ui.warning(error);
         }
     }
 }

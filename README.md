@@ -26,8 +26,8 @@ Open the list from the quick-access icon or Alt+Shift+M.
 ## Connect destinations
 
 - dps.report / GW2Wingman: enabled by default. Toggle them in the list or options.
-- DonBot: enter your GW2 API key, select Verify DonBot, choose an authorized server, then enable uploads. Discord summaries are optional.
-- Twitch: select Connect Twitch, authorize your broadcaster account, then enable Automatically post report links. Requires dps.report. Keep the authorization browser window off stream.
+- DonBot: select DonBot, enter your GW2 API key, select Verify DonBot, and choose an authorized server. Auto post to Discord is optional.
+- Twitch: select Connect Twitch to open authorization, authorize your broadcaster account, then select Twitch to post report links. Requires dps.report. Keep the authorization browser window off stream.
 
 With dps.report enabled, the other destinations wait for its link. Without it, Wingman and DonBot upload directly.
 

@@ -541,6 +541,10 @@ fn twitch_connect_posting_dependency_client_id_and_disconnect() {
 fn authorization_launch_resolves_current_revision_and_runs_without_queue_lock() {
     let mut h = Harness::new(Default::default());
     h.authorize();
+    assert_eq!(h.events.lock().unwrap().urls.len(), 1);
+    h.tick();
+    assert_eq!(h.events.lock().unwrap().urls.len(), 1);
+    h.events.lock().unwrap().urls.clear();
     let revision = h.handle.snapshot().twitch.revision;
     h.handle
         .submit(Command::OpenTwitchAuthorization { revision })
@@ -585,6 +589,23 @@ fn authorization_launch_resolves_current_revision_and_runs_without_queue_lock() 
             Some(NexusOptionsError::BrowserLaunchFailed)
         );
         assert!(!format!("{:?}", h.handle.snapshot().last_error).contains("SYNTHETIC-USER-CODE"));
+    }
+}
+
+#[test]
+fn connect_opens_authorization_once_and_reports_browser_failures() {
+    for panic in [false, true] {
+        let mut h = Harness::new(Default::default());
+        h.events.lock().unwrap().fail_launch = !panic;
+        h.events.lock().unwrap().panic_launch = panic;
+        h.authorize();
+        assert_eq!(h.events.lock().unwrap().urls.len(), 1);
+        assert_eq!(
+            h.handle.snapshot().last_error,
+            Some(NexusOptionsError::BrowserLaunchFailed)
+        );
+        h.tick();
+        assert_eq!(h.events.lock().unwrap().urls.len(), 1);
     }
 }
 

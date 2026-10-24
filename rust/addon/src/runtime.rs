@@ -104,12 +104,7 @@ static DEFINITION: AddonDefinition = AddonDefinition {
     signature: 0xB2D15965_u32 as i32,
     api_version: AddonApi::VERSION,
     name: c"MannyUploader".as_ptr(),
-    version: AddonVersion {
-        major: 0,
-        minor: 1,
-        build: 0,
-        revision: 0,
-    },
+    version: include!(concat!(env!("OUT_DIR"), "/addon_version.rs")),
     author: c"Logan".as_ptr(),
     description: DESCRIPTION.as_ptr(),
     load,
@@ -120,8 +115,7 @@ static DEFINITION: AddonDefinition = AddonDefinition {
 };
 
 #[cfg(not(feature = "lifecycle-test"))]
-const DESCRIPTION: &std::ffi::CStr =
-    c"Upload arcdps logs and share report links. Rust development build.";
+const DESCRIPTION: &std::ffi::CStr = c"Upload arcdps logs and share report links.";
 #[cfg(feature = "lifecycle-test")]
 const DESCRIPTION: &std::ffi::CStr =
     c"TEST ONLY. Synthetic blocking HTTP. Never install this DLL in Guild Wars 2.";

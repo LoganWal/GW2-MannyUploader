@@ -9,6 +9,19 @@ static FAIL_TEXTURE: AtomicBool = AtomicBool::new(false);
 static HOOK_CALLS: AtomicUsize = AtomicUsize::new(0);
 static TEST_PATHS: Mutex<Option<[CString; 2]>> = Mutex::new(None);
 
+#[test]
+fn nexus_version_uses_date_and_build() {
+    let expected: AddonVersion = include!(concat!(env!("OUT_DIR"), "/addon_version.rs"));
+    assert_eq!(DEFINITION.version.major, expected.major);
+    assert_eq!(DEFINITION.version.minor, expected.minor);
+    assert_eq!(DEFINITION.version.build, expected.build);
+    assert_eq!(DEFINITION.version.revision, expected.revision);
+    assert!(expected.major >= 2026);
+    assert!((1..=31).contains(&expected.minor));
+    assert!((1..=12).contains(&expected.build));
+    assert!(expected.revision > 0);
+}
+
 unsafe extern "C-unwind" fn register(kind: RenderType, callback: nexus::gui::RawGuiRender) {
     EVENTS.lock().unwrap().push(if kind == RenderType::Render {
         "main"

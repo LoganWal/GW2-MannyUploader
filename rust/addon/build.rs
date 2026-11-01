@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 mod build_configuration;
+mod icon_source;
 use build_configuration::configure_generator;
 
 fn run(command: &mut Command) {
@@ -14,7 +15,7 @@ fn run(command: &mut Command) {
 
 fn main() {
     println!("cargo:rerun-if-env-changed=MANNY_ADDON_VERSION");
-    let version = env::var("MANNY_ADDON_VERSION").unwrap_or_else(|_| "2026.24.10.46".into());
+    let version = env::var("MANNY_ADDON_VERSION").unwrap_or_else(|_| "2026.11.1.1".into());
     let components: Vec<i16> = version
         .split('.')
         .map(|part| part.parse().expect("addon version components must fit i16"))
@@ -22,9 +23,23 @@ fn main() {
     assert_eq!(
         components.len(),
         4,
-        "addon version must be year.day.month.build"
+        "addon version must be year.month.day.build"
     );
+    assert!(
+        (1..=12).contains(&components[1]),
+        "addon month is out of range"
+    );
+    assert!(
+        (1..=31).contains(&components[2]),
+        "addon day is out of range"
+    );
+    assert!(components[3] > 0, "addon build must be positive");
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    println!("cargo:rerun-if-changed=icon_source.rs");
+    for (name, color) in icon_source::VARIANTS {
+        std::fs::write(out.join(format!("{name}.png")), icon_source::png(color))
+            .expect("could not write quick-access icon");
+    }
     std::fs::write(
         out.join("addon_version.rs"),
         format!(

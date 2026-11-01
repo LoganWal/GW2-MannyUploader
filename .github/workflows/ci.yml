@@ -13,6 +13,13 @@ permissions:
   contents: read
 
 jobs:
+  version-check:
+    name: Nexus version ordering
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: cmake -P tests/cmake/nexus_version_test.cmake
+
   rust-core:
     name: Rust core (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -24,101 +31,55 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Install Rust tools
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --target ${{ matrix.target }}
-
-      - name: Check Rust formatting
-        run: cargo +stable fmt --all --check
-
-      - name: Check Rust warnings
-        run: cargo +stable clippy --locked --workspace --all-targets --target ${{ matrix.target }} -- -D warnings
-
-      - name: Test Rust debug
+      - uses: actions/checkout@v6
+      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --target ${{ matrix.target }}
+      - run: cargo +stable fmt --all --check
+      - run: cargo +stable clippy --locked --workspace --all-targets --target ${{ matrix.target }} -- -D warnings
+      - name: Test Rust Debug
         env:
           MANNY_REQUIRE_NATIVE_DPAPI: ${{ runner.os == 'Windows' && '1' || '' }}
         run: cargo +stable test --locked --workspace --target ${{ matrix.target }}
-
-      - name: Check lifecycle-test instrumentation warnings
+      - name: Check lifecycle instrumentation
         if: runner.os == 'Windows'
         run: cargo +stable clippy --locked --workspace --all-targets --target x86_64-pc-windows-msvc --features manny-uploader-addon/lifecycle-test -- -D warnings
-
-      - name: Test Rust release
+      - name: Test Rust Release
         env:
           MANNY_REQUIRE_NATIVE_DPAPI: ${{ runner.os == 'Windows' && '1' || '' }}
         run: cargo +stable test --locked --workspace --release --target ${{ matrix.target }}
 
-  source-format:
-    name: Source formatting
-    runs-on: ubuntu-latest
-
+  windows-release-package:
+    name: Windows x64 release package
+    needs: [version-check, rust-core]
+    runs-on: windows-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Check C and C++ formatting
-        run: >-
-          cmake
-          -DMANNY_SOURCE_DIRECTORY=.
-          -DMANNY_CLANG_FORMAT_EXECUTABLE=clang-format-18
-          -P cmake/CheckSourceFormatting.cmake
-
-  build-and-test:
-    name: ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Configure
-        run: >-
-          cmake -S . -B out/build/ci
-          -DCMAKE_BUILD_TYPE=Debug
-          -DBUILD_TESTING=ON
-          -DMANNY_WARNINGS_AS_ERRORS=ON
-
-      - name: Build
-        run: cmake --build out/build/ci --config Debug --parallel
-
-      - name: Test
-        run: ctest --test-dir out/build/ci -C Debug --output-on-failure
-
-      - name: Install Rust for native lifecycle proof
-        if: runner.os == 'Windows'
+      - uses: actions/checkout@v6
+      - name: Install Rust
         run: rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc
-
-      - name: Build Rust lifecycle DLLs
-        if: runner.os == 'Windows'
+      - name: Set Nexus and package version
+        shell: pwsh
+        run: |
+          cmake -DMANNY_WRITE_GITHUB_ENV=ON -P cmake/ComputeNexusVersion.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Rust Debug and Release DLLs
+        env:
+          MANNY_TWITCH_CLIENT_ID: ${{ vars.MANNY_TWITCH_CLIENT_ID }}
         shell: pwsh
         run: |
           cargo +stable build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo +stable build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Smoke-test Rust lifecycle DLLs
-        if: runner.os == 'Windows'
+      - name: Smoke-test Rust DLLs
         shell: pwsh
         run: |
           foreach ($configuration in @('debug', 'release')) {
             $dll = "target/x86_64-pc-windows-msvc/$configuration/manny_uploader.dll"
-            & out/build/ci/tests/Debug/manny_nexus_addon_smoke_test.exe $dll
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            & out/build/ci/tests/Debug/manny_nexus_addon_smoke_test.exe $dll --lifecycle-proof
+            $env:MANNY_SMOKE_DLL = (Resolve-Path -LiteralPath $dll).Path
+            cargo +stable test --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --lib -- --ignored --exact runtime::tests::dll_smoke::real_dll_smoke
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-
-      - name: Prove Rust DLL unload with active provider work
-        if: runner.os == 'Windows'
+      - name: Prove unload during active provider work
         shell: pwsh
         run: |
           $arguments = @('--locked', '-p', 'manny-uploader-addon', '--target', 'x86_64-pc-windows-msvc', '--target-dir', 'target/lifecycle-test', '--features', 'lifecycle-test')
@@ -126,159 +87,57 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo +stable build @arguments --release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:MANNY_SMOKE_ACTIVE = '1'
           foreach ($configuration in @('debug', 'release')) {
             $dll = "target/lifecycle-test/x86_64-pc-windows-msvc/$configuration/manny_uploader.dll"
-            & out/build/ci/tests/Debug/manny_nexus_addon_smoke_test.exe $dll --active-runtime-proof
+            $env:MANNY_SMOKE_DLL = (Resolve-Path -LiteralPath $dll).Path
+            cargo +stable test --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --target-dir target/lifecycle-test --features lifecycle-test --lib -- --ignored --exact runtime::tests::dll_smoke::real_dll_smoke
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            & out/build/ci/tests/Debug/manny_nexus_addon_smoke_test.exe $dll
-            if ($LASTEXITCODE -eq 0) { throw 'Normal smoke validation accepted a test-only DLL' }
           }
-          exit 0
-
-  windows-release-package:
-    name: Windows x64 release package
-    needs: [source-format, build-and-test, rust-core]
-    runs-on: windows-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Configure release
-        env:
-          MANNY_CI_TWITCH_CLIENT_ID: ${{ vars.MANNY_TWITCH_CLIENT_ID }}
-        run: >-
-          cmake -S . -B out/build/windows-release -A x64
-          -DBUILD_TESTING=ON
-          -DMANNY_WARNINGS_AS_ERRORS=ON
-          "-DMANNY_TWITCH_CLIENT_ID=$env:MANNY_CI_TWITCH_CLIENT_ID"
-
-      - name: Build release
-        run: cmake --build out/build/windows-release --config Release --parallel
-
-      - name: Test native Windows release
-        env:
-          MANNY_REQUIRE_NATIVE_DPAPI: "1"
-        run: ctest --test-dir out/build/windows-release -C Release --output-on-failure
-
       - name: Run opt-in Schannel HTTPS probe
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_https_probe }}
+        if: ${{ inputs.run_live_https_probe }}
         env:
-          MANNY_HTTP_LIVE_PROBE: "1"
-          MANNY_REQUIRE_NATIVE_DPAPI: "1"
-        run: >-
-          ctest --test-dir out/build/windows-release -C Release
-          --output-on-failure -R "^unit_tests$"
-
-      - name: Create release package
-        run: cpack --config out/build/windows-release/CPackConfig.cmake -C Release
-
-      - name: Verify release package
-        run: >-
-          cmake
-          -DMANNY_PACKAGE_OUTPUT_DIRECTORY=out/build/windows-release/package
-          -DMANNY_PACKAGE_EXTRACT_DIRECTORY=out/build/windows-release/package-verified
-          -P cmake/VerifyWindowsPackage.cmake
-
-      - name: Smoke-test packaged DLL
-        run: >-
-          & "out/build/windows-release/tests/Release/manny_nexus_addon_smoke_test.exe"
-          "out/build/windows-release/package-verified/manny_uploader.dll"
-
-      - name: Stage release symbols
-        run: >-
-          cmake
-          -DMANNY_SYMBOL_SEARCH_DIRECTORY=out/build/windows-release
-          -DMANNY_SYMBOL_FILE=out/build/windows-release/symbols/Release/manny_uploader.pdb
-          -P cmake/StageWindowsSymbols.cmake
-
-      - name: Verify release symbols
-        run: >-
-          cmake
-          "-DMANNY_SYMBOL_FILE=out/build/windows-release/symbols/Release/manny_uploader.pdb"
-          -P cmake/VerifyWindowsSymbols.cmake
-
-      - name: Upload verified package
-        uses: actions/upload-artifact@v7
-        with:
-          name: GW2-Manny-Uploader-windows-x64
-          path: |
-            out/build/windows-release/package/*.zip
-            out/build/windows-release/package/*.sha256
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-      - name: Upload verified debug symbols
-        uses: actions/upload-artifact@v7
-        with:
-          name: GW2-Manny-Uploader-windows-x64-symbols
-          path: |
-            out/build/windows-release/symbols/Release/manny_uploader.pdb
-            out/build/windows-release/symbols/Release/manny_uploader.pdb.sha256
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 6
-
-      - name: Install Rust for package validation
-        run: rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc
-
-      - name: Build optimized Rust DLL with symbols
-        env:
-          MANNY_TWITCH_CLIENT_ID: ${{ vars.MANNY_TWITCH_CLIENT_ID }}
-        run: cargo +stable build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --release
-
-      - name: Configure Rust package
+          MANNY_HTTP_LIVE_PROBE: '1'
+          MANNY_REQUIRE_NATIVE_DPAPI: '1'
+        run: cargo +stable test --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc -- --ignored live_schannel_https_probe
+      - name: Verify real DLL and PDB matching
         shell: pwsh
         run: |
           $dumpbin = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe' | Sort-Object -Descending | Select-Object -First 1
           if (-not $dumpbin) { throw 'Microsoft dumpbin was not found' }
-          cmake "-DMANNY_DLL_FILE=$pwd/target/x86_64-pc-windows-msvc/release/manny_uploader.dll" "-DMANNY_SYMBOL_FILE=$pwd/target/x86_64-pc-windows-msvc/release/manny_uploader.pdb" "-DMANNY_OTHER_SYMBOL_FILE=$pwd/out/build/windows-release/symbols/Release/manny_uploader.pdb" "-DMANNY_DUMPBIN_EXECUTABLE=$dumpbin" "-DMANNY_TEST_ROOT=$pwd/out/build/rust-symbol-match" -P tests/cmake/windows_symbol_match_integration_test.cmake
+          cmake "-DMANNY_DLL_FILE=$pwd/target/x86_64-pc-windows-msvc/release/manny_uploader.dll" "-DMANNY_SYMBOL_FILE=$pwd/target/x86_64-pc-windows-msvc/release/manny_uploader.pdb" "-DMANNY_OTHER_SYMBOL_FILE=$pwd/target/x86_64-pc-windows-msvc/debug/manny_uploader.pdb" "-DMANNY_DUMPBIN_EXECUTABLE=$dumpbin" "-DMANNY_TEST_ROOT=$pwd/out/build/rust-symbol-match" -P tests/cmake/windows_symbol_match_integration_test.cmake
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake -S rust/package -B out/build/rust-package "-DMANNY_RUST_RELEASE_DIRECTORY=$pwd/target/x86_64-pc-windows-msvc/release" "-DMANNY_DUMPBIN_EXECUTABLE=$dumpbin"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Create Rust package
-        run: cpack --config out/build/rust-package/CPackConfig.cmake -C Release
-
-      - name: Verify Rust package
-        run: >-
-          cmake
-          -DMANNY_PACKAGE_OUTPUT_DIRECTORY=out/build/rust-package/package
-          -DMANNY_PACKAGE_EXTRACT_DIRECTORY=out/build/rust-package/package-verified
-          -P cmake/VerifyWindowsPackage.cmake
-
-      - name: Smoke-test packaged Rust DLL
+      - name: Configure and verify shipping Rust package
         shell: pwsh
         run: |
+          $dumpbin = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe' | Sort-Object -Descending | Select-Object -First 1
+          if (-not $dumpbin) { throw 'Microsoft dumpbin was not found' }
+          cmake -S rust/package -B out/build/rust-package "-DMANNY_RUST_RELEASE_DIRECTORY=$pwd/target/x86_64-pc-windows-msvc/release" "-DMANNY_DUMPBIN_EXECUTABLE=$dumpbin"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cpack --config out/build/rust-package/CPackConfig.cmake -C Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake '-DMANNY_PACKAGE_OUTPUT_DIRECTORY=out/build/rust-package/package' '-DMANNY_PACKAGE_EXTRACT_DIRECTORY=out/build/rust-package/package-verified' -P cmake/VerifyWindowsPackage.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $dll = 'out/build/rust-package/package-verified/manny_uploader.dll'
-          & out/build/windows-release/tests/Release/manny_nexus_addon_smoke_test.exe $dll
+          $env:MANNY_SMOKE_DLL = (Resolve-Path -LiteralPath $dll).Path
+          cargo +stable test --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --lib -- --ignored --exact runtime::tests::dll_smoke::real_dll_smoke
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & out/build/windows-release/tests/Release/manny_nexus_addon_smoke_test.exe $dll --lifecycle-proof
+          cmake "-DMANNY_DLL_FILE=$dll" '-DMANNY_NOTICES_FILE=THIRD_PARTY_NOTICES.md' -P cmake/VerifyWindowsNotices.cmake
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Verify packaged Rust notices
-        run: >-
-          cmake
-          "-DMANNY_DLL_FILE=out/build/rust-package/package-verified/manny_uploader.dll"
-          "-DMANNY_NOTICES_FILE=THIRD_PARTY_NOTICES.md"
-          -P cmake/VerifyWindowsNotices.cmake
-
-      - name: Upload verified Rust migration package
+      - name: Upload verified release package
         uses: actions/upload-artifact@v7
         with:
-          name: GW2-Manny-Uploader-rust-windows-x64
+          name: GW2-Manny-Uploader-windows-x64
           path: |
             out/build/rust-package/package/*.zip
             out/build/rust-package/package/*.sha256
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
-
-      - name: Upload verified Rust debug symbols
+      - name: Upload verified debug symbols
         uses: actions/upload-artifact@v7
         with:
-          name: GW2-Manny-Uploader-rust-windows-x64-symbols
+          name: GW2-Manny-Uploader-windows-x64-symbols
           path: |
             out/build/rust-package/symbols/Release/manny_uploader.pdb
             out/build/rust-package/symbols/Release/manny_uploader.pdb.sha256

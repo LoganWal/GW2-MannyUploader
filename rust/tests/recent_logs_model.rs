@@ -565,18 +565,25 @@ fn aggregate_client_limit_and_channel_override_follow_authorized_route() {
 #[test]
 fn quick_access_all_destination_combinations_and_twitch_priority() {
     let options = options();
-    for mask in 0..16 {
+    for mask in 0..32 {
         let mut settings = options.configuration.settings.clone();
         settings.dps_report.enabled = mask & 1 != 0;
         settings.wingman.enabled = mask & 2 != 0;
         settings.donbot.enabled = mask & 4 != 0;
         settings.twitch.enabled = mask & 8 != 0;
+        settings.dps_report.detailed_wvw = mask & 16 != 0;
         let status = build_quick_access_status(&settings, &options.donbot);
         assert_eq!(
             status.tint,
             if mask & 8 != 0 {
                 QuickAccessTint::Twitch
-            } else if mask != 0 {
+            } else if mask & 4 != 0 {
+                QuickAccessTint::DonBot
+            } else if mask & 2 != 0 {
+                QuickAccessTint::Wingman
+            } else if mask & 17 == 17 {
+                QuickAccessTint::DetailedWvw
+            } else if mask & 1 != 0 {
                 QuickAccessTint::Upload
             } else {
                 QuickAccessTint::Idle
@@ -585,7 +592,7 @@ fn quick_access_all_destination_combinations_and_twitch_priority() {
         assert!(status.tooltip.starts_with("View MannyUploader list"));
         assert_eq!(
             status.tooltip.lines().count(),
-            1 + (mask as u32).count_ones() as usize
+            1 + (mask as u32 & 15).count_ones() as usize
         );
         for (bit, label) in [
             (1, "dps.report"),

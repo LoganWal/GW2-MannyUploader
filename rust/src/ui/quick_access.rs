@@ -7,6 +7,9 @@ use crate::{
 pub enum QuickAccessTint {
     Idle,
     Upload,
+    DetailedWvw,
+    Wingman,
+    DonBot,
     Twitch,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,7 +29,13 @@ pub fn build_quick_access_status(
         if !selected.contains(provider) {
             continue;
         }
-        tint = QuickAccessTint::Upload;
+        tint = match provider {
+            Provider::DpsReport if settings.dps_report.detailed_wvw => QuickAccessTint::DetailedWvw,
+            Provider::DpsReport => QuickAccessTint::Upload,
+            Provider::Wingman => QuickAccessTint::Wingman,
+            Provider::DonBot => QuickAccessTint::DonBot,
+            Provider::Twitch => unreachable!(),
+        };
         let mut line = format!("Uploading to {}", provider.name());
         if provider == Provider::DonBot {
             let guild = donbot

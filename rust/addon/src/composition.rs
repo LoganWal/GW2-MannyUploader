@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 type Secrets = Arc<Mutex<Box<dyn SecretStore>>>;
 

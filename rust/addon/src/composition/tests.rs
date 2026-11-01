@@ -326,7 +326,7 @@ fn invalid_paths_and_client_identity_fail_without_external_work() {
     assert!(!fixture.addon().exists());
 }
 
-fn synthetic_archive() -> Vec<u8> {
+pub(crate) fn synthetic_archive() -> Vec<u8> {
     let mut payload = b"EVTC20261016\x01\x7b\0\0".to_vec();
     payload.extend_from_slice(&1u32.to_le_bytes());
     let mut agent = [0u8; 96];

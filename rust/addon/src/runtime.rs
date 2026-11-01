@@ -72,6 +72,9 @@ impl Shortcut {
         match self.status.tint {
             QuickAccessTint::Idle => host::IDLE,
             QuickAccessTint::Upload => host::NORMAL,
+            QuickAccessTint::DetailedWvw => host::DETAILED_WVW,
+            QuickAccessTint::Wingman => host::WINGMAN,
+            QuickAccessTint::DonBot => host::DONBOT,
             QuickAccessTint::Twitch => host::TWITCH,
         }
     }
@@ -136,8 +139,8 @@ pub(crate) fn lifecycle_test_jobs() -> u64 {
     (jobs.len() as u64).min(0xffff) | ((active as u64).min(0xffff) << 16)
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn GetAddonDef() -> *const AddonDefinition {
+#[unsafe(export_name = "GetAddonDef")]
+pub extern "system" fn get_addon_def() -> *const AddonDefinition {
     &DEFINITION
 }
 
@@ -230,6 +233,9 @@ unsafe extern "C-unwind" fn load(api: *const AddonApi) {
                     (host::NORMAL, icons::NORMAL),
                     (host::IDLE, icons::IDLE),
                     (host::TWITCH, icons::TWITCH),
+                    (host::DETAILED_WVW, icons::DETAILED_WVW),
+                    (host::WINGMAN, icons::WINGMAN),
+                    (host::DONBOT, icons::DONBOT),
                 ] {
                     (state.host.create_texture)(
                         identifier.as_ptr(),

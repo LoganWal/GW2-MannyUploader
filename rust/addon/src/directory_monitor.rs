@@ -47,8 +47,9 @@ impl Default for WindowsDirectoryMonitor {
             root: PathBuf::new(),
             recursive: false,
             handle: None,
-            // Wine can miss recursive notifications. Unknown environments also use full scans.
-            polling_only: crate::environment::is_wine().unwrap_or(true),
+            // Lifecycle smoke checks worker shutdown. Directory notifications have their own tests.
+            polling_only: cfg!(feature = "lifecycle-test")
+                || crate::environment::is_wine().unwrap_or(true),
         }
     }
 }

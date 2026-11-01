@@ -3,7 +3,11 @@ use std::ffi::{CStr, c_void};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+mod dll_smoke;
+
 static EVENTS: Mutex<Vec<&str>> = Mutex::new(Vec::new());
+static RENDER_CALLBACKS: Mutex<Vec<nexus::gui::RawGuiRender>> = Mutex::new(Vec::new());
+static INPUT_CALLBACK: Mutex<Option<nexus::keybind::RawKeybindHandler>> = Mutex::new(None);
 static FAIL_OPTIONS: AtomicBool = AtomicBool::new(false);
 static FAIL_TEXTURE: AtomicBool = AtomicBool::new(false);
 static HOOK_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -17,12 +21,13 @@ fn nexus_version_uses_date_and_build() {
     assert_eq!(DEFINITION.version.build, expected.build);
     assert_eq!(DEFINITION.version.revision, expected.revision);
     assert!(expected.major >= 2026);
-    assert!((1..=31).contains(&expected.minor));
-    assert!((1..=12).contains(&expected.build));
+    assert!((1..=12).contains(&expected.minor));
+    assert!((1..=31).contains(&expected.build));
     assert!(expected.revision > 0);
 }
 
 unsafe extern "C-unwind" fn register(kind: RenderType, callback: nexus::gui::RawGuiRender) {
+    RENDER_CALLBACKS.lock().unwrap().push(callback);
     EVENTS.lock().unwrap().push(if kind == RenderType::Render {
         "main"
     } else {
@@ -36,7 +41,16 @@ unsafe extern "C-unwind" fn register(kind: RenderType, callback: nexus::gui::Raw
 }
 
 unsafe extern "C-unwind" fn deregister(callback: nexus::gui::RawGuiRender) {
-    let main = std::ptr::fn_addr_eq(callback, render_main as nexus::gui::RawGuiRender);
+    let mut registered = RENDER_CALLBACKS.lock().unwrap();
+    let main = registered
+        .first()
+        .is_some_and(|first| std::ptr::fn_addr_eq(*first, callback));
+    let position = registered
+        .iter()
+        .position(|registered| std::ptr::fn_addr_eq(*registered, callback))
+        .expect("removing an unregistered render callback");
+    registered.remove(position);
+    drop(registered);
     EVENTS.lock().unwrap().push(if main {
         "remove main"
     } else {
@@ -50,11 +64,13 @@ unsafe extern "C-unwind" fn register_input(
     callback: nexus::keybind::RawKeybindHandler,
     _: *const c_char,
 ) {
+    *INPUT_CALLBACK.lock().unwrap() = Some(callback);
     EVENTS.lock().unwrap().push("input");
     callback(ptr::null(), false);
 }
 
 unsafe extern "C-unwind" fn remove_input(_: *const c_char) {
+    *INPUT_CALLBACK.lock().unwrap() = None;
     EVENTS.lock().unwrap().push("remove input");
 }
 unsafe extern "C-unwind" fn texture(

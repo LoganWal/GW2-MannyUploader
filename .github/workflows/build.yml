@@ -31,7 +31,10 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set Nexus version
-        run: echo "MANNY_ADDON_VERSION=$(date -u +%Y.%-d.%-m).${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+        run: cmake -DMANNY_WRITE_GITHUB_ENV=ON -P cmake/ComputeNexusVersion.cmake
+
+      - name: Test Nexus version ordering
+        run: cmake -P tests/cmake/nexus_version_test.cmake
 
       - name: Install native build tools
         run: |

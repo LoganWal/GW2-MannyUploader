@@ -1,9 +1,9 @@
-# Rust development
+# Rust addon
 
-The C++ addon remains the shipping implementation. The Rust workspace contains the portable core
-and a Windows x64 development DLL with log discovery, provider uploads, protected credentials,
-persistence, and Nexus options/list rendering. Release packaging and native Windows validation remain
-in progress. The development DLL uses the same configuration and history formats as the C++ addon.
+The Rust workspace owns the shipping Windows x64 addon and portable core. It includes log discovery,
+provider uploads, protected credentials, persistence, and Nexus options/list rendering. The manual
+Release validation workflow builds and packages the MSVC DLL. Native in-game release validation
+remains required.
 
 The root package forbids unsafe code. `rust/addon` contains the native boundary and pins Nexus
 bindings with the matching ImGui 1.80 dependency. See
@@ -35,7 +35,7 @@ saturation defers candidates, and rejected admission releases their dedupe ident
 Native directory notifications now cache complete observations with a three-failure polling fallback.
 The native handle has creation, modification, rename, deletion, and root-recovery tests. Session
 selection fixes Show New at load time and limits rolling discovery cutoff changes to once per minute.
-Persistence and runtime scheduling are connected to the development DLL under ADR 0042 below.
+Persistence and runtime scheduling are connected to the addon DLL under ADR 0042 below.
 
 The settings domain now carries version-1 defaults, numeric/path/identifier validation, provider
 dependencies, and explicit legacy Discord-channel normalization. One shared Twitch template parser
@@ -55,7 +55,7 @@ and normalizes interrupted work without dispatch. See
 Atomic history merging now preserves hidden rows, trims only the oldest records, and reports recovery
 without rewriting invalid files during load. Startup restoration seeds all retained identities while
 displaying only the configured recent rows. Fault-injection, replay-suppression, and native long-path
-tests cover the composition, which is now connected to the development DLL.
+tests cover the composition, which is connected to the addon DLL.
 
 Protected credentials now have move-only, redacted, wiping values and application-owned storage
 ports. The bounded protected-file adapter preserves existing envelopes and filenames. Its native
@@ -153,8 +153,8 @@ build the Release Rust DLL. Cargo dependencies and build output are cached. Down
 `manny-uploader-<commit>` from the run's artifacts to get `manny_uploader.dll`.
 The action checks embedded notices and rejects companion MinGW runtime DLL dependencies.
 
-`Release validation` is manual. It retains the C++ builds, native MSVC Debug/Release tests,
-DPAPI and Schannel checks, lifecycle proofs, and package/PDB verification.
+`Release validation` is manual. It runs native MSVC Rust Debug/Release tests,
+DPAPI and Schannel checks, Rust real-DLL lifecycle tests, and package/PDB verification.
 A successful cross-build does not establish native Windows runtime behavior.
 See [ADR 0047](../docs/architecture/decisions/0047-separate-rust-builds-from-release-validation.md).
 
@@ -169,7 +169,7 @@ cargo test --locked -p manny-uploader --release
 
 ## Windows MSVC
 
-Requires Rust with the `x86_64-pc-windows-msvc` target, Visual Studio C++ Build Tools,
+Requires Rust with the `x86_64-pc-windows-msvc` target, Visual Studio Build Tools,
 and CMake 3.30 or newer with support for the installed Visual Studio version.
 CMake selects the installed Visual Studio generator and Cargo requires its x64 platform.
 The target configuration links the static CRT. Builds and tests use the workspace lockfile.
@@ -197,29 +197,22 @@ The default suite uses local fake servers. To run the public Schannel HTTPS prob
 cargo test --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --release live_schannel_https_probe -- --ignored
 ```
 
-Build the existing CMake `manny_nexus_addon_smoke_test` target using the same CMake installation that
-configured its build directory. Pass the Rust DLL path to that executable. Run both modes for each
-configuration, for example in PowerShell:
+The ignored Rust smoke test loads the built DLL through the Windows loader and exercises ten
+load, render, unload, and `FreeLibrary` cycles. Run it for both configurations in PowerShell:
 
 ```powershell
-$hostPath = 'out/build/native-msvc/tests/Debug/manny_nexus_addon_smoke_test.exe'
 foreach ($configuration in @('debug', 'release')) {
     $dll = "target/x86_64-pc-windows-msvc/$configuration/manny_uploader.dll"
-    & $hostPath $dll
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    & $hostPath $dll --lifecycle-proof
+    $env:MANNY_SMOKE_DLL = (Resolve-Path -LiteralPath $dll).Path
+    cargo test --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --lib -- --ignored --exact runtime::tests::dll_smoke::real_dll_smoke
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 ```
 
-The standard mode performs ten load/render/unload/FreeLibrary cycles. The extra mode checks invalid
-API rejection, duplicate load/unload, callbacks during registration/deregistration and after unload,
-visible-window rendering, and two load/unload sessions per DLL mapping. Both alternate pending and
-immediate texture creation. These tests run in a separate process without Guild Wars 2.
-
-Rust tests additionally exercise partial registration rollback, optional texture failure, panic
-redaction and hook restoration, and draining admitted callbacks. The DLL now owns the application
-and worker threads. Normal smoke mode creates fresh settings with uploads disabled.
+The smoke test checks the `GetAddonDef` export, GitHub updater metadata, Nexus registration order,
+callbacks, and reverse teardown. The in-process Rust lifecycle tests cover invalid APIs, partial
+registration rollback, optional texture failure, panic containment, and callback draining.
+Normal smoke mode uses fresh settings with uploads disabled and does not contact services.
 
 For active-provider unload coverage, build the explicit test-only DLL into a separate directory:
 
@@ -228,7 +221,9 @@ cargo build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --t
 cargo build --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --target-dir target/lifecycle-test --features lifecycle-test --release
 foreach ($configuration in @('debug', 'release')) {
     $dll = "target/lifecycle-test/x86_64-pc-windows-msvc/$configuration/manny_uploader.dll"
-    & out/build/native-msvc/tests/Debug/manny_nexus_addon_smoke_test.exe $dll --active-runtime-proof
+    $env:MANNY_SMOKE_DLL = (Resolve-Path -LiteralPath $dll).Path
+    $env:MANNY_SMOKE_ACTIVE = '1'
+    cargo test --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --target-dir target/lifecycle-test --features lifecycle-test --lib -- --ignored --exact runtime::tests::dll_smoke::real_dll_smoke
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 ```
@@ -237,7 +232,9 @@ The test feature replaces HTTP with a synthetic blocking adapter. Three generate
 two active uploads and one queued request before unload cancels and joins them. Counters verify
 completion and destruction before FreeLibrary. It sends no network requests. Never install or
 package this test DLL. Normal smoke and package verification reject its instrumentation.
-See [ADR 0043](../docs/architecture/decisions/0043-prove-active-rust-dll-unload.md).
+See [ADR 0043](../docs/architecture/decisions/0043-prove-active-rust-dll-unload.md) for the
+test-only transport and [ADR 0049](../docs/architecture/decisions/0049-ship-rust-addon.md) for the
+current Rust smoke gate.
 
 These lifecycle checks complement Linux tests and native credential and HTTP validation.
 
@@ -257,14 +254,15 @@ $dumpbin = (Get-Command dumpbin.exe).Source
 cmake -S rust/package -B out/build/rust-package "-DMANNY_RUST_RELEASE_DIRECTORY=$pwd/target/x86_64-pc-windows-msvc/release" "-DMANNY_DUMPBIN_EXECUTABLE=$dumpbin"
 cpack --config out/build/rust-package/CPackConfig.cmake -C Release
 cmake '-DMANNY_PACKAGE_OUTPUT_DIRECTORY=out/build/rust-package/package' '-DMANNY_PACKAGE_EXTRACT_DIRECTORY=out/build/rust-package/package-verified' -P cmake/VerifyWindowsPackage.cmake
-& out/build/native-msvc/tests/Release/manny_nexus_addon_smoke_test.exe out/build/rust-package/package-verified/manny_uploader.dll
-& out/build/native-msvc/tests/Release/manny_nexus_addon_smoke_test.exe out/build/rust-package/package-verified/manny_uploader.dll --lifecycle-proof
+$env:MANNY_SMOKE_DLL = (Resolve-Path -LiteralPath out/build/rust-package/package-verified/manny_uploader.dll).Path
+Remove-Item Env:MANNY_SMOKE_ACTIVE -ErrorAction SilentlyContinue
+cargo test --locked -p manny-uploader-addon --target x86_64-pc-windows-msvc --lib -- --ignored --exact runtime::tests::dll_smoke::real_dll_smoke
 ```
 
 Stop if any command fails. Package extraction requires a fresh destination directory.
 ZIP/checksum output is under `out/build/rust-package/package`. The PDB and its checksum are under
 `out/build/rust-package/symbols/Release` and are never installed with the addon. CI creates separate
-Rust migration artifacts alongside the shipping C++ artifacts after the Rust test jobs pass.
+shipping Rust artifacts after the Rust test jobs pass.
 See [ADR 0044](../docs/architecture/decisions/0044-package-rust-migration-builds.md).
 Hosted execution and the native Windows in-game release matrix remain required before cutover.
 

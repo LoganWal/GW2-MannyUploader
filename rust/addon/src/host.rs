@@ -6,9 +6,13 @@ use nexus::{AddonApi, gui, keybind, log, paths, quick_access, texture};
 
 pub const INPUT: &CStr = c"KB_MANNY_UPLOADER_TOGGLE_WINDOW";
 pub const SHORTCUT: &CStr = c"QA_GW2_MANNY_UPLOADER";
-pub const NORMAL: &CStr = c"TEX_GW2_MANNY_UPLOADER";
-pub const IDLE: &CStr = c"TEX_GW2_MANNY_UPLOADER_IDLE";
-pub const TWITCH: &CStr = c"TEX_GW2_MANNY_UPLOADER_TWITCH";
+// Nexus caches textures across addon reloads. New names retire the bordered artwork.
+pub const NORMAL: &CStr = c"TEX_GW2_MANNY_UPLOADER_UPLOAD_V2";
+pub const IDLE: &CStr = c"TEX_GW2_MANNY_UPLOADER_IDLE_V2";
+pub const TWITCH: &CStr = c"TEX_GW2_MANNY_UPLOADER_TWITCH_V2";
+pub const DETAILED_WVW: &CStr = c"TEX_GW2_MANNY_UPLOADER_DETAILED_WVW_V3";
+pub const WINGMAN: &CStr = c"TEX_GW2_MANNY_UPLOADER_WINGMAN_V3";
+pub const DONBOT: &CStr = c"TEX_GW2_MANNY_UPLOADER_DONBOT_V3";
 
 #[derive(Clone, Copy)]
 pub struct Host {

@@ -111,7 +111,7 @@ in reverse dependency order. No detached work or borrowed Nexus API pointer surv
 ## Verification
 
 Portable lifecycle tests cover partial registration, exception containment, idempotence, and unload
-waiting on a blocked callback. The Windows smoke host loads the actual DLL through `GetAddonDef`,
+waiting on a blocked callback. The Rust real-DLL smoke test loads the actual DLL through `GetAddonDef`,
 provides a compatible real ImGui context and minimal Nexus API, renders main/options, invokes the
 window bind, validates exact shortcut identifiers and all embedded PNG handoffs, verifies complete reverse
 resource teardown, unloads the composed runtime, and calls `FreeLibrary` across ten consecutive

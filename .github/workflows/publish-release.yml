@@ -1,0 +1,95 @@
+name: Publish Nexus release
+
+on:
+  workflow_dispatch:
+    inputs:
+      validation_run_id:
+        description: Successful Release validation workflow run ID for this commit
+        required: true
+        type: string
+      release_gates_complete:
+        description: Native in-game matrix and external release gates are complete
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-nexus-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm release gates
+        env:
+          GATES_COMPLETE: ${{ inputs.release_gates_complete }}
+        run: test "$GATES_COMPLETE" = true
+
+      - name: Confirm validated source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+        run: |
+          [[ "$VALIDATION_RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID" \
+            | jq -e --arg sha "$GITHUB_SHA" \
+                '.path == ".github/workflows/ci.yml" and .head_sha == $sha and .event == "workflow_dispatch" and .conclusion == "success"'
+
+      - name: Download verified package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+        run: |
+          gh run download "$VALIDATION_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name GW2-Manny-Uploader-windows-x64 --dir "$RUNNER_TEMP/nexus-release"
+
+      - name: Check package and stage standalone DLL
+        id: package
+        run: |
+          shopt -s nullglob
+          archives=("$RUNNER_TEMP/nexus-release"/GW2-Manny-Uploader-*-windows-x64.zip)
+          test "${#archives[@]}" -eq 1
+          archive="${archives[0]}"
+          checksum="$archive.sha256"
+          test -f "$checksum"
+          cd "$RUNNER_TEMP/nexus-release"
+          sha256sum --check "$(basename "$checksum")"
+          test "$(unzip -Z -1 "$archive")" = manny_uploader.dll
+          unzip -p "$archive" manny_uploader.dll > manny_uploader.dll
+          test "$(head -c 2 manny_uploader.dll)" = MZ
+          version="$(basename "$archive")"
+          version="${version#GW2-Manny-Uploader-}"
+          version="${version%-windows-x64.zip}"
+          [[ "$version" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\.[0-9]+$ ]]
+          python3 - "$version" <<'PY'
+          from datetime import date
+          import sys
+
+          year, month, day, build = map(int, sys.argv[1].split("."))
+          date(year, month, day)
+          if not 1 <= build <= 32767:
+              raise ValueError("Nexus build number is out of range")
+          PY
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "Release tag already exists: $tag" >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            "$RUNNER_TEMP/nexus-release/manny_uploader.dll" \
+            "$RUNNER_TEMP/nexus-release/GW2-Manny-Uploader-$VERSION-windows-x64.zip" \
+            "$RUNNER_TEMP/nexus-release/GW2-Manny-Uploader-$VERSION-windows-x64.zip.sha256" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "MannyUploader $VERSION" --generate-notes --latest

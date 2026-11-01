@@ -25,6 +25,7 @@ $RECYCLE.BIN/
 /dist/
 /install/
 /cmake-build-*/
+/target/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
@@ -69,6 +70,7 @@ conanbuildinfo.*
 conan.lock
 
 # Tests, coverage, profiling, and diagnostics
+__pycache__/
 .cache/
 .clangd/
 .ctest/

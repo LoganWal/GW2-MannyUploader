@@ -81,6 +81,11 @@ uses `FindFirstChangeNotificationW`, a zero-timeout `WaitForSingleObject`, and
 directory-name, size, creation, and last-write changes are observed, with the configured recursive
 policy passed to Windows.
 
+Wine uses the authoritative polling path on every scheduled scan. Its recursive notification
+implementation can miss existing nested directories, so an unchanged signal must not retain a
+cached listing there. The monitor holds no notification handle in this mode. Unicode paths,
+recursion settings, missing-root recovery, and discovery policy remain the same.
+
 The first poll and every changed or unavailable notification run the standard polling source as the
 authoritative scan. An unchanged notification returns the last complete root-available observations
 so the stability policy can advance without traversing the tree again. Cached batches never replay

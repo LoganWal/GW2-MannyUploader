@@ -43,13 +43,22 @@ disconnect or erase the Twitch session. The options checkbox, window close butto
 and quick-access shortcut all use the narrow visibility path so they cannot replay a stale
 ordinary-options draft over unrelated settings.
 
-The dps.report, Detailed WvW, and GW2Wingman narrow toggles appear in both the main window and Nexus
-options. DonBot upload, Discord delivery, guild, and channel controls appear in the main window as
-well as their verified options workflow. The main-window guild and Discord route row is hidden while
-DonBot is not selected as an upload destination. The Discord route appears when the selected guild
+The dps.report, GW2Wingman, DonBot, and Twitch connection or posting controls share one destination
+row in both the main window and Nexus options. Detailed WvW appears only while dps.report is enabled.
+Selecting DonBot reveals its setup without enabling uploads before verification and authorized
+guild selection. Once those requirements are met, the selected destination is enabled through the
+existing command boundary. Clearing DonBot hides its configuration. The server, channel, and
+automatic Discord posting controls share one row, with the checkbox last. The Discord route appears when the selected guild
 advertises a usable delivery policy, so a required channel override can be chosen before Discord
 summaries are enabled. When the selected guild does not advertise a usable delivery policy, the main
 window shows a concise reason instead of disabled checkbox and channel controls.
+
+The Connect Twitch button has an adjacent red warning to keep the browser window off stream before
+the user clicks it. Twitch Connect starts Device Code authorization and opens the validated authorization page once it
+is ready on the application owner. Browser failures are visible and do not retry automatically.
+The authorization view retains an explicit reopen action. Saved-session validation never opens a
+browser. Twitch posting policy, template, and test controls appear only after connection and while
+posting is enabled.
 
 Workflow-owned values use dedicated commands:
 

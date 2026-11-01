@@ -10,13 +10,13 @@ application runtime. Native Nexus and ImGui types stop at that entry adapter.
 3. Resolve the game and addon directories into owned filesystem paths.
 4. Construct the complete runtime before accepting callbacks.
 5. Register the main render callback, options callback, and configurable window input bind.
-6. Attempt the embedded normal, idle-grey, and Twitch-purple icon textures and quick-access shortcut,
+6. Attempt the embedded destination icon textures and quick-access shortcut,
    then open the callback gate.
 
 Callbacks invoked synchronously during registration are safe no-ops. A partial registration failure
 deregisters completed required registrations in reverse order, shuts down the runtime, and returns to
 the unloaded state. Quick access is optional: a texture/shortcut failure emits a warning while main
-rendering, options, the input bind, and the complete upload runtime remain active. All three icon
+rendering, options, the input bind, and the complete upload runtime remain active. All icon
 variants are submitted through Nexus's memory API, which consumes the PNG bytes during the call but
 may return null while GPU texture creation is queued. Null does not abort shortcut registration.
 Nexus resolves the registered texture identifiers as textures become available. No asynchronous
@@ -34,7 +34,11 @@ commands; it does not parse files, perform HTTP, or write settings inside a Nexu
 visibility uses a dedicated value command so toggling cannot overwrite unrelated provider settings.
 The main callback may refresh the shortcut from an immutable status snapshot. The tooltip begins
 with `View MannyUploader list`, adds one line per enabled destination and the selected DonBot guild,
-and uses Twitch purple in preference to the normal upload tint. Nexus has no in-place shortcut update,
+and keeps the upload arrow borderless on a transparent background. Only the bottom bar changes
+color. The highest enabled destination wins: Twitch purple, DonBot cyan blue, GW2Wingman bronze gold,
+detailed WvW dps.report SOX yellow, then ordinary dps.report blue. With no destination enabled, the bar
+retains its default white. Detailed WvW has no effect when dps.report is disabled.
+Nexus has no in-place shortcut update,
 so a changed status is applied as one balanced remove/add pair with owned tooltip storage.
 
 ## Unloading

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "logs": [
+    {
+      "path": "C:/logs/sample-\u96ea.zevtc",
+      "size": 7,
+      "last_write_time_ticks": 133485408001234567,
+      "detected_at_milliseconds": 1704067200123,
+      "encounter_metadata": {
+        "boss_id": 15438,
+        "pov_account": ":Fixture.1234",
+        "remaining_health_basis_points": 4321
+      },
+      "dps_report_result": {
+        "permalink": "https://dps.report/Fixture",
+        "encounter_name": "Vale Guardian",
+        "boss_id": 15438,
+        "mode": "CM",
+        "success": true
+      },
+      "wingman_upload_receipt": {
+        "permalink": "https://gw2wingman.nevermindcreations.de/log/Fixture"
+      },
+      "donbot_upload_receipt": {
+        "upload_id": 101,
+        "fight_log_id": 201,
+        "discord_delivery_outcome": 1,
+        "discord_sent": 2,
+        "discord_skipped": 0,
+        "discord_failed": 0,
+        "discord_ambiguous": 0,
+        "guild_id": "123"
+      },
+      "twitch_delivery_receipt": {
+        "status": 0,
+        "message_id": "fixture-message"
+      },
+      "providers": [
+        {"state": 3, "attempts": 1, "detail": "Completed"},
+        {"state": 3, "attempts": 1, "detail": "Completed"},
+        {"state": 3, "attempts": 1, "detail": "Completed"},
+        {"state": 3, "attempts": 1, "detail": "Completed"}
+      ]
+    }
+  ]
+}

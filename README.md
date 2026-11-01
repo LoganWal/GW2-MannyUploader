@@ -10,7 +10,7 @@ Requires [Raidcore Nexus](https://raidcore.gg/gw2/nexus) and arcdps saving compr
 2. Extract `manny_uploader.dll` into `<Guild Wars 2>\addons\`.
 3. Launch the game, enable MannyUploader in Nexus, and choose destinations in Nexus options > MannyUploader.
 
-To update, unload the addon in Nexus before replacing the DLL.
+Nexus checks GitHub Releases for updates and reloads the addon when possible.
 
 ## Use
 
@@ -26,8 +26,8 @@ Open the list from the quick-access icon or Alt+Shift+M.
 ## Connect destinations
 
 - dps.report / GW2Wingman: enabled by default. Toggle them in the list or options.
-- DonBot: enter your GW2 API key, select Verify DonBot, choose an authorized server, then enable uploads. Discord summaries are optional.
-- Twitch: select Connect Twitch, authorize your broadcaster account, then enable Automatically post report links. Requires dps.report. Keep the authorization browser window off stream.
+- DonBot: select DonBot, enter your GW2 API key, select Verify DonBot, and choose an authorized server. Auto post to Discord is optional.
+- Twitch: select Connect Twitch to open authorization, authorize your broadcaster account, then select Twitch to post report links. Requires dps.report. Keep the authorization browser window off stream.
 
 With dps.report enabled, the other destinations wait for its link. Without it, Wingman and DonBot upload directly.
 
@@ -44,14 +44,15 @@ Credentials use protected storage. Wine provides weaker protection, flagged in o
 
 ## Development
 
-Requires CMake 3.25+, Ninja, and C++23. Production builds use MSVC x64. GCC/Clang cover the portable core. Dependencies download automatically.
+Requires stable Rust and CMake 3.30+. The addon builds for Windows x64 with MSVC for release and MinGW for routine CI.
 
 ```sh
-cmake --preset dev
-cmake --build --preset dev
-ctest --preset dev
+cargo test --locked -p manny-uploader
+cargo build --locked -p manny-uploader-addon --release --target x86_64-pc-windows-msvc
 ```
 
-Use `release` instead of `dev` for an optimized build. Full maintainer preflight: `./tools/preflight-msvc-wine.sh`. Native Windows CI remains the OS validation gate.
+The **Build DLL** action provides a MinGW DLL for development. The manual **Release validation** workflow builds the shipping MSVC package, checks its symbols, and smoke-tests the packaged DLL. Native in-game validation remains required before a public release.
+After those checks, **Publish Nexus release** can publish the verified DLL and ZIP from that exact validation run.
+See [Rust development](rust/README.md) for build and lifecycle details.
 
 [Architecture](docs/architecture/overview.md) | [Behavior contracts](docs/contracts/README.md) | [Windows validation](docs/release/native-windows-validation.md) | [Release evidence](docs/release/evidence-template.md) | [Third-party licenses](THIRD_PARTY_NOTICES.md)

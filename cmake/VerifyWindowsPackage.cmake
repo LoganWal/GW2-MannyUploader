@@ -96,4 +96,10 @@ if(NOT packaged_dll_magic STREQUAL "4d5a")
     message(FATAL_ERROR "Packaged Nexus artifact is not a Windows PE image")
 endif()
 
+file(STRINGS "${packaged_dll}" lifecycle_test_marker
+    LIMIT_INPUT 33554432 LIMIT_COUNT 1 REGEX "MannyLifecycleTestState")
+if(lifecycle_test_marker)
+    message(FATAL_ERROR "Packaged Nexus DLL contains test-only lifecycle instrumentation")
+endif()
+
 message(STATUS "Verified ${package_archive_name} (${package_archive_size} bytes)")

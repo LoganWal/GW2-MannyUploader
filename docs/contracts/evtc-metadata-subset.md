@@ -40,7 +40,7 @@ The decoder:
 - accepts revision 1 only;
 - rejects bad magic, unsupported revisions, truncated sections, and partial combat events;
 - caps agent, skill, and combat-event counts before iteration;
-- performs checked offset arithmetic and never maps the bytes onto native C++ structs;
+- performs checked offset arithmetic and never maps the bytes onto native structs;
 - checks cancellation before parsing and while scanning potentially large tables;
 - reports a missing POV event, unknown POV agent, non-player POV agent, or empty account as
   `MissingPointOfView`; and

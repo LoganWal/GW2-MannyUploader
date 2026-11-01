@@ -9,11 +9,13 @@ workflow, package, checksums, and safe manual-test results.
 
 ## Automated native gate
 
-The `Windows x64 release package` CI job is the authoritative native build. It must pass on an
+The manual `Release validation` workflow's `Windows x64 release package` job is the authoritative
+native build. The routine `Build DLL` workflow produces a MinGW cross-build for development.
+The native gate must pass on an
 ordinary Microsoft-hosted Windows runner, not Wine, and must use the x64 Release configuration with
 warnings treated as errors.
 
-The job sets `MANNY_REQUIRE_NATIVE_DPAPI=1`, requiring a real user-scoped DPAPI store round trip,
+The Rust test job sets `MANNY_REQUIRE_NATIVE_DPAPI=1`, requiring a real user-scoped DPAPI store round trip,
 ciphertext/plaintext separation, and tamper rejection. The same suite exercises the
 production libcurl adapter through deterministic loopback requests, including streaming, limits,
 redirect refusal, cancellation, and error redaction.
@@ -22,20 +24,21 @@ The Windows suite also exercises the production directory-change monitor against
 directory. It verifies initial arming, idle polling, create and append notifications, missing-root
 recovery, live reconfiguration, and cancellation with a bounded wait for operating-system delivery.
 
-The job then creates the versioned CPack ZIP and checksum, verifies and extracts the archive, and
-runs the ten-cycle Nexus smoke host against the packaged DLL. A passing build-tree DLL is not a
+The job then creates the versioned Rust CPack ZIP and checksum, verifies and extracts the archive, and
+runs the ten-cycle Rust real-DLL smoke test against the packaged DLL. A passing build-tree DLL is not a
 substitute for this packaged-copy check. The optimized build also emits a full linker PDB outside the
 install tree. CI rejects missing or ambiguous linker-PDB output, stages exactly one candidate at the
 canonical artifact path, then verifies its Microsoft Program Database signature, plausible size,
 fixed name, and SHA-256 sidecar before uploading it as a separate artifact.
 
-An independent Ubuntu job checks every project-owned C and C++ source with the repository's pinned
-format policy. Fetched dependencies and generated build files are outside that source set.
+The Rust package is the shipping artifact. A separate Rust test process checks the DLL's Nexus
+export, metadata, callbacks, real-DLL unload, and active-provider cancellation. The test-only
+instrumented DLL is rejected by shipping package verification.
 
 ## Opt-in Schannel probe
 
 Ordinary pushes and pull requests never depend on a public network service. To verify the host trust
-store and production Schannel path, manually run the `CI` workflow from the repository's Actions tab
+store and production Schannel path, manually run the `Release validation` workflow from the repository's Actions tab
 with `run_live_https_probe` enabled. The probe performs one credential-free GET to the fixed
 `https://example.com/` target through the production HTTPS-only policy and requires status `200`.
 
@@ -43,18 +46,13 @@ The probe is evidence for the selected Windows runner only. Record the workflow 
 version in the release notes; do not generalize one successful probe into a guarantee for every user
 environment.
 
-## Wine compatibility gate
+## Wine support
 
-Cross-build the complete Windows test suite and run it under the maintained Wine environment with
-`MANNY_REQUIRE_WINE_DPAPI=1`. This requires Wine detection plus the same protected-store round trip,
-ciphertext/plaintext separation, and tamper rejection used by the native gate. The remaining suite
-exercises the shared Windows HTTP, archive, configuration, provider, and application behavior; a
-failure is a Wine release blocker.
-
-The in-game matrix below must also be repeated under Wine for log-directory access, Nexus rendering,
-all four enabled destinations, credential restart recovery, browser launch, and unload/reload. Wine
-uses polling automatically if its implementation of the native directory notification API fails;
-that fallback is supported behavior rather than a disabled feature.
+Wine remains supported. Its runtime compatibility code and credential-protection warning remain
+enabled. Wine-specific automation, local preflight, and mandatory Wine validation gates were retired
+at the maintainer's request. Optional Wine testing may inform bug reports, but is not required to
+complete migration or release validation. See
+[ADR 0048](../architecture/decisions/0048-retire-wine-validation.md).
 
 ## Packaged-artifact checks
 
@@ -110,3 +108,17 @@ Automation cannot complete these decisions:
 - choose a new Nexus listing or an intentional successor identity.
 
 Record those outcomes before calling the artifact a release candidate.
+
+## Publishing Nexus updates
+
+Run the manual `Publish Nexus release` workflow on the validated commit after the native in-game
+matrix and external gates above pass. Supply the successful `Release validation` run ID and confirm
+the gates in the workflow input. The publish job accepts only a successful manual validation run for
+the same commit. It checks the package checksum and single-DLL ZIP layout, then creates a GitHub
+Release with the standalone `manny_uploader.dll`, the ZIP, and its SHA-256 sidecar. Nexus uses the
+GitHub update provider and the repository URL in the addon definition to find release updates.
+GitHub requires this new manual workflow to exist on the default branch before it can be dispatched.
+
+The four Nexus version components now use `year.month.day.GitHub-run-number`. The previous
+`year.day.month.build` development DLL can compare newer than the first November release. Replace
+that local development DLL manually once. Later releases then increase in normal date order.

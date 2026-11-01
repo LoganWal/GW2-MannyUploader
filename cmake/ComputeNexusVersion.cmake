@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 3.25)
+
+if(NOT DEFINED MANNY_VERSION_DATE)
+    string(TIMESTAMP MANNY_VERSION_DATE "%Y.%m.%d" UTC)
+endif()
+if(NOT MANNY_VERSION_DATE MATCHES "^[0-9][0-9][0-9][0-9]\\.[0-9][0-9]\\.[0-9][0-9]$")
+    message(FATAL_ERROR "MANNY_VERSION_DATE must be a UTC year.month.day date")
+endif()
+
+if(NOT DEFINED MANNY_VERSION_RUN_NUMBER)
+    set(MANNY_VERSION_RUN_NUMBER "$ENV{GITHUB_RUN_NUMBER}")
+endif()
+if(NOT MANNY_VERSION_RUN_NUMBER MATCHES "^[0-9]+$" OR
+   MANNY_VERSION_RUN_NUMBER LESS 1 OR MANNY_VERSION_RUN_NUMBER GREATER 32767)
+    message(FATAL_ERROR "GitHub run number must fit the Nexus version revision field")
+endif()
+
+set(MANNY_ADDON_VERSION "${MANNY_VERSION_DATE}.${MANNY_VERSION_RUN_NUMBER}")
+if(MANNY_WRITE_GITHUB_ENV)
+    if(NOT DEFINED ENV{GITHUB_ENV} OR "$ENV{GITHUB_ENV}" STREQUAL "")
+        message(FATAL_ERROR "GITHUB_ENV is required when exporting the Nexus version")
+    endif()
+    file(APPEND "$ENV{GITHUB_ENV}" "MANNY_ADDON_VERSION=${MANNY_ADDON_VERSION}\n")
+endif()
+message(STATUS "Nexus addon version: ${MANNY_ADDON_VERSION}")

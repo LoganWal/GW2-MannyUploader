@@ -1,0 +1,204 @@
+[package]
+name = "manny-uploader"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Logan"]
+description = "GW2 Manny Uploader core"
+publish = false
+
+[workspace]
+members = ["rust/addon"]
+default-members = ["."]
+resolver = "3"
+
+[profile.release]
+debug = 2
+
+[lib]
+path = "rust/src/lib.rs"
+
+[dependencies]
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+crc32fast = "=1.5.2"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.154"
+zeroize = { version = "=1.8.2", default-features = false, features = ["alloc"] }
+
+[[test]]
+name = "upload_job"
+path = "rust/tests/upload_job.rs"
+
+[[test]]
+name = "upload_coordinator"
+path = "rust/tests/upload_coordinator.rs"
+
+[[test]]
+name = "async_upload_worker"
+path = "rust/tests/async_upload_worker.rs"
+
+[[test]]
+name = "metadata_decoder"
+path = "rust/tests/metadata_decoder.rs"
+
+[[test]]
+name = "zevtc_archive"
+path = "rust/tests/zevtc_archive.rs"
+
+[[test]]
+name = "metadata_ingestion"
+path = "rust/tests/metadata_ingestion.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[[test]]
+name = "nexus_options_model"
+path = "rust/tests/nexus_options_model.rs"
+
+[[test]]
+name = "nexus_options_controller"
+path = "rust/tests/nexus_options_controller.rs"
+
+[[test]]
+name = "recent_logs_model"
+path = "rust/tests/recent_logs_model.rs"
+
+[[test]]
+name = "application_runtime"
+path = "rust/tests/application_runtime.rs"
+
+[[test]]
+name = "log_discovery"
+path = "rust/tests/log_discovery.rs"
+
+[[test]]
+name = "application_pump"
+path = "rust/tests/application_pump.rs"
+
+[[test]]
+name = "notifications"
+path = "rust/tests/notifications.rs"
+
+[[test]]
+name = "settings"
+path = "rust/tests/settings.rs"
+
+[[test]]
+name = "twitch_template"
+path = "rust/tests/twitch_template.rs"
+
+[[test]]
+name = "settings_json"
+path = "rust/tests/settings_json.rs"
+
+[[test]]
+name = "file_store"
+path = "rust/tests/file_store.rs"
+
+[[test]]
+name = "settings_store"
+path = "rust/tests/settings_store.rs"
+
+[lints.clippy]
+all = "warn"
+
+[[test]]
+name = "history_json"
+path = "rust/tests/history_json.rs"
+
+[[test]]
+name = "history_store"
+path = "rust/tests/history_store.rs"
+
+[[test]]
+name = "secret_store"
+path = "rust/tests/secret_store.rs"
+
+[[test]]
+name = "configuration_service"
+path = "rust/tests/configuration_service.rs"
+
+[[test]]
+name = "http_request"
+path = "rust/tests/http_request.rs"
+
+[[test]]
+name = "http_body_sources"
+path = "rust/tests/http_body_sources.rs"
+
+[[test]]
+name = "http_multipart"
+path = "rust/tests/http_multipart.rs"
+
+[[test]]
+name = "http_response"
+path = "rust/tests/http_response.rs"
+
+[[test]]
+name = "dps_report_client"
+path = "rust/tests/dps_report_client.rs"
+
+[[test]]
+name = "dps_report_worker"
+path = "rust/tests/dps_report_worker.rs"
+
+[[test]]
+name = "wingman_client"
+path = "rust/tests/wingman_client.rs"
+
+[[test]]
+name = "wingman_worker"
+path = "rust/tests/wingman_worker.rs"
+
+[[test]]
+name = "donbot_verification"
+path = "rust/tests/donbot_verification.rs"
+
+[[test]]
+name = "donbot_verification_worker"
+path = "rust/tests/donbot_verification_worker.rs"
+
+[[test]]
+name = "donbot_upload"
+path = "rust/tests/donbot_upload.rs"
+
+[[test]]
+name = "donbot_workers"
+path = "rust/tests/donbot_workers.rs"
+
+[[test]]
+name = "donbot_configuration"
+path = "rust/tests/donbot_configuration.rs"
+
+[[test]]
+name = "donbot_aggregate_controller"
+path = "rust/tests/donbot_aggregate_controller.rs"
+
+[[test]]
+name = "twitch_session"
+path = "rust/tests/twitch_session.rs"
+
+[[test]]
+name = "twitch_client"
+path = "rust/tests/twitch_client.rs"
+
+[[test]]
+name = "twitch_authentication_worker"
+path = "rust/tests/twitch_authentication_worker.rs"
+
+[[test]]
+name = "twitch_session_owner"
+path = "rust/tests/twitch_session_owner.rs"
+
+[[test]]
+name = "twitch_authentication_controller"
+path = "rust/tests/twitch_authentication_controller.rs"
+
+[[test]]
+name = "twitch_chat"
+path = "rust/tests/twitch_chat.rs"
+
+[[test]]
+name = "recent_log_actions"
+path = "rust/tests/recent_log_actions.rs"

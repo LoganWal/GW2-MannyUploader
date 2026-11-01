@@ -1,0 +1,38 @@
+cmake_minimum_required(VERSION 3.25)
+
+set(version_script "${CMAKE_CURRENT_LIST_DIR}/../../cmake/ComputeNexusVersion.cmake")
+set(MANNY_VERSION_RUN_NUMBER 46)
+
+set(MANNY_VERSION_DATE "2026.10.24")
+include("${version_script}")
+if(NOT MANNY_ADDON_VERSION STREQUAL "2026.10.24.46")
+    message(FATAL_ERROR "October version is incorrect")
+endif()
+set(october_version "${MANNY_ADDON_VERSION}")
+
+set(MANNY_VERSION_DATE "2026.11.01")
+include("${version_script}")
+if(NOT october_version VERSION_LESS MANNY_ADDON_VERSION)
+    message(FATAL_ERROR "Nexus version goes backward at the month boundary")
+endif()
+set(november_version "${MANNY_ADDON_VERSION}")
+
+set(MANNY_VERSION_DATE "2026.12.31")
+include("${version_script}")
+if(NOT november_version VERSION_LESS MANNY_ADDON_VERSION)
+    message(FATAL_ERROR "Nexus version goes backward within the year")
+endif()
+set(december_version "${MANNY_ADDON_VERSION}")
+
+set(MANNY_VERSION_DATE "2027.01.01")
+include("${version_script}")
+if(NOT december_version VERSION_LESS MANNY_ADDON_VERSION)
+    message(FATAL_ERROR "Nexus version goes backward at the year boundary")
+endif()
+
+set(MANNY_VERSION_DATE "2026.11.01")
+set(MANNY_VERSION_RUN_NUMBER 47)
+include("${version_script}")
+if(NOT MANNY_ADDON_VERSION STREQUAL "2026.11.01.47")
+    message(FATAL_ERROR "GitHub run number was not included")
+endif()

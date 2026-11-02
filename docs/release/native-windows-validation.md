@@ -10,7 +10,7 @@ workflow, package, checksums, and safe manual-test results.
 ## Automated native gate
 
 The manual `Release validation` workflow's `Windows x64 release package` job is the authoritative
-native build. The routine `Build DLL` workflow produces a MinGW cross-build for development.
+native release gate. The routine `Build DLL` workflow produces a verified MSVC development artifact.
 The native gate must pass on an
 ordinary Microsoft-hosted Windows runner, not Wine, and must use the x64 Release configuration with
 warnings treated as errors.

@@ -17,15 +17,17 @@ Nexus resources in reverse order, drains callbacks, and joins the runtime. Nativ
 retain the same user-visible features. Wine may use different filesystem and protected-storage
 machinery, with reduced protection labeled in options.
 
-The automatic [Build DLL workflow](../../.github/workflows/build.yml) produces a MinGW development
-artifact. The manual [Release validation workflow](../../.github/workflows/ci.yml) builds the Rust
-MSVC DLL, checks native DPAPI and Schannel behavior, runs Rust real-DLL smoke tests,
+The automatic [Build DLL workflow](../../.github/workflows/build.yml) produces a verified MSVC
+development artifact. The manual [Release validation workflow](../../.github/workflows/ci.yml)
+builds the Rust MSVC DLL, checks native DPAPI and Schannel behavior, runs Rust real-DLL smoke tests,
 and verifies the CPack ZIP and matching PDB. The shipping package contains only the Rust DLL.
 In-game validation remains a separate release gate.
 After those gates pass, the manual [Publish Nexus release workflow](../../.github/workflows/publish-release.yml)
 publishes the verified standalone DLL and package from the matching validation run.
 
 Behavior boundaries are recorded in [contracts](../contracts/README.md). The
-[Rust shipping decision](decisions/0049-ship-rust-addon.md) and
-[Nexus release decision](decisions/0050-publish-nexus-updates.md) record the current release design.
+[Rust shipping decision](decisions/0049-ship-rust-addon.md),
+[Nexus release decision](decisions/0050-publish-nexus-updates.md), and
+[routine MSVC build decision](decisions/0051-build-routine-msvc-artifacts.md) record the current
+release design.
 The [Rust addon guide](../../rust/README.md) describes the implementation.

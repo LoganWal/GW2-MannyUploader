@@ -147,16 +147,16 @@ See [ADR 0042](../docs/architecture/decisions/0042-attach-rust-runtime-and-rende
 
 ## GitHub Actions
 
-`Build DLL` runs on pushes to main and rust-migration, pull requests, and manual dispatch.
-It uses Ubuntu with MinGW to lint the Windows target, run portable core tests, and
-build the Release Rust DLL. Cargo dependencies and build output are cached. Download
-`manny-uploader-<commit>` from the run's artifacts to get `manny_uploader.dll`.
-The action checks embedded notices and rejects companion MinGW runtime DLL dependencies.
+`Build DLL` runs on pushes to main, rust-migration, and msvc-build, pull requests, and manual
+dispatch.
+It uses native Windows MSVC to lint, run Release tests, and verify the packaged DLL and symbols.
+Cargo dependencies and build output are cached. Download `manny-uploader-<commit>` from the run's
+artifacts to get the single verified `manny_uploader.dll`.
 
 `Release validation` is manual. It runs native MSVC Rust Debug/Release tests,
 DPAPI and Schannel checks, Rust real-DLL lifecycle tests, and package/PDB verification.
-A successful cross-build does not establish native Windows runtime behavior.
-See [ADR 0047](../docs/architecture/decisions/0047-separate-rust-builds-from-release-validation.md).
+The routine build does not replace the manual release gate or native in-game validation.
+See [ADR 0051](../docs/architecture/decisions/0051-build-routine-msvc-artifacts.md).
 
 ## Portable core
 

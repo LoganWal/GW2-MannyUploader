@@ -44,14 +44,14 @@ Credentials use protected storage. Wine provides weaker protection, flagged in o
 
 ## Development
 
-Requires stable Rust and CMake 3.30+. The addon builds for Windows x64 with MSVC for release and MinGW for routine CI.
+Requires stable Rust and CMake 3.30+. The addon builds for Windows x64 with MSVC.
 
 ```sh
 cargo test --locked -p manny-uploader
 cargo build --locked -p manny-uploader-addon --release --target x86_64-pc-windows-msvc
 ```
 
-The **Build DLL** action provides a MinGW DLL for development. The manual **Release validation** workflow builds the shipping MSVC package, checks its symbols, and smoke-tests the packaged DLL. Native in-game validation remains required before a public release.
+The **Build DLL** action provides a verified MSVC DLL and ZIP for development. The manual **Release validation** workflow runs the full native release checks. Native in-game validation remains required before a public release.
 After those checks, **Publish Nexus release** can publish the verified DLL and ZIP from that exact validation run.
 See [Rust development](rust/README.md) for build and lifecycle details.
 

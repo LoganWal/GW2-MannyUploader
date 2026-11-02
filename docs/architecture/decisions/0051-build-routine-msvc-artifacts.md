@@ -7,8 +7,8 @@
 
 Build the routine `Build DLL` artifact on `windows-latest` with the Rust MSVC target. Run formatting,
 warning-clean Clippy, Release tests with native DPAPI required, package verification, and the
-packaged-DLL smoke test before uploading the standalone DLL and versioned ZIP with checksum.
-Keep these artifacts named by their source commit.
+packaged-DLL smoke test before uploading the standalone DLL as the only artifact. Keep that
+artifact named by its source commit. The versioned ZIP and checksum remain internal build checks.
 
 This supersedes the MinGW routine-build choice in ADR 0047 and the routine-artifact statements in
 ADRs 0049 and 0050. The manual `Release validation` workflow remains the authoritative release gate

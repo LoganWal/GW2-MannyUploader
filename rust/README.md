@@ -151,8 +151,7 @@ See [ADR 0042](../docs/architecture/decisions/0042-attach-rust-runtime-and-rende
 dispatch.
 It uses native Windows MSVC to lint, run Release tests, and verify the packaged DLL and symbols.
 Cargo dependencies and build output are cached. Download `manny-uploader-<commit>` from the run's
-artifacts to get `manny_uploader.dll`. The companion `manny-uploader-package-<commit>` artifact
-contains the verified ZIP and checksum.
+artifacts to get the single verified `manny_uploader.dll`.
 
 `Release validation` is manual. It runs native MSVC Rust Debug/Release tests,
 DPAPI and Schannel checks, Rust real-DLL lifecycle tests, and package/PDB verification.

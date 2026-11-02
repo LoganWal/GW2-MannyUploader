@@ -80,12 +80,3 @@ jobs:
           name: manny-uploader-${{ github.sha }}
           path: out/build/rust-package/package-verified/manny_uploader.dll
           if-no-files-found: error
-
-      - name: Upload verified ZIP and checksum
-        uses: actions/upload-artifact@v7
-        with:
-          name: manny-uploader-package-${{ github.sha }}
-          path: |
-            out/build/rust-package/package/*.zip
-            out/build/rust-package/package/*.sha256
-          if-no-files-found: error
